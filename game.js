@@ -84,6 +84,9 @@ const CONFIG = {
   SENS: 0.0022,
 };
 
+/** Seconds of spawn protection. Bots would otherwise have LOS on you before you can move. */
+const SPAWN_INVULN = 3.0;
+
 const FIXED_DT = 1 / CONFIG.PHYSICS_HZ;
 /** cannon applies damping as v *= (1-d)^dt. We overwrite horizontal velocity every tick,
  *  so damping only ever touches Y — and there it would give a 3 m/s terminal velocity and
@@ -271,7 +274,11 @@ const Audio = {
 
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, CONFIG.GRAVITY, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
-world.allowSleep = true;
+// Sleeping is fatal here: a sleeping body is dropped from the narrowphase, so the player's
+// floor contact vanishes from world.contacts and playerGroundCheck() can never see ground
+// again. grounded stays false, movement falls back to the 0.22x air-control accel, and the
+// player crawls. Dynamic bodies in this game are few, so sleeping buys us nothing anyway.
+world.allowSleep = false;
 world.defaultContactMaterial.friction = 0.25;
 world.defaultContactMaterial.restitution = 0;
 
@@ -280,10 +287,19 @@ const MAT_BODY = new CANNON.Material('body');
 const MAT_NADE = new CANNON.Material('nade');
 
 world.addContactMaterial(new CANNON.ContactMaterial(MAT_WORLD, MAT_NADE, { friction: 0.3, restitution: 0.45 }));
-// Friction against the world has to be real or nothing can walk up a ramp: the solver turns
-// horizontal push into vertical lift through the contact normal. It never fights the movement
-// controller, because that overwrites X/Z velocity every tick anyway.
-world.addContactMaterial(new CANNON.ContactMaterial(MAT_WORLD, MAT_BODY, { friction: 0.4, restitution: 0 }));
+// Character bodies get ZERO friction against the level, and that is load-bearing.
+//
+// The movement controller writes X/Z velocity directly every tick, so a real friction
+// coefficient does not "add grip" — it fights the controller inside the same solver step and
+// wins. Measured on flat floor: friction 0.4 capped walking at 0.28 m/s against a 5.0 m/s
+// target (6%); friction 0 gives 4.76 m/s, the remainder being linearDamping. It crippled the
+// bots identically, since they are velocity-driven too.
+//
+// The old comment here claimed friction was needed to walk up ramps. It is the reverse:
+// climbing the arena ramp from z=18, friction 0 reaches the top (y=3.7) while friction 0.4
+// stalls halfway (y=1.91). Deceleration when you release the keys is supplied by the
+// controller lerping toward zero, which is far more responsive than contact friction anyway.
+world.addContactMaterial(new CANNON.ContactMaterial(MAT_WORLD, MAT_BODY, { friction: 0, restitution: 0 }));
 world.addContactMaterial(new CANNON.ContactMaterial(MAT_BODY, MAT_BODY, { friction: 0.0, restitution: 0 }));
 world.addContactMaterial(new CANNON.ContactMaterial(MAT_NADE, MAT_BODY, { friction: 0.3, restitution: 0.4 }));
 
@@ -1376,6 +1392,7 @@ const player = {
   fragCount: 3, smokeCount: 1,
   cooking: null, cookTime: 0,
   respawnTimer: 0,
+  invulnTimer: 0,                    // spawn protection — see SPAWN_INVULN
   stepTimer: 0,
   sway: new THREE.Vector2(),
 };
@@ -1417,6 +1434,9 @@ function resetPlayerAmmo() {
  */
 function applyDamage(target, amount, source, hitPos, headshot) {
   if (!target.alive || !match.running) return;
+  // Spawn protection. Gated here as well as in Bot.canSee, because bullets already in flight
+  // and grenades already thrown do not go back through target acquisition.
+  if (target.invulnTimer > 0) return;
 
   let dmg = amount;
   if (target.armor > 0) {
@@ -1464,13 +1484,48 @@ function setCrouch(on) {
   if (player.crouching === on) return;
   player.crouching = on;
   const shape = player.body.shapes[0];
-  shape.radius = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
+  const from = shape.radius;
+  const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
+  shape.radius = to;
   shape.updateBoundingSphereRadius();
   player.body.updateBoundingRadius();
+  // The sphere grows about its centre, so standing up buries the lower half in the floor and
+  // the solver answers by launching the body ~0.8 m into the air. Shift the centre by the
+  // radius delta instead, which keeps the feet exactly where they were.
+  player.body.position.y += to - from;
+}
+
+/* Ledge step-up (see call site in stepPlayer). */
+const STEP_AHEAD = 0.55;      // how far along the move direction to probe
+const STEP_MAX = 0.45;        // tallest lip we will climb
+const _stepFrom = new CANNON.Vec3();
+const _stepTo = new CANNON.Vec3();
+const _stepRes = new CANNON.RaycastResult();
+
+function stepOver(b) {
+  const len = Math.hypot(_wish.x, _wish.z);
+  if (len < 0.001) return;
+  const ax = b.position.x + (_wish.x / len) * STEP_AHEAD;
+  const az = b.position.z + (_wish.z / len) * STEP_AHEAD;
+  const foot = b.position.y - CONFIG.PLAYER_RADIUS;
+
+  // Straight down, from just above the tallest step we allow to just below the current foot.
+  _stepFrom.set(ax, foot + STEP_MAX + 0.05, az);
+  _stepTo.set(ax, foot - 0.10, az);
+  _stepRes.reset();
+  world.raycastClosest(_stepFrom, _stepTo, RAY_OPTS, _stepRes);
+  if (!_stepRes.hasHit) return;
+
+  const rise = _stepRes.hitPointWorld.y - foot;
+  if (rise <= 0.04 || rise > STEP_MAX) return;   // flat ground, or too tall to climb
+
+  b.position.y += rise + 0.02;
+  if (b.velocity.y < 0) b.velocity.y = 0;        // don't fight gravity back down the step
 }
 
 function stepPlayer(dt) {
   const b = player.body;
+  b.wakeUp();                     // belt-and-braces alongside world.allowSleep = false
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
 
   playerGroundCheck();
@@ -1500,6 +1555,12 @@ function stepPlayer(dt) {
   const k = Math.min(1, accel * dt);
   b.velocity.x = lerp(b.velocity.x, _wish.x, k);
   b.velocity.z = lerp(b.velocity.z, _wish.z, k);
+
+  // Ledge step-up. A sphere collider catches on the lip of a crate: the contact normal points
+  // back at you and the velocity controller just grinds against it. Probe a short way along
+  // the direction we WANT to go, and if there is walkable ground within STEP_MAX above the
+  // current foot, lift the body onto it. Cheap (one ray, only while actually walking).
+  if (player.grounded && _wish.lengthSq() > 0) stepOver(b);
 
   if (keys.Space && player.grounded) {
     b.velocity.y = CONFIG.JUMP_SPEED;
@@ -1732,6 +1793,9 @@ function applyLook(dt) {
  * ================================================================== */
 
 const bots = [];
+// Mutual repulsion between bots — see setPlanarVelocity.
+const SEP_RADIUS = 2.5;       // metres at which neighbours start pushing apart
+const SEP_STRENGTH = 3.2;     // m/s of push at zero distance
 const ST = {
   SPAWN: 'SPAWN', PATROL: 'PATROL', ALERT: 'ALERT', CHASE: 'CHASE',
   SHOOT: 'SHOOT', COVER: 'TAKE_COVER', NADE: 'THROW_GRENADE', DEAD: 'DEAD',
@@ -1892,6 +1956,7 @@ class Bot {
   }
 
   canSee(target) {
+    if (target.invulnTimer > 0) return false;   // spawn-protected: bots do not acquire you
     const d = this.eye.distanceTo(target.pos);
     if (d > 90) return false;
     if (!losClear(this.eye.x, this.eye.y, this.eye.z, target.pos.x, target.pos.y, target.pos.z)) return false;
@@ -1937,10 +2002,26 @@ class Bot {
     return false;
   }
 
-  /** Bots are moved by writing velocity, never by forces — no sliding, no slope drift. */
+  /** Bots are moved by writing velocity, never by forces — no sliding, no slope drift.
+   *  Separation is folded in here rather than in the path follower so it applies while
+   *  standing still too: without it every bot chasing the same target converges on the
+   *  same point and they end up standing inside one another. */
   setPlanarVelocity(vx, vz) {
-    this.body.velocity.x = vx;
-    this.body.velocity.z = vz;
+    let sx = 0, sz = 0;
+    for (const o of bots) {
+      if (o === this || !o.alive) continue;
+      const dx = this.body.position.x - o.body.position.x;
+      const dz = this.body.position.z - o.body.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > SEP_RADIUS * SEP_RADIUS || d2 < 1e-6) continue;
+      // Inverse-distance falloff: shoulder-to-shoulder pushes hard, a metre out barely at all.
+      const d = Math.sqrt(d2);
+      const w = (SEP_RADIUS - d) / SEP_RADIUS;
+      sx += (dx / d) * w;
+      sz += (dz / d) * w;
+    }
+    this.body.velocity.x = vx + sx * SEP_STRENGTH;
+    this.body.velocity.z = vz + sz * SEP_STRENGTH;
     this.body.wakeUp();
   }
 
@@ -2216,6 +2297,14 @@ function alertBots(origin, shooter) {
     if (b.state === ST.SHOOT || b.state === ST.CHASE || b.state === ST.NADE) continue;
     b.lastKnown.set(origin.x, 1.0, origin.z);
     b.setState(ST.ALERT);
+  }
+}
+
+/** Drop any lock bots already had on a combatant — used when it respawns elsewhere, so
+ *  nobody keeps shooting at the coordinates of a corpse (or at your new spawn). */
+function clearAlertsOn(who) {
+  for (const b of bots) {
+    if (b.target === who) { b.target = null; b.hasLOS = false; }
   }
 }
 
@@ -2688,8 +2777,16 @@ function makePlate(name, color) {
 }
 
 const _proj = new THREE.Vector3();
+let plateLosTimer = 0;
 
-function updatePlates() {
+function updatePlates(dt) {
+  // A plate drawn for a bot behind a wall is an aimbot. Gate it on the same G_WORLD-masked
+  // raycast the AI uses, refreshed a few times a second rather than every frame — one ray
+  // per bot per frame is real cost, and a 0.15 s stale plate is imperceptible.
+  plateLosTimer -= dt;
+  const recheck = plateLosTimer <= 0;
+  if (recheck) plateLosTimer = 0.15;
+
   for (const b of bots) {
     const p = b.plate;
     if (!b.alive) { p.root.style.display = 'none'; continue; }
@@ -2698,6 +2795,10 @@ function updatePlates() {
     if (_proj.z > 1 || Math.abs(_proj.x) > 1.3) { p.root.style.display = 'none'; continue; }
     const d = b.pos.distanceTo(camera.position);
     if (d > 55) { p.root.style.display = 'none'; continue; }
+    if (recheck) {
+      b.plateLos = losClear(player.eye.x, player.eye.y, player.eye.z, b.pos.x, b.pos.y, b.pos.z);
+    }
+    if (!b.plateLos) { p.root.style.display = 'none'; continue; }
     p.root.style.display = '';
     p.root.style.left = `${(_proj.x * 0.5 + 0.5) * innerWidth}px`;
     p.root.style.top = `${(-_proj.y * 0.5 + 0.5) * innerHeight}px`;
@@ -2894,6 +2995,8 @@ function respawnPlayer(immediate = false) {
   player.health = CONFIG.MAX_HEALTH;
   player.armor = CONFIG.START_ARMOR;
   player.respawnTimer = 0;
+  player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
+  clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
   player.reloading = 0;
   player.cooldown = 0.4;
@@ -3147,6 +3250,8 @@ function frame() {
   if (match.running) {
     applyLook(dt);
 
+    if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
+
     // Weapon timers.
     player.cooldown = Math.max(0, player.cooldown - dt);
     if (player.reloading > 0) {
@@ -3181,7 +3286,7 @@ function frame() {
     updateMatch(dt);
     updateViewModel(dt);
     updateCamera(dt);
-    updatePlates();
+    updatePlates(dt);
     updateHudTimers(dt);
   }
 
@@ -3251,6 +3356,14 @@ async function boot() {
 
   bindInput();
   bindMenu();
+
+  // Debug handle. Everything in this file is module-scoped, so without this there is no way
+  // to inspect or drive the sim from the console (or from an automated smoke test).
+  window.__game = {
+    player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
+    renderer, fixedStep, camera,
+  };
+
   frame();
 }
 

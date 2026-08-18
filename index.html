@@ -3,13 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Aim Trainer — Ballistic</title>
+<title>OVERRUN — Bot Deathmatch</title>
 <style>
   :root {
-    --hud: #d8e4ee;
+    --hud:    #d8e4ee;
+    --dim:    rgba(216, 228, 238, 0.5);
     --accent: #6ee7ff;
-    --warn: #ffcc55;
-    --bg: #05070a;
+    --warn:   #ffb454;
+    --danger: #ff4d4d;
+    --ally:   #4d9dff;
+    --self:   #52e08a;
+    --bg:     #05070a;
+    --panel:  rgba(6, 10, 16, 0.55);
+    --edge:   rgba(110, 231, 255, 0.18);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -21,139 +27,359 @@
   canvas { display: block; }
 
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #hud.hidden { display: none; }
 
   .panel {
     position: absolute;
-    background: rgba(6, 10, 16, 0.55);
-    border: 1px solid rgba(110, 231, 255, 0.18);
+    background: var(--panel);
+    border: 1px solid var(--edge);
     border-radius: 6px;
-    padding: 10px 14px;
-    font-size: 13px;
-    line-height: 1.7;
     backdrop-filter: blur(3px);
   }
-  #stats { top: 16px; left: 16px; min-width: 210px; }
-  #perf   { top: 16px; right: 16px; text-align: right; }
-  #help   { bottom: 16px; left: 16px; font-size: 12px; opacity: 0.75; line-height: 1.6; }
-  #timer  {
-    top: 16px; left: 50%; transform: translateX(-50%);
-    font-size: 26px; letter-spacing: 2px; padding: 6px 22px;
+
+  /* ---------- crosshair ---------- */
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px;
+               transform: translate(-50%, -50%); transition: opacity .12s; }
+  #crosshair i { position: absolute; background: var(--accent); box-shadow: 0 0 3px #000; }
+  .ch-dot { left: 14px; top: 14px; width: 2px; height: 2px; border-radius: 50%; }
+  .ch-up  { left: 14px; top: 0;    width: 2px; height: 9px; }
+  .ch-dn  { left: 14px; bottom: 0; width: 2px; height: 9px; }
+  .ch-lf  { top: 14px;  left: 0;   height: 2px; width: 9px; }
+  .ch-rt  { top: 14px;  right: 0;  height: 2px; width: 9px; }
+  #crosshair.off { opacity: 0; }
+
+  /* ---------- sniper scope ---------- */
+  #scope { position: absolute; inset: 0; display: none; }
+  #scope.on { display: block; }
+  #scope .vig {
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(0,0,0,0) 21%, rgba(0,0,0,0.55) 23%, #000 32%);
+  }
+  #scope .ring {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 44vh; height: 44vh; border: 2px solid rgba(0,0,0,.85); border-radius: 50%;
+  }
+  #scope .rc { position: absolute; background: rgba(20,25,20,.9); }
+  #scope .rc.h { left: 50%; top: 50%; width: 44vh; height: 1px; transform: translate(-50%,-50%); }
+  #scope .rc.v { left: 50%; top: 50%; width: 1px; height: 44vh; transform: translate(-50%,-50%); }
+  #scope .mil { position: absolute; left: 50%; width: 8px; height: 1px;
+                background: rgba(20,25,20,.9); transform: translateX(-50%); }
+
+  /* ---------- hit marker ---------- */
+  #hitmarker { position: absolute; left: 50%; top: 50%;
+               transform: translate(-50%,-50%) rotate(45deg);
+               width: 22px; height: 22px; opacity: 0; }
+  #hitmarker i { position: absolute; background: #fff; box-shadow: 0 0 4px #000; }
+  #hitmarker.kill i { background: var(--danger); }
+
+  /* ---------- damage indicator ---------- */
+  #dmgwrap { position: absolute; inset: 0; }
+  .dmg {
+    position: absolute; left: 50%; top: 50%; width: 340px; height: 340px;
+    margin: -170px 0 0 -170px; pointer-events: none;
+    transition: opacity .35s linear;
+  }
+  .dmg::before {
+    content: ''; position: absolute; left: 50%; top: 4px; transform: translateX(-50%);
+    width: 130px; height: 34px;
+    background: radial-gradient(ellipse at 50% 100%,
+      rgba(255,60,60,.85), rgba(255,60,60,0) 72%);
+    clip-path: polygon(0 100%, 50% 0, 100% 100%);
   }
 
-  .k { color: rgba(216, 228, 238, 0.55); }
-  .v { color: var(--accent); float: right; margin-left: 22px; }
-  .row { display: block; }
-  kbd {
-    background: rgba(110, 231, 255, 0.12);
-    border: 1px solid rgba(110, 231, 255, 0.3);
-    border-radius: 3px; padding: 0 5px; color: var(--accent);
-  }
+  /* ---------- vitals (bottom-left) ---------- */
+  #vitals { bottom: 20px; left: 20px; padding: 12px 14px; width: 250px; }
+  #vitals .name { font-size: 12px; letter-spacing: 2px; color: var(--dim); margin-bottom: 8px; }
+  .bar { height: 13px; border-radius: 2px; background: rgba(255,255,255,.08);
+         overflow: hidden; margin-bottom: 6px; position: relative; }
+  .bar > span { display: block; height: 100%; width: 100%;
+                transform-origin: left center; transition: transform .18s ease-out; }
+  .bar > b { position: absolute; right: 6px; top: -1px; font-size: 10px;
+             font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 3px #000; }
+  #hpfill  { background: linear-gradient(90deg, #ff3b3b, #ff7a5c); }
+  #apfill  { background: linear-gradient(90deg, #7f9bb5, #b9cadb); }
+  #vitals .lbl { font-size: 10px; color: var(--dim); letter-spacing: 2px; }
 
-  /* Crosshair */
-  #crosshair {
-    position: absolute; left: 50%; top: 50%;
-    width: 26px; height: 26px; transform: translate(-50%, -50%);
-  }
-  #crosshair i {
-    position: absolute; background: var(--accent);
-    box-shadow: 0 0 3px rgba(0,0,0,0.9);
-  }
-  .ch-dot  { left: 12px; top: 12px; width: 2px; height: 2px; border-radius: 50%; }
-  .ch-up   { left: 12px; top: 0;    width: 2px; height: 8px; }
-  .ch-dn   { left: 12px; bottom: 0; width: 2px; height: 8px; }
-  .ch-lf   { top: 12px;  left: 0;   height: 2px; width: 8px; }
-  .ch-rt   { top: 12px;  right: 0;  height: 2px; width: 8px; }
+  /* ---------- ammo (bottom-right, left of minimap) ---------- */
+  #ammo { bottom: 20px; right: 215px; padding: 10px 16px; text-align: right; min-width: 190px; }
+  #ammo .wname { font-size: 12px; letter-spacing: 3px; color: var(--accent); }
+  #ammo .rounds { font-size: 34px; line-height: 1.1; letter-spacing: 1px; }
+  #ammo .rounds small { font-size: 16px; color: var(--dim); }
+  #ammo .reload { font-size: 11px; letter-spacing: 2px; color: var(--warn);
+                  height: 14px; }
+  #slots { display: flex; gap: 4px; justify-content: flex-end; margin-top: 6px; }
+  #slots div { font-size: 10px; padding: 2px 6px; border-radius: 3px; color: var(--dim);
+               border: 1px solid rgba(255,255,255,.09); }
+  #slots div.on { color: #04222b; background: var(--accent); border-color: var(--accent); }
+  #slots div.empty { opacity: .3; }
 
-  #hitmarker {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(-50%, -50%) rotate(45deg);
-    width: 20px; height: 20px; opacity: 0;
-  }
-  #hitmarker i { position: absolute; background: #ff5a5a; }
+  /* ---------- minimap ---------- */
+  #mapframe { bottom: 20px; right: 20px; width: 180px; height: 180px; padding: 0;
+              border-radius: 4px; overflow: hidden; }
+  #mapframe::after { content: ''; position: absolute; inset: 0;
+              box-shadow: inset 0 0 22px rgba(0,0,0,.75); pointer-events: none; }
 
-  /* Overlay */
-  #overlay {
-    position: fixed; inset: 0; z-index: 20;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 18px; text-align: center;
-    background: radial-gradient(circle at 50% 40%, rgba(12,20,30,0.86), rgba(3,5,8,0.97));
-    cursor: pointer;
+  /* ---------- top bar ---------- */
+  #topbar { top: 14px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; gap: 18px; padding: 8px 20px; }
+  #topbar .t { font-size: 22px; letter-spacing: 2px; }
+  #topbar .sc { font-size: 18px; letter-spacing: 1px; }
+  #topbar .sc.a { color: var(--self); }
+  #topbar .sc.b { color: var(--danger); }
+  #topbar .sep { color: var(--dim); }
+  #topbar .mode { font-size: 10px; letter-spacing: 3px; color: var(--dim); }
+
+  /* ---------- kill feed ---------- */
+  #feed { position: absolute; top: 14px; right: 20px; width: 300px;
+          display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .kf { background: var(--panel); border: 1px solid var(--edge); border-radius: 4px;
+        padding: 4px 10px; font-size: 12px; letter-spacing: 1px;
+        transition: opacity .6s linear; white-space: nowrap; }
+  .kf .arrow { color: var(--warn); margin: 0 7px; }
+  .kf .me { color: var(--self); }
+  .kf .en { color: var(--danger); }
+  .kf .al { color: var(--ally); }
+
+  /* ---------- bot nameplates ---------- */
+  #plates { position: absolute; inset: 0; overflow: hidden; }
+  .plate { position: absolute; width: 74px; margin-left: -37px;
+           text-align: center; will-change: transform; }
+  .plate .pn { font-size: 10px; letter-spacing: 1px; text-shadow: 0 0 4px #000;
+               margin-bottom: 2px; }
+  .plate .ph { height: 4px; border-radius: 2px; background: rgba(0,0,0,.6);
+               border: 1px solid rgba(0,0,0,.7); overflow: hidden; }
+  .plate .ph > i { display: block; height: 100%; width: 100%;
+                   transform-origin: left center; }
+
+  /* ---------- scoreboard ---------- */
+  #board { position: absolute; inset: 0; display: none;
+           align-items: center; justify-content: center;
+           background: rgba(3,5,8,.72); backdrop-filter: blur(4px); }
+  #board.on { display: flex; }
+  #board .card { background: rgba(6,10,16,.9); border: 1px solid var(--edge);
+                 border-radius: 8px; padding: 22px 26px; min-width: 460px; }
+  #board h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: 5px; font-weight: 500; }
+  #board .sub { font-size: 11px; color: var(--dim); letter-spacing: 2px; margin-bottom: 16px; }
+  #board table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #board th { text-align: left; font-weight: 400; color: var(--dim);
+              font-size: 10px; letter-spacing: 2px;
+              border-bottom: 1px solid var(--edge); padding: 5px 8px; }
+  #board td { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,.05); }
+  #board td.num { text-align: right; }
+  #board tr.self td { color: var(--self); }
+  #board .tag { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                margin-right: 8px; vertical-align: middle; }
+
+  /* ---------- low-health vignette ---------- */
+  #lowhp { position: absolute; inset: 0; opacity: 0; transition: opacity .3s;
+           background: radial-gradient(ellipse at 50% 50%,
+             rgba(0,0,0,0) 42%, rgba(180,0,0,.42) 100%); }
+
+  /* ---------- toast (pickups etc.) ---------- */
+  #toast { position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%);
+           font-size: 13px; letter-spacing: 3px; color: var(--warn);
+           text-shadow: 0 0 6px #000; opacity: 0; transition: opacity .3s; }
+
+  /* ================= MENU ================= */
+  #menu {
+    position: fixed; inset: 0; z-index: 30; overflow-y: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; text-align: center; padding: 40px 20px;
+    background:
+      radial-gradient(circle at 50% 32%, rgba(14,26,38,.92), rgba(3,5,8,.985));
   }
-  #overlay.hidden { display: none; }
-  #overlay h1 { margin: 0; font-size: 40px; letter-spacing: 6px; font-weight: 500; }
-  #overlay h1 span { color: var(--accent); }
-  #overlay .sub { opacity: 0.6; font-size: 13px; letter-spacing: 2px; margin-top: -8px; }
-  #modes { display: flex; gap: 10px; }
-  .mode {
+  #menu.hidden { display: none; }
+  #menu h1 { margin: 0; font-size: 58px; letter-spacing: 16px; font-weight: 300;
+             text-indent: 16px; }
+  #menu h1 b { color: var(--accent); font-weight: 300; }
+  #menu .tag2 { font-size: 11px; letter-spacing: 5px; color: var(--dim); margin-top: -14px; }
+  #menu .grp { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  #menu .glbl { font-size: 10px; letter-spacing: 4px; color: var(--dim); }
+
+  #nameinput {
+    pointer-events: auto; background: rgba(110,231,255,.06);
+    border: 1px solid rgba(110,231,255,.28); border-radius: 5px;
+    color: var(--hud); font-family: inherit; font-size: 14px; letter-spacing: 3px;
+    padding: 9px 16px; text-align: center; width: 240px; outline: none;
+  }
+  #nameinput:focus { border-color: var(--accent); }
+
+  #modes { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .mode-btn {
+    pointer-events: auto; cursor: pointer; width: 210px; text-align: left;
+    background: rgba(110,231,255,.05); border: 1px solid rgba(110,231,255,.22);
+    border-radius: 7px; color: var(--hud); font-family: inherit;
+    padding: 14px 16px; transition: background .15s, border-color .15s, transform .12s;
+  }
+  .mode-btn:hover { background: rgba(110,231,255,.13); transform: translateY(-2px); }
+  .mode-btn.active { border-color: var(--accent); background: rgba(110,231,255,.17); }
+  .mode-btn .mt { font-size: 15px; letter-spacing: 3px; color: var(--accent); }
+  .mode-btn .md { font-size: 11px; color: var(--dim); line-height: 1.6; margin-top: 6px; }
+
+  .pill {
     pointer-events: auto; cursor: pointer;
-    background: rgba(110, 231, 255, 0.07);
-    border: 1px solid rgba(110, 231, 255, 0.28);
-    color: var(--hud); font-family: inherit; font-size: 13px;
-    padding: 9px 20px; border-radius: 5px;
+    background: rgba(110,231,255,.05); border: 1px solid rgba(110,231,255,.22);
+    color: var(--hud); font-family: inherit; font-size: 12px; letter-spacing: 2px;
+    padding: 8px 20px; border-radius: 20px; transition: background .15s;
   }
-  .mode:hover { background: rgba(110, 231, 255, 0.17); }
-  .mode.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
-  #cta { font-size: 15px; color: var(--warn); letter-spacing: 2px; }
-  #result { font-size: 15px; min-height: 20px; color: var(--accent); }
-  #ovhelp { font-size: 12px; opacity: 0.5; line-height: 1.9; max-width: 460px; }
+  .pill:hover { background: rgba(110,231,255,.14); }
+  .pill.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
+
+  #play {
+    pointer-events: auto; cursor: pointer; margin-top: 4px;
+    background: var(--accent); color: #04222b; border: none; border-radius: 6px;
+    font-family: inherit; font-size: 17px; letter-spacing: 6px; font-weight: 700;
+    padding: 14px 54px; text-indent: 6px;
+    box-shadow: 0 0 30px rgba(110,231,255,.28);
+  }
+  #play:hover { background: #9df2ff; }
+  #play:disabled { background: #2a3b45; color: var(--dim); box-shadow: none; cursor: default; }
+
+  #menuresult { font-size: 15px; letter-spacing: 3px; min-height: 22px; color: var(--warn); }
+  #keyhelp { font-size: 11px; color: var(--dim); line-height: 2; max-width: 620px; }
+  kbd { background: rgba(110,231,255,.11); border: 1px solid rgba(110,231,255,.26);
+        border-radius: 3px; padding: 1px 6px; color: var(--accent); font-size: 10px; }
+
+  #loading { font-size: 11px; letter-spacing: 3px; color: var(--dim); min-height: 16px; }
+
+  /* pause / respawn overlay */
+  #pause { position: fixed; inset: 0; z-index: 25; display: none;
+           align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+           background: rgba(3,5,8,.8); }
+  #pause.on { display: flex; }
+  #pause .big { font-size: 26px; letter-spacing: 8px; }
+  #pause .sm  { font-size: 12px; letter-spacing: 3px; color: var(--dim); }
+  #pause .cta { font-size: 13px; letter-spacing: 3px; color: var(--warn); }
 </style>
+
 <script type="importmap">
 {
   "imports": {
     "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm",
+    "three-pathfinding": "https://cdn.jsdelivr.net/npm/three-pathfinding@1.3.0/+esm"
   }
 }
 </script>
 </head>
 <body>
 
-<div id="hud">
+<!-- ============================= HUD ============================= -->
+<div id="hud" class="hidden">
+  <div id="lowhp"></div>
+  <div id="dmgwrap"></div>
+  <div id="plates"></div>
+
   <div id="crosshair">
-    <i class="ch-up"></i><i class="ch-dn"></i><i class="ch-lf"></i><i class="ch-rt"></i>
-    <i class="ch-dot"></i>
+    <i class="ch-up"></i><i class="ch-dn"></i><i class="ch-lf"></i><i class="ch-rt"></i><i class="ch-dot"></i>
   </div>
+
+  <div id="scope">
+    <div class="ring"></div>
+    <div class="rc h"></div><div class="rc v"></div>
+    <div class="mil" style="top:calc(50% + 26px)"></div>
+    <div class="mil" style="top:calc(50% + 52px)"></div>
+    <div class="mil" style="top:calc(50% + 78px)"></div>
+    <div class="vig"></div>
+  </div>
+
   <div id="hitmarker">
-    <i style="left:9px;top:0;width:2px;height:20px"></i>
-    <i style="top:9px;left:0;height:2px;width:20px"></i>
+    <i style="left:10px;top:0;width:2px;height:22px"></i>
+    <i style="top:10px;left:0;height:2px;width:22px"></i>
   </div>
 
-  <div id="timer" class="panel">--:--</div>
-
-  <div id="stats" class="panel">
-    <span class="row"><span class="k">SCORE</span><span class="v" id="s-score">0</span></span>
-    <span class="row"><span class="k">SHOTS</span><span class="v" id="s-shots">0</span></span>
-    <span class="row"><span class="k">ACCURACY</span><span class="v" id="s-acc">0%</span></span>
-    <span class="row"><span class="k">LAST HIT</span><span class="v" id="s-dist">—</span></span>
-    <span class="row"><span class="k">SENS</span><span class="v" id="s-sens">1.00</span></span>
+  <div id="topbar" class="panel">
+    <span class="mode" id="tb-mode">DEATHMATCH</span>
+    <span class="sc a" id="tb-a">0</span>
+    <span class="sep">/</span>
+    <span class="sc b" id="tb-b">0</span>
+    <span class="t" id="tb-time">5:00</span>
   </div>
 
-  <div id="perf" class="panel">
-    <span class="row"><span class="v" id="s-fps" style="float:none">60</span> <span class="k">FPS</span></span>
-    <span class="row"><span class="v" id="s-bullets" style="float:none">0</span> <span class="k">IN FLIGHT</span></span>
+  <div id="feed"></div>
+
+  <div id="vitals" class="panel">
+    <div class="name" id="v-name">PLAYER</div>
+    <div class="bar"><span id="hpfill"></span><b id="hptxt">100</b></div>
+    <div class="bar" style="height:8px"><span id="apfill"></span><b id="aptxt" style="top:-3px">50</b></div>
+    <div class="lbl">HEALTH &nbsp;/&nbsp; ARMOR</div>
   </div>
 
-  <div id="help" class="panel">
-    <kbd>LMB</kbd> fire (hold for auto) &nbsp; <kbd>WASD</kbd> move &nbsp; <kbd>SHIFT</kbd> sprint<br />
-    <kbd>R</kbd> restart &nbsp; <kbd>SCROLL</kbd> sensitivity &nbsp; <kbd>ESC</kbd> release cursor
+  <div id="ammo" class="panel">
+    <div class="wname" id="a-name">PISTOL</div>
+    <div class="rounds"><span id="a-mag">15</span><small> / <span id="a-res">90</span></small></div>
+    <div class="reload" id="a-reload"></div>
+    <div id="slots"></div>
   </div>
+
+  <div id="mapframe" class="panel"></div>
+
+  <div id="toast"></div>
+  <div id="board"><div class="card">
+    <h2 id="b-title">SCOREBOARD</h2>
+    <div class="sub" id="b-sub"></div>
+    <table><thead><tr>
+      <th>OPERATOR</th><th class="num">KILLS</th><th class="num">DEATHS</th><th class="num">K/D</th>
+    </tr></thead><tbody id="b-body"></tbody></table>
+  </div></div>
 </div>
 
-<div id="overlay">
-  <h1>AIM<span>·</span>TRAINER</h1>
-  <div class="sub">BALLISTIC PROJECTILES &nbsp;·&nbsp; BULLET DROP &nbsp;·&nbsp; TARGET LEAD</div>
-  <div id="result"></div>
-  <div id="modes">
-    <button class="mode" data-seconds="30">30 SEC</button>
-    <button class="mode" data-seconds="60">60 SEC</button>
-    <button class="mode active" data-seconds="0">UNLIMITED</button>
+<div id="pause">
+  <div class="big" id="p-big">PAUSED</div>
+  <div class="sm" id="p-sm"></div>
+  <div class="cta">CLICK TO RESUME &nbsp;·&nbsp; ESC RELEASES THE CURSOR</div>
+</div>
+
+<!-- ============================= MENU ============================= -->
+<div id="menu">
+  <h1>OVER<b>RUN</b></h1>
+  <div class="tag2">BALLISTIC BOT DEATHMATCH</div>
+  <div id="menuresult"></div>
+
+  <div class="grp">
+    <div class="glbl">CALLSIGN</div>
+    <input id="nameinput" maxlength="12" value="PLAYER" spellcheck="false" />
   </div>
-  <div id="cta">CLICK ANYWHERE TO PLAY</div>
-  <div id="ovhelp">
-    Red spheres are static. Yellow spheres move — you must lead them.
-    Green cylinders pop up for a moment only.<br />
-    Bullets are real projectiles: they take time to arrive and they fall.
+
+  <div class="grp">
+    <div class="glbl">GAME MODE</div>
+    <div id="modes">
+      <button class="mode-btn active" data-mode="dm">
+        <div class="mt">DEATHMATCH</div>
+        <div class="md">Free-for-all against the bots.<br>First to 20 kills, 5 minute limit.</div>
+      </button>
+      <button class="mode-btn" data-mode="tdm">
+        <div class="mt">TEAM DM</div>
+        <div class="md">You + 2 allies vs 3 enemies.<br>First team to 25 kills.</div>
+      </button>
+      <button class="mode-btn" data-mode="sv">
+        <div class="mt">SURVIVAL</div>
+        <div class="md">Endless waves, 4 → 6 → 8 …<br>Score is your total kills.</div>
+      </button>
+    </div>
+  </div>
+
+  <div class="grp">
+    <div class="glbl">BOT DIFFICULTY</div>
+    <div id="diffs">
+      <button class="pill" data-diff="easy">EASY</button>
+      <button class="pill active" data-diff="medium">MEDIUM</button>
+      <button class="pill" data-diff="hard">HARD</button>
+    </div>
+  </div>
+
+  <button id="play" disabled>LOADING</button>
+  <div id="loading">preparing arena…</div>
+
+  <div id="keyhelp">
+    <kbd>WASD</kbd> move &nbsp; <kbd>SPACE</kbd> jump &nbsp; <kbd>SHIFT</kbd> sprint &nbsp;
+    <kbd>C</kbd> crouch &nbsp; <kbd>LMB</kbd> fire &nbsp; <kbd>RMB</kbd> aim / scope<br>
+    <kbd>1</kbd>–<kbd>5</kbd> weapons &nbsp; <kbd>R</kbd> reload &nbsp;
+    <kbd>G</kbd> hold to cook a frag &nbsp; <kbd>F</kbd> smoke &nbsp;
+    <kbd>TAB</kbd> scoreboard &nbsp; <kbd>ESC</kbd> release cursor<br>
+    Bullets are real projectiles — they take time to arrive and they drop.
   </div>
 </div>
 

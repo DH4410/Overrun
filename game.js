@@ -388,6 +388,11 @@ addEventListener('resize', () => {
   vmCamera.aspect = innerWidth / innerHeight;
   vmCamera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  // Pooled particles size themselves in the shader, so they need the new viewport height.
+  if (typeof particlesAdd !== 'undefined') {
+    particlesAdd.mat.uniforms.uScale.value = innerHeight * 0.5;
+    particlesNorm.mat.uniforms.uScale.value = innerHeight * 0.5;
+  }
 });
 
 /* ================================================================== *
@@ -1583,7 +1588,11 @@ function applyDamage(target, amount, source, hitPos, headshot) {
     if (source && source !== player) showDamageDirection(source.pos);
     addShake(0.035);
   } else {
-    if (source === player) { showHitMarker(false); Audio.hit(); }
+    if (source === player) {
+      showHitMarker(false);
+      Audio.hit();
+      showDamageNumber(hitPos || target.pos, dmg, headshot);
+    }
     target.lastHurtBy = source;
     target.lastHurtAt = match.time;
   }
@@ -2560,15 +2569,150 @@ function pickSpawn(forTeam) {
 
 /* ------------------------------ particles ------------------------------ */
 
-const bursts = [];
 
 /** One THREE.Points per burst: N particles, one draw call, hand-integrated with gravity. */
+/**
+ * Pooled particles.
+ *
+ * Every burst used to allocate a BufferGeometry, two Float32Arrays and a PointsMaterial, then
+ * dispose all four ~0.4 s later. A frag grenade is 200 particles, so a firefight produced a
+ * steady stream of garbage and the collector paid for it in visible hitches.
+ *
+ * Now there are exactly two Points objects for the whole game — one additive, one normal —
+ * each with a fixed vertex budget. A burst leases a slice of the buffer; when a particle dies
+ * its size drops to zero and the slot returns to the free list. No allocation at runtime.
+ *
+ * Per-particle colour and size (which a shared PointsMaterial cannot express) come from
+ * vertex attributes, so pooling costs nothing in appearance.
+ */
+const PARTICLE_VS = `
+  attribute float psize;
+  attribute float alpha;
+  varying vec3 vColor;
+  varying float vAlpha;
+  uniform float uScale;
+  void main() {
+    vColor = color;
+    vAlpha = alpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = psize * (uScale / max(-mv.z, 0.001));
+    gl_Position = projectionMatrix * mv;
+  }`;
+
+const PARTICLE_FS = `
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    vec2 c = gl_PointCoord - 0.5;
+    if (dot(c, c) > 0.25) discard;          // round points, not squares
+    gl_FragColor = vec4(vColor, vAlpha);
+  }`;
+
+class ParticlePool {
+  constructor(capacity, additive) {
+    this.capacity = capacity;
+    this.pos = new Float32Array(capacity * 3);
+    this.col = new Float32Array(capacity * 3);
+    this.psize = new Float32Array(capacity);
+    this.alpha = new Float32Array(capacity);
+    this.vel = new Float32Array(capacity * 3);
+    this.life = new Float32Array(capacity);
+    this.maxLife = new Float32Array(capacity);
+    this.gravity = new Float32Array(capacity);
+    this.drag = new Float32Array(capacity);
+    this.baseSize = new Float32Array(capacity);
+    this.free = new Int32Array(capacity);
+    this.freeCount = capacity;
+    for (let i = 0; i < capacity; i++) this.free[i] = i;
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    geo.setAttribute('psize', new THREE.BufferAttribute(this.psize, 1));
+    geo.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
+    geo.setDrawRange(0, capacity);
+    this.geo = geo;
+
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uScale: { value: innerHeight * 0.5 } },
+      vertexShader: PARTICLE_VS,
+      fragmentShader: PARTICLE_FS,
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+
+    this.points = new THREE.Points(geo, this.mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 5;
+    scene.add(this.points);
+    this.active = 0;
+  }
+
+  emit(o) {
+    if (this.freeCount === 0) return;                  // budget exhausted; drop silently
+    const i = this.free[--this.freeCount];
+    const i3 = i * 3;
+    this.pos[i3] = o.x; this.pos[i3 + 1] = o.y; this.pos[i3 + 2] = o.z;
+    this.vel[i3] = o.vx; this.vel[i3 + 1] = o.vy; this.vel[i3 + 2] = o.vz;
+    this.col[i3] = o.r; this.col[i3 + 1] = o.g; this.col[i3 + 2] = o.b;
+    this.life[i] = o.life; this.maxLife[i] = o.life;
+    this.gravity[i] = o.gravity; this.drag[i] = o.drag;
+    this.baseSize[i] = o.size;
+    this.psize[i] = o.size;
+    this.alpha[i] = 1;
+    this.active++;
+  }
+
+  update(dt) {
+    if (this.active === 0) return;
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.life[i] <= 0) continue;
+      const i3 = i * 3;
+      const damp = 1 - this.drag[i] * dt;
+      this.vel[i3 + 1] += this.gravity[i] * dt;
+      this.vel[i3] *= damp; this.vel[i3 + 1] *= damp; this.vel[i3 + 2] *= damp;
+      this.pos[i3] += this.vel[i3] * dt;
+      this.pos[i3 + 1] += this.vel[i3 + 1] * dt;
+      this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) {
+        this.psize[i] = 0;                             // invisible, and the slot comes back
+        this.alpha[i] = 0;
+        this.free[this.freeCount++] = i;
+        this.active--;
+      } else {
+        this.alpha[i] = clamp(this.life[i] / this.maxLife[i], 0, 1);
+      }
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.alpha.needsUpdate = true;
+    this.geo.attributes.psize.needsUpdate = true;
+    this.geo.attributes.color.needsUpdate = true;
+  }
+
+  clear() {
+    this.freeCount = 0;
+    for (let i = 0; i < this.capacity; i++) {
+      this.life[i] = 0; this.psize[i] = 0; this.alpha[i] = 0;
+      this.free[this.freeCount++] = i;
+    }
+    this.active = 0;
+    this.geo.attributes.psize.needsUpdate = true;
+    this.geo.attributes.alpha.needsUpdate = true;
+  }
+}
+
+const particlesAdd = new ParticlePool(900, true);
+const particlesNorm = new ParticlePool(500, false);
+const _pcol = new THREE.Color();
+
 function spawnBurst({ origin, count, color, size, speed, spreadDir = null, cone = 1,
                       gravity = -9.0, life = 0.8, drag = 0.0, additive = true }) {
-  const positions = new Float32Array(count * 3);
-  const vels = new Float32Array(count * 3);
+  const pool = additive ? particlesAdd : particlesNorm;
+  _pcol.setHex(color);
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = origin.x; positions[i * 3 + 1] = origin.y; positions[i * 3 + 2] = origin.z;
     let dx = rand(-1, 1), dy = rand(-1, 1), dz = rand(-1, 1);
     const l = Math.hypot(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
@@ -2578,41 +2722,18 @@ function spawnBurst({ origin, count, color, size, speed, spreadDir = null, cone 
       dz = lerp(spreadDir.z, dz, cone);
     }
     const s = speed * rand(0.35, 1);
-    vels[i * 3] = dx * s; vels[i * 3 + 1] = dy * s; vels[i * 3 + 2] = dz * s;
+    pool.emit({
+      x: origin.x, y: origin.y, z: origin.z,
+      vx: dx * s, vy: dy * s, vz: dz * s,
+      r: _pcol.r, g: _pcol.g, b: _pcol.b,
+      size, life, gravity, drag,
+    });
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({
-    color, size, sizeAttenuation: true, transparent: true, depthWrite: false,
-    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-  });
-  const pts = new THREE.Points(geo, mat);
-  pts.frustumCulled = false;
-  scene.add(pts);
-  bursts.push({ pts, vels, life, maxLife: life, gravity, drag });
 }
 
 function updateBursts(dt) {
-  for (let i = bursts.length - 1; i >= 0; i--) {
-    const b = bursts[i];
-    const pos = b.pts.geometry.attributes.position.array;
-    const damp = 1 - b.drag * dt;
-    for (let j = 0; j < pos.length; j += 3) {
-      b.vels[j + 1] += b.gravity * dt;
-      b.vels[j] *= damp; b.vels[j + 1] *= damp; b.vels[j + 2] *= damp;
-      pos[j] += b.vels[j] * dt;
-      pos[j + 1] += b.vels[j + 1] * dt;
-      pos[j + 2] += b.vels[j + 2] * dt;
-    }
-    b.pts.geometry.attributes.position.needsUpdate = true;
-    b.life -= dt;
-    b.pts.material.opacity = clamp(b.life / b.maxLife, 0, 1);
-    if (b.life <= 0) {
-      scene.remove(b.pts);
-      b.pts.geometry.dispose(); b.pts.material.dispose();
-      bursts.splice(i, 1);
-    }
-  }
+  particlesAdd.update(dt);
+  particlesNorm.update(dt);
 }
 
 function spawnSparks(pos, normal) {
@@ -2861,9 +2982,110 @@ function clearPickups() {
   pickups.length = 0;
 }
 
+/* ------------------------- ammo chests ------------------------- */
+
+/**
+ * Fixed resupply points, unlike the dropped-weapon pickups above: a chest is never consumed,
+ * it just goes dark for AMMO_CHEST_RESPAWN seconds after someone loots it. The pirate kit the
+ * task text pointed at is a dead URL, so these are procedural — a banded crate with a glowing
+ * seam, which reads clearly against both the warehouse concrete and a dark dungeon.
+ */
+const ammoChests = [];
+const AMMO_CHEST_RESPAWN = 25;
+const AMMO_CHEST_RANGE = 1.5;
+const AMMO_CHEST_PROMPT = 2.5;
+
+function buildAmmoChest() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.62, 0.42, 0.44),
+    matte(0x6a5326, 0.65, 0.45),
+  );
+  body.castShadow = true;
+  const lid = new THREE.Mesh(
+    new THREE.BoxGeometry(0.66, 0.12, 0.48),
+    matte(0x4a3a1c, 0.6, 0.55),
+  );
+  lid.position.y = 0.26;
+  // Glowing seam — the part that actually catches the eye across a room.
+  const seam = new THREE.Mesh(
+    new THREE.BoxGeometry(0.68, 0.035, 0.50),
+    new THREE.MeshBasicMaterial({ color: 0xffcf5a }),
+  );
+  seam.position.y = 0.17;
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.62, 12, 9),
+    new THREE.MeshBasicMaterial({ color: 0xffcf5a, transparent: true, opacity: 0.12, depthWrite: false }),
+  );
+  const light = new THREE.PointLight(0xffcf5a, 2.2, 3.0, 2);
+  light.position.y = 0.3;
+  g.add(body, lid, seam, glow, light);
+  g.userData.light = light;
+  return g;
+}
+
+function spawnAmmoChests(positions, max = 6) {
+  for (const [x, z] of positions) {
+    if (ammoChests.length >= max) break;
+    if (inBlocker(x, z, 1.2)) continue;              // never bury a chest inside a crate
+    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spTo.set(x, -1, z);
+    _spRes.reset();
+    world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
+    if (!_spRes.hasHit) continue;
+    const mesh = buildAmmoChest();
+    const baseY = _spRes.hitPointWorld.y + 0.45;
+    mesh.position.set(x, baseY, z);
+    scene.add(mesh);
+    ammoChests.push({ mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2) });
+  }
+}
+
+function updateAmmoChests(dt) {
+  const t = performance.now() * 0.001;
+  let prompt = false;
+
+  for (const c of ammoChests) {
+    if (c.cooldown > 0) {
+      c.cooldown -= dt;
+      if (c.cooldown <= 0) { c.mesh.visible = true; Audio.pickup?.(); }
+      continue;
+    }
+    c.mesh.rotation.y += dt * 0.5;
+    c.mesh.position.y = c.baseY + Math.sin(t * (Math.PI * 2 / 1.5) + c.phase) * 0.2;
+    c.mesh.userData.light.intensity = 1.8 + Math.sin(t * 3 + c.phase) * 0.6;
+
+    if (!player.alive) continue;
+    const d = c.mesh.position.distanceTo(player.body.position);
+    if (d < AMMO_CHEST_PROMPT) prompt = true;
+    if (d > AMMO_CHEST_RANGE) continue;
+
+    // Top up the carried weapon: full magazine, plus 30% of that gun's reserve capacity.
+    const w = currentWeapon();
+    const a = player.ammo[w.id];
+    if (a) {
+      a.mag = w.mag;
+      a.reserve = Math.min(w.reserve * 1.5, a.reserve + Math.ceil(w.reserve * 0.3));
+    }
+    player.fragCount = Math.min(3, player.fragCount + 1);
+    Audio.pickup();
+    showToast('AMMO RESUPPLIED');
+    updateAmmoHud();
+    c.mesh.visible = false;
+    c.cooldown = AMMO_CHEST_RESPAWN;
+    prompt = false;
+  }
+
+  if (el.ammoPrompt) el.ammoPrompt.style.opacity = prompt ? '1' : '0';
+}
+
+function resetAmmoChests() {
+  for (const c of ammoChests) { c.cooldown = 0; c.mesh.visible = true; }
+}
+
 function clearEffects() {
-  for (const b of bursts) scene.remove(b.pts);
-  bursts.length = 0;
+  particlesAdd.clear();
+  particlesNorm.clear();
   for (const s of shocks) scene.remove(s.mesh);
   shocks.length = 0;
   for (const b of blastLights) scene.remove(b.light);
@@ -2960,6 +3182,7 @@ const el = {
   toast: $('toast'), bBody: $('b-body'), bTitle: $('b-title'), bSub: $('b-sub'),
   pBig: $('p-big'), pSm: $('p-sm'), pCta: $('p-cta'), loading: $('loading'), play: $('play'),
   nameInput: $('nameinput'), menuResult: $('menuresult'),
+  dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'),
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
@@ -2986,6 +3209,23 @@ function showDamageDirection(sourcePos) {
   el.dmgwrap.appendChild(d);
   requestAnimationFrame(() => { d.style.opacity = '0'; });
   setTimeout(() => d.remove(), 600);
+}
+
+const _dmgProj = new THREE.Vector3();
+
+/** Float the damage dealt above the point of impact, projected to screen space. */
+function showDamageNumber(worldPos, amount, headshot) {
+  if (!el.dmgNums || amount <= 0) return;
+  _dmgProj.copy(worldPos).project(camera);
+  if (_dmgProj.z > 1) return;                       // behind the camera
+  const d = document.createElement('div');
+  d.className = headshot ? 'dmg-num head' : 'dmg-num';
+  d.textContent = Math.round(amount);
+  // A little horizontal jitter so a shotgun's pellets do not stack into one unreadable blob.
+  d.style.left = `${(_dmgProj.x * 0.5 + 0.5) * innerWidth + rand(-14, 14)}px`;
+  d.style.top = `${(-_dmgProj.y * 0.5 + 0.5) * innerHeight}px`;
+  el.dmgNums.appendChild(d);
+  setTimeout(() => d.remove(), 800);
 }
 
 function makePlate(name, color) {
@@ -3177,6 +3417,7 @@ function startMatch(mode, diffKey, name) {
 
   clearBots();
   clearEffects();
+  resetAmmoChests();
   el.feed.innerHTML = '';
 
   if (mode === 'tdm') {
@@ -3510,6 +3751,7 @@ function frame() {
     updateSmoke(dt);
     updateBrass(dt);
     updatePickups(dt);
+    updateAmmoChests(dt);
     updateShake(dt);
     updateSpotting(dt);
     updateMatch(dt);
@@ -3575,6 +3817,15 @@ async function boot() {
   placeArenaProps();
   // Spawns and waypoints last: both are carved out of the finished blocker set.
   const spawnStats = buildSpawnPoints();
+  // Resupply points, deliberately off the spawn ring so restocking means moving. More
+  // candidates than we need: each is validated against the props, and the first six that
+  // clear are kept.
+  spawnAmmoChests([
+    [0, 38], [0, -38], [38, 0], [-38, 0],
+    [22, 22], [-22, -22], [22, -22], [-22, 22],
+    [12, 12], [-12, -12], [12, -12], [-12, 12],
+    [30, 12], [-30, 12], [12, 30], [-12, 30],
+  ]);
   buildWaypoints();
   buildMapLayer();
 
@@ -3597,6 +3848,7 @@ async function boot() {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
+    ammoChests, particlesAdd, particlesNorm,
   };
 
   frame();

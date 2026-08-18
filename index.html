@@ -114,6 +114,32 @@
   #slots div.on { color: #04222b; background: var(--accent); border-color: var(--accent); }
   #slots div.empty { opacity: .3; }
 
+  /* ---------- floating damage numbers ---------- */
+  #dmgnums { position: absolute; inset: 0; pointer-events: none; }
+  @keyframes dmgFloat {
+    0%   { transform: translate(-50%, 0)     scale(1.25); opacity: 1; }
+    18%  { transform: translate(-50%, -8px)  scale(1);    opacity: 1; }
+    100% { transform: translate(-50%, -52px) scale(.92);  opacity: 0; }
+  }
+  .dmg-num {
+    position: absolute; color: #f4e04d; font-weight: 900; font-size: 20px;
+    text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7);
+    animation: dmgFloat .75s ease-out forwards; pointer-events: none; will-change: transform, opacity;
+  }
+  .dmg-num.head { color: #ff6b4a; font-size: 26px; }
+
+  /* ---------- ammo chest prompt ---------- */
+  #ammo-prompt {
+    position: absolute; left: 50%; top: 58%; transform: translateX(-50%);
+    text-align: center; letter-spacing: 4px; font-size: 15px; font-weight: 700;
+    color: #ffcf5a; text-shadow: 0 1px 4px #000;
+    opacity: 0; transition: opacity .18s; pointer-events: none;
+  }
+  #ammo-prompt small {
+    display: block; margin-top: 3px; font-size: 10px; letter-spacing: 2px;
+    color: rgba(255,255,255,.55); font-weight: 400;
+  }
+
   /* ---------- minimap ---------- */
   /* No backdrop-filter here: the minimap is drawn by the WebGL canvas UNDERNEATH this
      element, so .panel's blur(3px) was frosting the map itself. Same for the panel
@@ -320,6 +346,10 @@
   </div>
 
   <div id="mapframe" class="panel"></div>
+
+  <!-- Floating damage numbers and the resupply prompt. Both are pure overlay. -->
+  <div id="dmgnums"></div>
+  <div id="ammo-prompt">AMMO<small>walk in to resupply</small></div>
 
   <div id="toast"></div>
   <div id="board"><div class="card">

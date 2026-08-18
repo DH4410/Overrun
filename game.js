@@ -1230,17 +1230,25 @@ function stepBullets(dt) {
 }
 
 /** Fire one weapon. `dirBase` is a unit vector; spread is applied per pellet. */
+/**
+ * `_fireDir` is a scratch vector of its own on purpose. Callers legitimately pass one of the
+ * shared scratch vectors as `dirBase` (the bots aim in `_v2`), and reusing that same vector
+ * here would make `copy(dirBase)` a no-op — every pellet would then inherit the previous
+ * pellet's deviation and a shotgun would fire a compounding random walk instead of a cone.
+ */
+const _fireDir = new THREE.Vector3();
+
 function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1) {
   const spread = weapon.spread * spreadMult;
   for (let p = 0; p < weapon.pellets; p++) {
-    _v2.copy(dirBase);
+    _fireDir.copy(dirBase);
     if (spread > 0) {
-      _v2.x += rand(-spread, spread);
-      _v2.y += rand(-spread, spread);
-      _v2.z += rand(-spread, spread);
-      _v2.normalize();
+      _fireDir.x += rand(-spread, spread);
+      _fireDir.y += rand(-spread, spread);
+      _fireDir.z += rand(-spread, spread);
+      _fireDir.normalize();
     }
-    spawnBullet(origin, _v2, weapon, shooter, weapon.damage);
+    spawnBullet(origin, _fireDir, weapon, shooter, weapon.damage);
   }
   const d = origin.distanceTo(camera.position);
   Audio.gunshot(weapon.sound, d);

@@ -162,6 +162,7 @@
   #board h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: 5px; font-weight: 500; }
   #board .sub { font-size: 11px; color: var(--dim); letter-spacing: 2px; margin-bottom: 16px; }
   #board table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #board th.num { text-align: right; }
   #board th { text-align: left; font-weight: 400; color: var(--dim);
               font-size: 10px; letter-spacing: 2px;
               border-bottom: 1px solid var(--edge); padding: 5px 8px; }
@@ -329,7 +330,7 @@
 <div id="pause">
   <div class="big" id="p-big">PAUSED</div>
   <div class="sm" id="p-sm"></div>
-  <div class="cta">CLICK TO RESUME &nbsp;·&nbsp; ESC RELEASES THE CURSOR</div>
+  <div class="cta" id="p-cta">CLICK TO RESUME &nbsp;·&nbsp; ESC RELEASES THE CURSOR</div>
 </div>
 
 <!-- ============================= MENU ============================= -->

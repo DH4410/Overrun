@@ -329,16 +329,21 @@ document.body.appendChild(renderer.domElement);
 
 const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
 
-/** Layer 0 = world. Layer 1 = ceiling (hidden from the minimap so it can see in).
- *  Layer 2 = minimap-only blips (hidden from the main camera). */
-const L_WORLD = 0, L_CEIL = 1, L_BLIP = 2;
+/**
+ * Render layers. 0 is the world the player sees; 1 is ceiling geometry, which only the main
+ * camera enables. 2 and 3 belong to the minimap: 3 is a flat floor-plan of unlit plates and
+ * 2 is the blips drawn over it. Rendering the real 3D scene from above was tried first and
+ * is unreadable — from 50 m up you see the tops of pillars and catwalks, not a map.
+ */
+const L_WORLD = 0, L_CEIL = 1, L_BLIP = 2, L_MAP = 3;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0e14);
 scene.fog = new THREE.Fog(0x0a0e14, 55, 190);
 
 const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.08, 500);
-camera.layers.enable(L_CEIL);
+camera.layers.set(L_WORLD);
+camera.layers.enable(L_CEIL);   // the player sees the roof; the minimap camera must not
 
 // Viewmodel pass — its own scene/camera so the gun can never intersect the level.
 const vmScene = new THREE.Scene();
@@ -355,7 +360,7 @@ vmScene.add(vmRim);
 const MAP_VIEW = 46;                              // metres visible across the minimap
 const mapCamera = new THREE.OrthographicCamera(-MAP_VIEW / 2, MAP_VIEW / 2, MAP_VIEW / 2, -MAP_VIEW / 2, 1, 120);
 mapCamera.up.set(0, 0, -1);
-mapCamera.layers.set(L_WORLD);
+mapCamera.layers.set(L_MAP);
 mapCamera.layers.enable(L_BLIP);
 
 addEventListener('resize', () => {
@@ -830,6 +835,36 @@ function buildWaypoints() {
       added++;
     }
   }
+}
+
+/**
+ * Flat top-down floor plan for the minimap: one unlit plate per solid footprint, plus a
+ * ground plate. Built from `blockers`, so the map always matches what actually blocks
+ * movement. Materials opt out of fog — otherwise distance haze would grey the whole plan.
+ */
+const MAP_PLATE_GEO = new THREE.PlaneGeometry(1, 1);
+
+function buildMapLayer() {
+  const g = new THREE.Group();
+
+  const ground = new THREE.Mesh(MAP_PLATE_GEO,
+    new THREE.MeshBasicMaterial({ color: 0x141a21, fog: false }));
+  ground.scale.set(A * 2, A * 2, 1);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0.02;
+  g.add(ground);
+
+  const solidMat = new THREE.MeshBasicMaterial({ color: 0x5c6b7a, fog: false });
+  for (const b of blockers) {
+    const m = new THREE.Mesh(MAP_PLATE_GEO, solidMat);
+    m.scale.set(b.hx * 2, b.hz * 2, 1);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(b.x, 0.06, b.z);
+    g.add(m);
+  }
+
+  g.traverse((o) => o.layers.set(L_MAP));
+  scene.add(g);
 }
 
 function nearestWaypoint(pos, skip = -1) {
@@ -1797,7 +1832,7 @@ class Bot {
 
     // Minimap blip, on the layer only the map camera renders.
     this.blip = new THREE.Mesh(
-      new THREE.CircleGeometry(1.3, 10),
+      new THREE.CircleGeometry(1.7, 10),
       new THREE.MeshBasicMaterial({ color, depthTest: false }),
     );
     this.blip.rotation.x = -Math.PI / 2;
@@ -2522,17 +2557,17 @@ const MAP_PX = 180, MAP_MARGIN = 20;
 const playerBlip = (() => {
   const g = new THREE.Group();
   const dot = new THREE.Mesh(
-    new THREE.CircleGeometry(1.5, 12),
+    new THREE.CircleGeometry(1.7, 12),
     new THREE.MeshBasicMaterial({ color: 0x52e08a, depthTest: false }),
   );
   dot.rotation.x = -Math.PI / 2;
   const arrow = new THREE.Mesh(
-    new THREE.ConeGeometry(1.5, 3.4, 3),
+    new THREE.ConeGeometry(1.7, 3.8, 3),
     new THREE.MeshBasicMaterial({ color: 0x52e08a, depthTest: false }),
   );
   // Cone points +Y; lay it flat so it points along -Z, then the group yaw aims it.
   arrow.rotation.x = -Math.PI / 2;
-  arrow.position.set(0, 0, -2.6);
+  arrow.position.set(0, 0, -2.9);
   g.add(dot, arrow);
   g.traverse((o) => { o.layers.set(L_BLIP); o.renderOrder = 11; });
   g.layers.set(L_BLIP);
@@ -2597,7 +2632,7 @@ const el = {
   tbMode: $('tb-mode'), tbA: $('tb-a'), tbB: $('tb-b'), tbTime: $('tb-time'),
   feed: $('feed'), plates: $('plates'), dmgwrap: $('dmgwrap'), lowhp: $('lowhp'),
   toast: $('toast'), bBody: $('b-body'), bTitle: $('b-title'), bSub: $('b-sub'),
-  pBig: $('p-big'), pSm: $('p-sm'), loading: $('loading'), play: $('play'),
+  pBig: $('p-big'), pSm: $('p-sm'), pCta: $('p-cta'), loading: $('loading'), play: $('play'),
   nameInput: $('nameinput'), menuResult: $('menuresult'),
 };
 
@@ -2740,7 +2775,7 @@ function refreshBoard() {
 
 function showPause(on) {
   el.pause.classList.toggle('on', !!on && match.running);
-  if (on) { el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; }
+  if (on) { el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = ''; }
 }
 
 /* ================================================================== *
@@ -2952,7 +2987,13 @@ function updateMatch(dt) {
     el.pause.classList.add('on');
     el.pBig.textContent = 'ELIMINATED';
     el.pSm.textContent = `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
-    if (player.respawnTimer <= 0) { respawnPlayer(); el.pause.classList.remove('on'); }
+    // The death screen is not a pause — the resume prompt would just be confusing here.
+    el.pCta.style.display = pointerLocked ? 'none' : '';
+    if (player.respawnTimer <= 0) {
+      respawnPlayer();
+      el.pCta.style.display = '';
+      if (pointerLocked) el.pause.classList.remove('on');
+    }
   }
   for (const b of bots) {
     if (b.alive || match.mode === 'sv') continue;
@@ -3188,6 +3229,7 @@ async function boot() {
   placeArenaProps();
   // Waypoints last: the graph is carved out of the finished blocker set.
   buildWaypoints();
+  buildMapLayer();
 
   el.loading.textContent = ok > 0
     ? `${waypoints.length} nav nodes · ${ok}/${results.length} prop models · ready`

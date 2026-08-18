@@ -388,6 +388,13 @@
   </div>
 </div>
 
+<script>
+  // Registered before the module so the asset cache is live for the GLB/texture loads.
+  // Only over http(s) — from a file:// URL registration throws and blocks the game.
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  }
+</script>
 <script type="module" src="./game.js"></script>
 </body>
 </html>

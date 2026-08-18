@@ -26,6 +26,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// Skinned meshes cannot be deep-copied with Object3D.clone(): every clone would share one
+// skeleton and they would all animate as a single puppet. SkeletonUtils rebinds the bones.
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 /* ================================================================== *
  * === CONFIG ===
@@ -730,16 +733,56 @@ function buildArena() {
   addSolid(0.8, 1.3, 14, -6, 0.65, 16, MATS.floor);
   addSolid(0.8, 1.3, 14, 6, 0.65, -16, MATS.floor);
 
-  /* ---- spawn points: plaza, corridor corners, corridor mid-sections ---- */
-  const sp = [
-    [0, -28], [0, 28], [-28, 0], [28, 0],
-    [-44, -44], [44, 44], [-44, 44], [44, -44],
-    [-44, 0], [44, 0], [0, -44], [0, 44],
-    [-24, -8], [24, 8], [-10, 26], [10, -26],
-  ];
-  for (const [x, z] of sp) spawnPoints.push(new THREE.Vector3(x, 0.9, z));
-
   buildLights();
+}
+
+/**
+ * Spawn points, validated against the finished level rather than trusted.
+ *
+ * This runs after placeArenaProps() so the prop blockers exist — validating inside
+ * buildArena() would happily approve a point that a crate later lands on. Every candidate
+ * has to clear inBlocker() with a 2 m pad and have real floor under it; the floor height
+ * comes from a downward ray, so a candidate on the raised hub spawns on the hub instead of
+ * inside it.
+ *
+ * The old list put four spawns at (0,+/-44) and (+/-44,0), which face the ring wall from
+ * ~10 m out, and four more in the corridor corners. Those are the "spawned facing a wall"
+ * complaints. These candidates are spread across the plaza and the corridor ring.
+ */
+const SPAWN_CANDIDATES = [
+  // plaza ring, off-axis so none of them sit on the four ramps
+  [10, 10], [-10, 10], [10, -10], [-10, -10],
+  [20, 20], [-20, 20], [20, -20], [-20, -20],
+  [24, 0], [-24, 0], [0, 24], [0, -24],
+  // corridor ring between the inner wall and the shell
+  [42, 20], [-42, 20], [42, -20], [-42, -20],
+  [20, 42], [-20, 42], [20, -42], [-20, -42],
+  // fallbacks well inside the plaza
+  [28, 10], [-28, 10], [10, 28], [-10, 28],
+];
+
+const _spFrom = new CANNON.Vec3();
+const _spTo = new CANNON.Vec3();
+const _spRes = new CANNON.RaycastResult();
+
+function buildSpawnPoints() {
+  let rejected = 0;
+  for (const [x, z] of SPAWN_CANDIDATES) {
+    if (inBlocker(x, z, 2.0)) { rejected++; continue; }        // pillar, ramp, crate, low wall
+    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spTo.set(x, -1, z);
+    _spRes.reset();
+    world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
+    if (!_spRes.hasHit) { rejected++; continue; }               // no floor under it at all
+    spawnPoints.push(new THREE.Vector3(x, _spRes.hitPointWorld.y + 0.9, z));
+  }
+  // Never leave the game unable to spawn anyone.
+  if (spawnPoints.length < 4) {
+    for (const [x, z] of [[0, 28], [0, -28], [28, 0], [-28, 0]]) {
+      spawnPoints.push(new THREE.Vector3(x, 0.9, z));
+    }
+  }
+  return { accepted: spawnPoints.length, rejected };
 }
 
 /** Scattered cover — run once the GLBs have resolved, before the waypoint graph is laid out. */
@@ -1109,6 +1152,95 @@ for (const w of WEAPONS) {
 }
 const VM_HOME = new THREE.Vector3(0.30, -0.25, -0.60);
 const VM_ADS = new THREE.Vector3(0.0, -0.085, -0.46);
+
+/* ------------------ Kenney Blaster Kit viewmodels ------------------ */
+
+/**
+ * Blaster GLBs used for the four guns, with the length each is fitted to and the Z the muzzle
+ * tip is placed at (matched to the procedural models these replace, so recoil, the flash
+ * sprite and the tracer origin all keep working unchanged).
+ *
+ * These four were chosen by measuring every blaster in the kit: all are modelled along Z, and
+ * these have an unambiguous barrel end (the Y-extent of the front 18% of the mesh is roughly
+ * half that of the back, i.e. a thin barrel against a bulky grip/stock) and their lengths form
+ * a sensible pistol -> rifle -> shotgun -> sniper progression.
+ */
+const BLASTER_FILES = {
+  pistol:  { file: 'blaster-b', len: 0.46, muzzleZ: -0.40 },
+  ar:      { file: 'blaster-h', len: 0.95, muzzleZ: -0.76 },
+  shotgun: { file: 'blaster-p', len: 1.05, muzzleZ: -0.86 },
+  sniper:  { file: 'blaster-f', len: 1.35, muzzleZ: -1.14 },
+};
+
+const SKIN_MAT = matte(0x9a6b4f, 0.85, 0.0);
+const SLEEVE_MAT = matte(0x2f3640, 0.9, 0.05);
+
+/** Forearm + fist, so the blaster reads as held rather than floating. */
+function buildHand(x, y, z, pitch) {
+  const g = new THREE.Group();
+  const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.30, 10), SLEEVE_MAT);
+  upper.rotation.x = Math.PI / 2;
+  upper.position.set(0, -0.03, 0.19);
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.043, 0.16, 10), SKIN_MAT);
+  lower.rotation.x = Math.PI / 2;
+  lower.position.set(0, -0.01, 0.03);
+  const fist = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.085, 0.09), SKIN_MAT);
+  fist.position.set(0, 0, -0.04);
+  g.add(upper, lower, fist);
+  g.position.set(x, y, z);
+  g.rotation.x = pitch;
+  return g;
+}
+
+/**
+ * Scale and seat a loaded blaster so it occupies the same space the procedural gun did.
+ * Everything is derived from the model's own bounding box rather than hand-tuned numbers,
+ * which is what makes it safe to swap a different GLB in later.
+ */
+function fitBlaster(root, spec) {
+  const g = new THREE.Group();
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const s = spec.len / Math.max(size.z, 1e-4);
+
+  root.scale.setScalar(s);
+  // Centre on X/Y, then slide along Z so the barrel tip lands exactly on the old muzzle point.
+  root.position.set(-centre.x * s, -centre.y * s - 0.02, -centre.z * s);
+  const frontZ = (box.min.z - centre.z) * s;          // front tip relative to the new centre
+  root.position.z += spec.muzzleZ - frontZ;
+  g.add(root);
+
+  g.add(buildHand(0.055, -0.13, spec.muzzleZ * 0.18 + 0.10, -0.25));
+
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.012, spec.muzzleZ);
+  g.add(muzzle);
+  g.userData.muzzle = muzzle;
+
+  g.rotation.set(-0.03, 0.09, 0.04);                  // same three-quarter presentation
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  return g;
+}
+
+/** Swap the procedural guns for the Kenney blasters. Any failure leaves the fallback in place. */
+async function loadBlasterViewModels() {
+  const loaded = [];
+  await Promise.all(Object.entries(BLASTER_FILES).map(async ([id, spec]) => {
+    try {
+      const gltf = await gltfLoader.loadAsync(`./assets/models/blaster/${spec.file}.glb`);
+      const fitted = fitBlaster(gltf.scene, spec);
+      fitted.visible = false;
+      vmRig.remove(vmModels[id]);
+      vmRig.add(fitted);
+      vmModels[id] = fitted;
+      loaded.push(id);
+    } catch {
+      /* keep the procedural viewmodel */
+    }
+  }));
+  return loaded;
+}
 
 // Muzzle flash: one light in the viewmodel scene (lights the gun) and one in the world
 // (lights the room). Both are pulsed for 0.05 s.
@@ -1808,8 +1940,80 @@ const BOT_MESH_Y = 0.04;
 const BOT_CHEST = 0.45;
 const BOT_EYE = 0.95;
 
+/* --------------------- rigged soldier bot mesh --------------------- */
+
+/**
+ * The three.js Soldier, used for the bot body when it loads. Measured, not guessed: the model
+ * is 1.832 m tall with its feet on the model origin, and it faces -Z (its toes reach z=-0.219
+ * against +0.123 at the heel, and the back of the skull protrudes further than the nose) —
+ * which is the same convention the procedural mesh uses, so Bot.faceDir needs no change.
+ */
+let soldierGltf = null;
+
+const SOLDIER_HEIGHT = 1.832;   // measured from the GLB's bounding box
+const BOT_TARGET_HEIGHT = 1.8;
+const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MESH_SCALE = -0.78)
+
+async function loadSoldier() {
+  try {
+    soldierGltf = await gltfLoader.loadAsync('./assets/bots/soldier.glb');
+    return true;
+  } catch {
+    soldierGltf = null;         // fall back to the blocky humanoid
+    return false;
+  }
+}
+
+/**
+ * One soldier instance. Materials are cloned per bot because the death fade writes
+ * material.opacity and the team tint writes material.emissive — sharing them would fade and
+ * recolour every bot at once.
+ */
+function buildSoldierMesh(teamColor) {
+  const g = new THREE.Group();
+  const model = skeletonClone(soldierGltf.scene);
+
+  // Fitted so that after the group's BOT_MESH_SCALE the soldier stands BOT_TARGET_HEIGHT tall
+  // with its feet exactly where the procedural mesh put them.
+  model.scale.setScalar(BOT_TARGET_HEIGHT / (SOLDIER_HEIGHT * BOT_MESH_SCALE));
+  model.position.y = BOT_FOOT_Y;
+
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    o.material.emissive = new THREE.Color(teamColor);
+    o.material.emissiveIntensity = 0.55;      // team tell without washing out the texture
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false;                  // skinned bounds are the bind pose, not the pose
+  });
+  g.add(model);
+
+  // Shoulder lamp, same team tell the blocky mesh carries, readable at range and in the dark.
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6),
+    new THREE.MeshBasicMaterial({ color: teamColor }));
+  lamp.position.set(0.2, 0.5, 0);
+  g.add(lamp);
+
+  const mixer = new THREE.AnimationMixer(model);
+  const clips = {};
+  for (const name of ['Idle', 'Walk', 'Run']) {
+    const clip = THREE.AnimationClip.findByName(soldierGltf.animations, name);
+    if (clip) { clips[name] = mixer.clipAction(clip); clips[name].play(); clips[name].weight = 0; }
+  }
+  if (clips.Idle) clips.Idle.weight = 1;
+  g.userData.mixer = mixer;
+  g.userData.clips = clips;
+  return g;
+}
+
 /** Blocky humanoid, tinted by team so allies and enemies read instantly. */
 function buildBotMesh(teamColor) {
+  if (soldierGltf) return buildSoldierMesh(teamColor);
+  return buildBlockyBotMesh(teamColor);
+}
+
+function buildBlockyBotMesh(teamColor) {
   const g = new THREE.Group();
   const dark = matte(0x22262c, 0.85, 0.15);
   const accent = matte(teamColor, 0.55, 0.25);
@@ -1898,7 +2102,7 @@ class Bot {
     this.mesh.scale.setScalar(BOT_MESH_SCALE);
     this.hb = HB_BOT;
     this.gunMesh = buildBotGun(this.weaponId);
-    this.gunMesh.position.set(0.3, 0.42, -0.18);
+    this.gunMesh.position.copy(this.gunAnchor());
     this.mesh.add(this.gunMesh);
     scene.add(this.mesh);
 
@@ -1931,6 +2135,14 @@ class Bot {
     scene.remove(this.blip);
     world.removeBody(this.body);
     this.plate.root.remove();
+  }
+
+  /** Where the carried gun hangs in mesh-local space. The rigged soldier's shoulders sit
+   *  lower and further forward than the blocky mesh's, so the two need different anchors. */
+  gunAnchor() {
+    return this.mesh.userData.mixer
+      ? new THREE.Vector3(0.26, 0.30, -0.26)
+      : new THREE.Vector3(0.30, 0.42, -0.18);
   }
 
   updateTransforms() {
@@ -2213,18 +2425,35 @@ class Bot {
 
   animate(dt) {
     const speed = Math.hypot(this.body.velocity.x, this.body.velocity.z);
-    const t = performance.now() * 0.001;
-    const swing = Math.sin(t * (4 + speed * 1.3)) * Math.min(0.6, speed * 0.13);
-    this.mesh.userData.legs[0].rotation.x = swing;
-    this.mesh.userData.legs[1].rotation.x = -swing;
-    this.mesh.userData.arms[0].rotation.x = -swing * 0.5;
-    // Aim the gun arm at whatever we are shooting at.
+
+    const mixer = this.mesh.userData.mixer;
+    if (mixer) {
+      // Rigged soldier: cross-fade idle -> walk -> run on planar speed. Weights are lerped
+      // rather than switched so a bot changing pace does not pop between clips.
+      const clips = this.mesh.userData.clips;
+      const wRun = clamp((speed - 3.2) / 2.5, 0, 1);
+      const wWalk = clamp((speed - 0.25) / 2.0, 0, 1) * (1 - wRun);
+      const wIdle = 1 - wWalk - wRun;
+      const k = Math.min(1, 8 * dt);
+      if (clips.Idle) clips.Idle.weight = lerp(clips.Idle.weight, wIdle, k);
+      if (clips.Walk) clips.Walk.weight = lerp(clips.Walk.weight, wWalk, k);
+      if (clips.Run) clips.Run.weight = lerp(clips.Run.weight, wRun, k);
+      mixer.update(dt);
+    } else {
+      const t = performance.now() * 0.001;
+      const swing = Math.sin(t * (4 + speed * 1.3)) * Math.min(0.6, speed * 0.13);
+      this.mesh.userData.legs[0].rotation.x = swing;
+      this.mesh.userData.legs[1].rotation.x = -swing;
+      this.mesh.userData.arms[0].rotation.x = -swing * 0.5;
+    }
+
+    // Aim the gun at whatever we are shooting at.
     if (this.target && (this.state === ST.SHOOT || this.state === ST.NADE)) {
       const dy = this.target.pos.y - this.eye.y;
       const dh = Math.hypot(this.target.pos.x - this.body.position.x, this.target.pos.z - this.body.position.z);
       const pitch = clamp(Math.atan2(dy, dh), -1.1, 1.1);
       this.gunMesh.rotation.x = pitch;
-      this.mesh.userData.arms[1].rotation.x = -pitch;
+      if (this.mesh.userData.arms) this.mesh.userData.arms[1].rotation.x = -pitch;
     } else {
       this.gunMesh.rotation.x = lerp(this.gunMesh.rotation.x, 0, Math.min(1, 6 * dt));
     }
@@ -2278,7 +2507,7 @@ class Bot {
 
     this.mesh.remove(this.gunMesh);
     this.gunMesh = buildBotGun(this.weaponId);
-    this.gunMesh.position.set(0.3, 0.42, -0.18);
+    this.gunMesh.position.copy(this.gunAnchor());
     this.mesh.add(this.gunMesh);
     this.mesh.rotation.x = 0;
     this.mesh.visible = true;
@@ -3337,10 +3566,15 @@ async function boot() {
   const results = await Promise.all(Object.keys(PROP_FILES).map(loadProp));
   const ok = results.filter(Boolean).length;
 
+  // Optional assets. Each resolves to "did it load", and every one of them has a working
+  // fallback already in place, so a 404 costs a nicety and never the match.
+  const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadBlasterViewModels()]);
+
   // Props are placed after the GLBs resolve so each one uses the model when it exists and
   // the primitive when it does not — a missing file costs one crate, never the arena.
   placeArenaProps();
-  // Waypoints last: the graph is carved out of the finished blocker set.
+  // Spawns and waypoints last: both are carved out of the finished blocker set.
+  const spawnStats = buildSpawnPoints();
   buildWaypoints();
   buildMapLayer();
 
@@ -3361,7 +3595,8 @@ async function boot() {
   // to inspect or drive the sim from the console (or from an automated smoke test).
   window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
-    renderer, fixedStep, camera,
+    renderer, fixedStep, camera, spawnStats,
+    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
   };
 
   frame();

@@ -230,10 +230,13 @@ const pillarMat = new THREE.MeshStandardMaterial({
 // Shell: floor, ceiling, four walls.
 addBox(new THREE.Vector3(RW, T, RD), new THREE.Vector3(0, -T / 2, 0), floorMat, true, false);
 addBox(new THREE.Vector3(RW, T, RD), new THREE.Vector3(0, RH + T / 2, 0), ceilMat, true, false);
-addBox(new THREE.Vector3(T, RH, RD), new THREE.Vector3(-RW / 2 - T / 2, RH / 2, 0), wallMat);
-addBox(new THREE.Vector3(T, RH, RD), new THREE.Vector3(RW / 2 + T / 2, RH / 2, 0), wallMat);
-addBox(new THREE.Vector3(RW + T * 2, RH, T), new THREE.Vector3(0, RH / 2, -RD / 2 - T / 2), wallMat);
-addBox(new THREE.Vector3(RW + T * 2, RH, T), new THREE.Vector3(0, RH / 2, RD / 2 + T / 2), wallMat);
+// Walls receive shadows but must not cast them: the sun sits outside a sealed room,
+// so casting walls would throw metre-wide bands across the floor as if the roof were
+// missing. Cover and targets still cast, which is where shadows carry depth cues.
+addBox(new THREE.Vector3(T, RH, RD), new THREE.Vector3(-RW / 2 - T / 2, RH / 2, 0), wallMat, true, false);
+addBox(new THREE.Vector3(T, RH, RD), new THREE.Vector3(RW / 2 + T / 2, RH / 2, 0), wallMat, true, false);
+addBox(new THREE.Vector3(RW + T * 2, RH, T), new THREE.Vector3(0, RH / 2, -RD / 2 - T / 2), wallMat, true, false);
+addBox(new THREE.Vector3(RW + T * 2, RH, T), new THREE.Vector3(0, RH / 2, RD / 2 + T / 2), wallMat, true, false);
 
 // Cover: crates and pillars, kept clear of the firing lane centre-line.
 const COVER = [
@@ -782,7 +785,11 @@ let flashTimer = 0;
 const FLASH_DURATION = 0.045;
 
 // Weapon rest pose; sway/bob are offsets from here.
-const WEAPON_REST = new THREE.Vector3(0.17, -0.15, -0.02);
+// Held far enough forward that the receiver's rear face clears camera.near (0.05) —
+// otherwise the near plane slices the gun open — and scaled down so a 75-degree FOV
+// doesn't blow it up across the lower half of the screen.
+weapon.scale.setScalar(0.7);
+const WEAPON_REST = new THREE.Vector3(0.15, -0.13, -0.25);
 weapon.position.copy(WEAPON_REST);
 
 const swayTarget = new THREE.Vector2(0, 0);   // driven by mouse delta

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aim Trainer — Ballistic</title>
+<style>
+  :root {
+    --hud: #d8e4ee;
+    --accent: #6ee7ff;
+    --warn: #ffcc55;
+    --bg: #05070a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--hud);
+    font-family: "Consolas", "SF Mono", "Menlo", monospace;
+    user-select: none;
+  }
+  canvas { display: block; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+  .panel {
+    position: absolute;
+    background: rgba(6, 10, 16, 0.55);
+    border: 1px solid rgba(110, 231, 255, 0.18);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    backdrop-filter: blur(3px);
+  }
+  #stats { top: 16px; left: 16px; min-width: 210px; }
+  #perf   { top: 16px; right: 16px; text-align: right; }
+  #help   { bottom: 16px; left: 16px; font-size: 12px; opacity: 0.75; line-height: 1.6; }
+  #timer  {
+    top: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 26px; letter-spacing: 2px; padding: 6px 22px;
+  }
+
+  .k { color: rgba(216, 228, 238, 0.55); }
+  .v { color: var(--accent); float: right; margin-left: 22px; }
+  .row { display: block; }
+  kbd {
+    background: rgba(110, 231, 255, 0.12);
+    border: 1px solid rgba(110, 231, 255, 0.3);
+    border-radius: 3px; padding: 0 5px; color: var(--accent);
+  }
+
+  /* Crosshair */
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    width: 26px; height: 26px; transform: translate(-50%, -50%);
+  }
+  #crosshair i {
+    position: absolute; background: var(--accent);
+    box-shadow: 0 0 3px rgba(0,0,0,0.9);
+  }
+  .ch-dot  { left: 12px; top: 12px; width: 2px; height: 2px; border-radius: 50%; }
+  .ch-up   { left: 12px; top: 0;    width: 2px; height: 8px; }
+  .ch-dn   { left: 12px; bottom: 0; width: 2px; height: 8px; }
+  .ch-lf   { top: 12px;  left: 0;   height: 2px; width: 8px; }
+  .ch-rt   { top: 12px;  right: 0;  height: 2px; width: 8px; }
+
+  #hitmarker {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%) rotate(45deg);
+    width: 20px; height: 20px; opacity: 0;
+  }
+  #hitmarker i { position: absolute; background: #ff5a5a; }
+
+  /* Overlay */
+  #overlay {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px; text-align: center;
+    background: radial-gradient(circle at 50% 40%, rgba(12,20,30,0.86), rgba(3,5,8,0.97));
+    cursor: pointer;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h1 { margin: 0; font-size: 40px; letter-spacing: 6px; font-weight: 500; }
+  #overlay h1 span { color: var(--accent); }
+  #overlay .sub { opacity: 0.6; font-size: 13px; letter-spacing: 2px; margin-top: -8px; }
+  #modes { display: flex; gap: 10px; }
+  .mode {
+    pointer-events: auto; cursor: pointer;
+    background: rgba(110, 231, 255, 0.07);
+    border: 1px solid rgba(110, 231, 255, 0.28);
+    color: var(--hud); font-family: inherit; font-size: 13px;
+    padding: 9px 20px; border-radius: 5px;
+  }
+  .mode:hover { background: rgba(110, 231, 255, 0.17); }
+  .mode.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
+  #cta { font-size: 15px; color: var(--warn); letter-spacing: 2px; }
+  #result { font-size: 15px; min-height: 20px; color: var(--accent); }
+  #ovhelp { font-size: 12px; opacity: 0.5; line-height: 1.9; max-width: 460px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="hud">
+  <div id="crosshair">
+    <i class="ch-up"></i><i class="ch-dn"></i><i class="ch-lf"></i><i class="ch-rt"></i>
+    <i class="ch-dot"></i>
+  </div>
+  <div id="hitmarker">
+    <i style="left:9px;top:0;width:2px;height:20px"></i>
+    <i style="top:9px;left:0;height:2px;width:20px"></i>
+  </div>
+
+  <div id="timer" class="panel">--:--</div>
+
+  <div id="stats" class="panel">
+    <span class="row"><span class="k">SCORE</span><span class="v" id="s-score">0</span></span>
+    <span class="row"><span class="k">SHOTS</span><span class="v" id="s-shots">0</span></span>
+    <span class="row"><span class="k">ACCURACY</span><span class="v" id="s-acc">0%</span></span>
+    <span class="row"><span class="k">LAST HIT</span><span class="v" id="s-dist">—</span></span>
+    <span class="row"><span class="k">SENS</span><span class="v" id="s-sens">1.00</span></span>
+  </div>
+
+  <div id="perf" class="panel">
+    <span class="row"><span class="v" id="s-fps" style="float:none">60</span> <span class="k">FPS</span></span>
+    <span class="row"><span class="v" id="s-bullets" style="float:none">0</span> <span class="k">IN FLIGHT</span></span>
+  </div>
+
+  <div id="help" class="panel">
+    <kbd>LMB</kbd> fire (hold for auto) &nbsp; <kbd>WASD</kbd> move &nbsp; <kbd>SHIFT</kbd> sprint<br />
+    <kbd>R</kbd> restart &nbsp; <kbd>SCROLL</kbd> sensitivity &nbsp; <kbd>ESC</kbd> release cursor
+  </div>
+</div>
+
+<div id="overlay">
+  <h1>AIM<span>·</span>TRAINER</h1>
+  <div class="sub">BALLISTIC PROJECTILES &nbsp;·&nbsp; BULLET DROP &nbsp;·&nbsp; TARGET LEAD</div>
+  <div id="result"></div>
+  <div id="modes">
+    <button class="mode" data-seconds="30">30 SEC</button>
+    <button class="mode" data-seconds="60">60 SEC</button>
+    <button class="mode active" data-seconds="0">UNLIMITED</button>
+  </div>
+  <div id="cta">CLICK ANYWHERE TO PLAY</div>
+  <div id="ovhelp">
+    Red spheres are static. Yellow spheres move — you must lead them.
+    Green cylinders pop up for a moment only.<br />
+    Bullets are real projectiles: they take time to arrive and they fall.
+  </div>
+</div>
+
+<script type="module" src="./game.js"></script>
+</body>
+</html>

@@ -4358,8 +4358,11 @@ async function boot() {
   bindMenu();
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
-  // to inspect or drive the sim from the console (or from an automated smoke test).
-  window.__game = {
+  // to inspect or drive the sim from the console (or from an automated smoke test). Local
+  // only — it hands out live references to the world and the match, which has no business
+  // being reachable on a deployed copy.
+  const isLocal = ['localhost', '127.0.0.1', ''].includes(location.hostname);
+  if (isLocal) window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },

@@ -206,10 +206,18 @@ const WEAPON_BY_ID = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 /** Slots 1-4 are the guns bots may spawn with. */
 const BOT_GUN_IDS = ['pistol', 'ar', 'shotgun', 'sniper'];
 
+/** The range each bot weapon wants to fight at. Inside min it backs off, beyond max it closes. */
+const BOT_RANGE_BAND = {
+  pistol:  { min: 5,  max: 16 },
+  ar:      { min: 8,  max: 26 },
+  shotgun: { min: 3,  max: 9  },
+  sniper:  { min: 18, max: 50 },
+};
+
 const DIFFICULTY = {
-  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35 },
-  medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10 },
-  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0 },
+  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85 },
+  medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10, speed: 1.0 },
+  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18 },
 };
 
 const BOT_NAMES = [
@@ -246,7 +254,7 @@ const Audio = {
   },
 
   /** One-shot filtered noise burst. */
-  burst({ dur = 0.18, gain = 0.5, type = 'lowpass', freq = 1800, q = 1, decay = null, delay = 0 }) {
+  burst({ dur = 0.18, gain = 0.5, type = 'lowpass', freq = 1800, q = 1, decay = null, delay = 0, pan = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime + delay;
     const src = this.ctx.createBufferSource();
@@ -257,12 +265,12 @@ const Audio = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + (decay ?? dur));
-    src.connect(flt); flt.connect(g); g.connect(this.master);
+    src.connect(flt); flt.connect(g); g.connect(this._panner(pan) ?? this.master);
     src.start(t); src.stop(t + dur + 0.05);
   },
 
   /** One-shot pitch-swept oscillator. */
-  tone({ f0 = 200, f1 = 40, dur = 0.2, gain = 0.4, type = 'sine', delay = 0 }) {
+  tone({ f0 = 200, f1 = 40, dur = 0.2, gain = 0.4, type = 'sine', delay = 0, pan = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime + delay;
     const o = this.ctx.createOscillator();
@@ -272,33 +280,61 @@ const Audio = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this._panner(pan) ?? this.master);
     o.start(t); o.stop(t + dur + 0.02);
   },
 
   /** Distance attenuation for anything that did not happen at the camera. */
   atten(dist) { return clamp(1 - dist / 70, 0.06, 1); },
 
-  gunshot(id, dist = 0) {
+  /**
+   * Stereo placement. A full PannerNode with a listener orientation is overkill here — what
+   * actually matters in a shooter is "was that to my left or my right", so this projects the
+   * direction to the sound onto the camera's right axis and pans by that. Sounds behind you
+   * are pulled slightly wide, which stops front and back being indistinguishable.
+   */
+  spatial(worldPos) {
+    const dx = worldPos.x - camera.position.x;
+    const dy = worldPos.y - camera.position.y;
+    const dz = worldPos.z - camera.position.z;
+    const dist = Math.hypot(dx, dy, dz) || 0.001;
+    // Camera right vector from yaw: forward is (-sin, -cos), so right is (cos, -sin).
+    const cy = Math.cos(player.yaw), sy = Math.sin(player.yaw);
+    const pan = clamp(((dx * cy) + (dz * -sy)) / dist, -1, 1);
+    return { dist, pan: pan * 0.85 };
+  },
+
+  /** Optional stereo panner in front of the master bus. Null when unsupported or centred. */
+  _panner(pan) {
+    if (!pan || !this.ctx.createStereoPanner) return null;
+    const p = this.ctx.createStereoPanner();
+    p.pan.value = clamp(pan, -1, 1);
+    p.connect(this.master);
+    return p;
+  },
+
+  gunshot(id, dist = 0, pan = 0) {
     const v = this.atten(dist);
+    // Every layer of the shot has to carry the same pan or the sound smears across the field.
+    const P = { pan };
     if (v <= 0.06 && dist > 90) return;
     switch (id) {
       case 'pistol':                                   // sharp crack
-        this.burst({ dur: 0.10, gain: 0.42 * v, type: 'highpass', freq: 1400, decay: 0.07 });
-        this.tone({ f0: 320, f1: 70, dur: 0.09, gain: 0.30 * v, type: 'square' });
+        this.burst({ dur: 0.10, gain: 0.42 * v, type: 'highpass', freq: 1400, decay: 0.07 , ...P });
+        this.tone({ f0: 320, f1: 70, dur: 0.09, gain: 0.30 * v, type: 'square' , ...P });
         break;
       case 'ar':                                       // medium, punchy
-        this.burst({ dur: 0.13, gain: 0.36 * v, type: 'bandpass', freq: 1100, q: 0.8, decay: 0.09 });
-        this.tone({ f0: 240, f1: 55, dur: 0.11, gain: 0.30 * v, type: 'sawtooth' });
+        this.burst({ dur: 0.13, gain: 0.36 * v, type: 'bandpass', freq: 1100, q: 0.8, decay: 0.09 , ...P });
+        this.tone({ f0: 240, f1: 55, dur: 0.11, gain: 0.30 * v, type: 'sawtooth' , ...P });
         break;
       case 'shotgun':                                  // low boom + long tail
-        this.burst({ dur: 0.34, gain: 0.55 * v, type: 'lowpass', freq: 900, decay: 0.28 });
-        this.tone({ f0: 150, f1: 32, dur: 0.28, gain: 0.42 * v, type: 'sine' });
+        this.burst({ dur: 0.34, gain: 0.55 * v, type: 'lowpass', freq: 900, decay: 0.28 , ...P });
+        this.tone({ f0: 150, f1: 32, dur: 0.28, gain: 0.42 * v, type: 'sine' , ...P });
         break;
       case 'sniper':                                   // thunderclap: crack then rolling tail
-        this.burst({ dur: 0.09, gain: 0.6 * v, type: 'highpass', freq: 2600, decay: 0.05 });
-        this.tone({ f0: 420, f1: 40, dur: 0.30, gain: 0.5 * v, type: 'square' });
-        this.burst({ dur: 0.6, gain: 0.24 * v, type: 'lowpass', freq: 420, decay: 0.55, delay: 0.04 });
+        this.burst({ dur: 0.09, gain: 0.6 * v, type: 'highpass', freq: 2600, decay: 0.05 , ...P });
+        this.tone({ f0: 420, f1: 40, dur: 0.30, gain: 0.5 * v, type: 'square' , ...P });
+        this.burst({ dur: 0.6, gain: 0.24 * v, type: 'lowpass', freq: 420, decay: 0.55, delay: 0.04 , ...P });
         break;
     }
   },
@@ -1710,20 +1746,33 @@ const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78 };
 const HB_BOT = { bodyR: 0.34, bodyHalfH: 0.40, headR: 0.20, headY: 0.53 };
 
 /** Nearest combatant the segment hits, honouring team and self filters. */
+/**
+ * Locational damage. Three nested volumes per combatant, tested nearest-first:
+ *  - a head sphere,
+ *  - the torso cylinder,
+ *  - a wider, shorter cylinder standing in for arms and legs.
+ * A limb hit is a graze that should not kill as fast as a centre-mass hit, which is what
+ * makes aim actually matter rather than every pixel of a silhouette being equal.
+ */
+const ZONE_MULT = { head: 2.4, body: 1.0, limb: 0.6 };
+
 function nearestCombatantHit(o, d, len, shooter) {
-  let best = null, bestT = Infinity, bestHead = false;
+  let best = null, bestT = Infinity, bestZone = 'body';
   for (const c of combatants) {
     if (!c.alive || c === shooter) continue;
     if (shooter && shooter.team !== TEAM.SOLO && c.team === shooter.team) continue;
     const p = c.pos, hb = c.hb;
     const th = segmentSphere(o, d, len, _v1.set(p.x, p.y + hb.headY, p.z), hb.headR);
     const tb = segmentCylinderY(o, d, len, p.x, p.y, p.z, hb.bodyR, hb.bodyHalfH);
-    let t = -1, head = false;
-    if (th >= 0 && (tb < 0 || th < tb)) { t = th; head = true; }
-    else if (tb >= 0) { t = tb; }
-    if (t >= 0 && t < bestT) { bestT = t; best = c; bestHead = head; }
+    const tl = segmentCylinderY(o, d, len, p.x, p.y - 0.06, p.z, hb.bodyR * 1.6, hb.bodyHalfH * 1.15);
+    let t = -1, zone = 'body';
+    // Nearest wins, and ties resolve toward the more specific volume.
+    if (th >= 0) { t = th; zone = 'head'; }
+    if (tb >= 0 && (t < 0 || tb < t)) { t = tb; zone = 'body'; }
+    if (tl >= 0 && (t < 0 || tl < t - 1e-4)) { t = tl; zone = 'limb'; }
+    if (t >= 0 && t < bestT) { bestT = t; best = c; bestZone = zone; }
   }
-  return best ? { target: best, t: bestT, head: bestHead } : null;
+  return best ? { target: best, t: bestT, zone: bestZone, head: bestZone === 'head' } : null;
 }
 
 /* ----------------------- first-person models ----------------------- */
@@ -2029,9 +2078,9 @@ function stepBullets(dt) {
 
     if (cHit && cHit.t <= wallT) {
       _hitPoint.copy(b.prev).addScaledVector(_dir, cHit.t);
-      const dmg = b.damage * (cHit.head ? 1.8 : 1);
+      const dmg = b.damage * ZONE_MULT[cHit.zone];
       spawnBlood(_hitPoint);
-      applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head);
+      applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head, cHit.zone);
       despawnBullet(i);
       continue;
     }
@@ -2078,8 +2127,14 @@ function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1) {
     }
     spawnBullet(origin, _fireDir, weapon, shooter, weapon.damage);
   }
-  const d = origin.distanceTo(camera.position);
-  Audio.gunshot(weapon.sound, d);
+  // The player's own gun stays centred; everyone else's is placed in the stereo field so you
+  // can tell which side you are being shot from before you see anyone.
+  if (shooter === player) {
+    Audio.gunshot(weapon.sound, 0, 0);
+  } else {
+    const sp = Audio.spatial(origin);
+    Audio.gunshot(weapon.sound, sp.dist, sp.pan);
+  }
   alertBots(origin, shooter);
 }
 
@@ -2244,7 +2299,7 @@ function resetPlayerAmmo() {
  * Route damage through armour, then health. Handles kill bookkeeping for whoever fired.
  * Used by bullets and by explosions, for the player and for bots alike.
  */
-function applyDamage(target, amount, source, hitPos, headshot) {
+function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
   if (!target.alive || !match.running) return;
   // Spawn protection. Gated here as well as in Bot.canSee, because bullets already in flight
   // and grenades already thrown do not go back through target acquisition.
@@ -2665,20 +2720,29 @@ function buildSoldierMesh(teamColor) {
 
   model.traverse((o) => {
     if (!o.isMesh) return;
+    // Cloned so the death fade (material.opacity) and any tint stay per-bot. The Vanguard
+    // texture is left exactly as authored: tinting the whole body toward the team colour
+    // turned every soldier into a flat red or blue mannequin. Team reads from the kit below.
     o.material = o.material.clone();
-    o.material.emissive = new THREE.Color(teamColor);
-    o.material.emissiveIntensity = 0.55;      // team tell without washing out the texture
     o.castShadow = true;
     o.receiveShadow = true;
     o.frustumCulled = false;                  // skinned bounds are the bind pose, not the pose
   });
   g.add(model);
 
-  // Shoulder lamp, same team tell the blocky mesh carries, readable at range and in the dark.
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6),
+  // Team kit: a chest webbing band, shoulder pads and a small shoulder lamp. Enough to call
+  // friend from foe in a glance without repainting the soldier.
+  const kitMat = matte(teamColor, 0.55, 0.15);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.13, 0.30), kitMat);
+  band.position.set(0, 0.62, 0.01);
+  const padL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.10, 0.22), kitMat);
+  padL.position.set(-0.22, 0.78, 0);
+  const padR = padL.clone();
+  padR.position.x = 0.22;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6),
     new THREE.MeshBasicMaterial({ color: teamColor }));
-  lamp.position.set(0.2, 0.5, 0);
-  g.add(lamp);
+  lamp.position.set(0.19, 0.80, 0.02);
+  g.add(band, padL, padR, lamp);
 
   const mixer = new THREE.AnimationMixer(model);
   const clips = {};
@@ -2779,6 +2843,8 @@ class Bot {
     this.nadeCd = rand(6, 16);
     this.deathTimer = 0;
     this.respawnTimer = 0;
+    this.strafeDir = Math.random() < 0.5 ? -1 : 1;
+    this.strafeTimer = rand(0.5, 1.5);
     this.yaw = rand(-Math.PI, Math.PI);
     this.stepTimer = 0;
 
@@ -2894,7 +2960,10 @@ class Bot {
     if (this.stepTimer <= 0) {
       this.stepTimer = 0.42;
       const dc = this.body.position.distanceTo(camera.position);
-      if (dc < 22) Audio.burst({ dur: 0.06, gain: 0.05 * Audio.atten(dc), type: 'lowpass', freq: 380, decay: 0.05 });
+      if (dc < 22) {
+        const sp = Audio.spatial(this.body.position);
+        Audio.burst({ dur: 0.06, gain: 0.05 * Audio.atten(dc), type: 'lowpass', freq: 380, decay: 0.05, pan: sp.pan });
+      }
     }
     return false;
   }
@@ -3011,7 +3080,7 @@ class Bot {
           this.patrolWp = randInt(0, waypoints.length - 1);
           this.repath(waypoints[this.patrolWp].pos);
         }
-        this.followPath(3.0, dt);
+        this.followPath(this.moveSpeed('patrol'), dt);
         break;
       }
 
@@ -3034,23 +3103,20 @@ class Bot {
 
         const dest = this.hasLOS ? this.target.pos : this.lastKnown;
         if (!this.path || this.repathTimer <= 0) this.repath(dest);
-        const done = this.followPath(5.0, dt);
+        const done = this.followPath(this.moveSpeed('chase'), dt);
         if (this.hasLOS) this.faceTarget(dt);
         if (done && !this.hasLOS) this.setState(ST.PATROL);
         break;
       }
 
       case ST.SHOOT: {
-        this.setPlanarVelocity(0, 0);
         this.faceTarget(dt);
         if (hpFrac < 0.4) { this.setState(ST.COVER); break; }
         if (!this.hasLOS) {
           if (this.stateTime > 0.6) this.setState(ST.CHASE);
           break;
         }
-        // Strafe a little so bots are not stationary targets.
-        const s = Math.sin(this.stateTime * 1.7) * 2.0;
-        this.setPlanarVelocity(Math.cos(this.yaw) * s, -Math.sin(this.yaw) * s);
+        this.combatMove(dist, dt);
         if (this.reactTimer <= 0) this.shootAt(this.target, dt);
         if (this.nadeCd <= 0 && dist > 6 && dist < 15) { this.setState(ST.NADE); break; }
         if (dist > 60) this.setState(ST.CHASE);
@@ -3059,7 +3125,7 @@ class Bot {
 
       case ST.COVER: {
         if (this.stateTime === 0 || !this.path) this.findCover();
-        const done = this.followPath(5.4, dt);
+        const done = this.followPath(this.moveSpeed('cover'), dt);
         if (done || this.stateTime > 2.0) {
           this.health = Math.min(100, this.health + 12);   // catching breath
           this.setState(ST.CHASE);
@@ -3093,6 +3159,60 @@ class Bot {
   }
 
   setState(s) { this.state = s; this.stateTime = 0; if (s === ST.COVER) this.findCover(); }
+
+  /**
+   * Movement while actually engaging someone.
+   *
+   * The old version was `sin(stateTime * 1.7) * 2` sideways and nothing else, which is why a
+   * bot you closed on appeared to shuffle left and right on the spot forever. Now it holds a
+   * band of range that suits the gun it is carrying — a shotgun bot wants to be in your face,
+   * a sniper wants to back off — and only strafes once it is inside that band. The strafe
+   * direction flips on a randomised timer rather than a sine, so it does not read as a
+   * metronome, and it reverses early if the bot walks into something.
+   */
+  combatMove(dist, dt) {
+    const band = BOT_RANGE_BAND[this.weaponId] || BOT_RANGE_BAND.ar;
+    const speed = this.moveSpeed(dist < band.min ? 'retreat' : 'combat');
+
+    // Forward axis toward the target, and the perpendicular used for strafing.
+    const dx = this.target.pos.x - this.body.position.x;
+    const dz = this.target.pos.z - this.body.position.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const fx = dx / len, fz = dz / len;
+    const rx = -fz, rz = fx;
+
+    this.strafeTimer -= dt;
+    if (this.strafeTimer <= 0) {
+      this.strafeDir = Math.random() < 0.5 ? -1 : 1;
+      this.strafeTimer = rand(0.7, 1.8);
+    }
+
+    let vx = 0, vz = 0;
+    if (dist < band.min) {                 // too close — give ground while still firing
+      vx -= fx * speed; vz -= fz * speed;
+    } else if (dist > band.max) {           // too far — close in
+      vx += fx * speed * 0.9; vz += fz * speed * 0.9;
+    }
+    // Always some lateral movement so a bot is never a stationary target.
+    vx += rx * this.strafeDir * speed * 0.75;
+    vz += rz * this.strafeDir * speed * 0.75;
+
+    // If barely moving despite wanting to, we are against geometry — flip the strafe.
+    const actual = Math.hypot(this.body.velocity.x, this.body.velocity.z);
+    if (actual < 0.6 && this.stateTime > 0.3) { this.strafeDir *= -1; this.strafeTimer = rand(0.5, 1.0); }
+
+    this.setPlanarVelocity(vx, vz);
+  }
+
+  /** Bots run. Patrol is the only time they walk. Harder bots move faster. */
+  moveSpeed(kind) {
+    const m = this.diff.speed ?? 1;
+    if (kind === 'patrol') return 3.6 * m;
+    if (kind === 'combat') return 4.6 * m;
+    if (kind === 'retreat') return 4.2 * m;
+    if (kind === 'cover') return 7.2 * m;
+    return 6.6 * m;                        // chase
+  }
 
   /** Nearest waypoint flagged as cover that the current target cannot see into. */
   findCover() {
@@ -4070,7 +4190,8 @@ const el = {
   toast: $('toast'), bBody: $('b-body'), bTitle: $('b-title'), bSub: $('b-sub'),
   pBig: $('p-big'), pSm: $('p-sm'), pCta: $('p-cta'), loading: $('loading'), play: $('play'),
   nameInput: $('nameinput'), menuResult: $('menuresult'),
-  dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'),
+  dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'), allies: $('allies'),
+  hitflash: $('hitflash'),
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
@@ -4096,7 +4217,18 @@ function showDamageDirection(sourcePos) {
   d.style.transform = `rotate(${rel}rad)`;
   el.dmgwrap.appendChild(d);
   requestAnimationFrame(() => { d.style.opacity = '0'; });
-  setTimeout(() => d.remove(), 600);
+  setTimeout(() => d.remove(), 900);
+
+  // Screen-edge pulse as well: the arc tells you where, this tells you THAT you were hit even
+  // if your eyes are on the far side of the screen.
+  if (el.hitflash) {
+    el.hitflash.style.transition = 'none';
+    el.hitflash.style.opacity = '1';
+    requestAnimationFrame(() => {
+      el.hitflash.style.transition = 'opacity .35s ease-out';
+      el.hitflash.style.opacity = '0';
+    });
+  }
 }
 
 /** Crosshair colour and gap are driven from settings via CSS custom properties. */
@@ -4109,12 +4241,12 @@ function applyCrosshairStyle() {
 const _dmgProj = new THREE.Vector3();
 
 /** Float the damage dealt above the point of impact, projected to screen space. */
-function showDamageNumber(worldPos, amount, headshot) {
+function showDamageNumber(worldPos, amount, headshot, zone = 'body') {
   if (!el.dmgNums || amount <= 0 || !settings.showDamageNumbers) return;
   _dmgProj.copy(worldPos).project(camera);
   if (_dmgProj.z > 1) return;                       // behind the camera
   const d = document.createElement('div');
-  d.className = headshot ? 'dmg-num head' : 'dmg-num';
+  d.className = `dmg-num ${zone}`;
   d.textContent = Math.round(amount);
   // A little horizontal jitter so a shotgun's pellets do not stack into one unreadable blob.
   d.style.left = `${(_dmgProj.x * 0.5 + 0.5) * innerWidth + rand(-14, 14)}px`;
@@ -4138,6 +4270,59 @@ function makePlate(name, color) {
   root.append(n, bar);
   el.plates.appendChild(root);
   return { root, fill };
+}
+
+/**
+ * Ally markers. Unlike the enemy nameplates these are deliberately NOT gated on line of
+ * sight — the whole point is knowing where your team is when you cannot see them. Markers for
+ * allies outside the view are clamped to the screen edge and pointed at, the way squad markers
+ * work in any team shooter.
+ */
+const _allyProj = new THREE.Vector3();
+const allyMarks = new Map();
+
+function updateAllyMarkers() {
+  if (!el.allies) return;
+  if (player.team === TEAM.SOLO) {
+    for (const [, m] of allyMarks) m.root.style.display = 'none';
+    return;
+  }
+
+  for (const b of bots) {
+    if (b.team !== player.team) continue;
+    let m = allyMarks.get(b);
+    if (!m) {
+      const root = document.createElement('div');
+      root.className = 'ally-mark';
+      const chev = document.createElement('span');
+      chev.className = 'chev';
+      chev.textContent = '▲';
+      const name = document.createElement('span');
+      name.textContent = b.name;
+      const hp = document.createElement('span');
+      hp.className = 'ahp';
+      const fill = document.createElement('i');
+      hp.appendChild(fill);
+      root.append(chev, name, hp);
+      el.allies.appendChild(root);
+      m = { root, fill };
+      allyMarks.set(b, m);
+    }
+    if (!b.alive) { m.root.style.display = 'none'; continue; }
+
+    _allyProj.set(b.pos.x, b.pos.y + 1.0, b.pos.z).project(camera);
+    const behind = _allyProj.z > 1;
+    let sx = (_allyProj.x * 0.5 + 0.5) * innerWidth;
+    let sy = (-_allyProj.y * 0.5 + 0.5) * innerHeight;
+    if (behind) { sx = innerWidth - sx; sy = innerHeight - 40; }
+
+    const off = behind || sx < 40 || sx > innerWidth - 40 || sy < 40 || sy > innerHeight - 40;
+    m.root.classList.toggle('off', off);
+    m.root.style.display = '';
+    m.root.style.left = `${clamp(sx, 40, innerWidth - 40)}px`;
+    m.root.style.top = `${clamp(sy, 40, innerHeight - 60)}px`;
+    m.fill.style.transform = `scaleX(${clamp(b.health / 100, 0, 1)})`;
+  }
 }
 
 const _proj = new THREE.Vector3();
@@ -4168,6 +4353,7 @@ function updatePlates(dt) {
     p.root.style.top = `${(-_proj.y * 0.5 + 0.5) * innerHeight}px`;
     p.root.style.opacity = String(clamp(1.15 - d / 55, 0.25, 1));
     p.fill.style.transform = `scaleX(${clamp(b.health / 100, 0, 1)})`;
+    p.root.classList.toggle('hurt', b.health < 35);
   }
 }
 
@@ -4283,6 +4469,8 @@ function addBot(team) {
 }
 
 function clearBots() {
+  for (const [, m] of allyMarks) m.root.remove();
+  allyMarks.clear();
   for (const b of bots) {
     b.dispose();
     const i = combatants.indexOf(b);
@@ -4662,6 +4850,7 @@ function frame() {
     updateViewModel(dt);
     updateCamera(dt);
     updatePlates(dt);
+    updateAllyMarkers();
     updateHudTimers(dt);
   }
 
@@ -4898,7 +5087,7 @@ async function boot() {
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,
     settings, applySettings, QUALITY, vmCamera,
-    getLightBudget: () => activeLightBudget,
+    getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND,
     currentMapId: () => currentMapId,
   };
 

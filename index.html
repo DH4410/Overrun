@@ -76,19 +76,37 @@
   #hitmarker i { position: absolute; background: #fff; box-shadow: 0 0 4px #000; }
   #hitmarker.kill i { background: var(--danger); }
 
-  /* ---------- damage indicator ---------- */
+  /* ---------- damage direction indicator ---------- */
+  /* A red arc at the bearing the hit came from. Bigger, brighter and longer-lived than the
+     original faint wedge, which was easy to miss entirely in a firefight. */
   #dmgwrap { position: absolute; inset: 0; }
   .dmg {
-    position: absolute; left: 50%; top: 50%; width: 340px; height: 340px;
-    margin: -170px 0 0 -170px; pointer-events: none;
-    transition: opacity .35s linear;
+    position: absolute; left: 50%; top: 50%; width: 420px; height: 420px;
+    margin: -210px 0 0 -210px; pointer-events: none;
+    transition: opacity .45s ease-out;
   }
   .dmg::before {
-    content: ''; position: absolute; left: 50%; top: 4px; transform: translateX(-50%);
-    width: 130px; height: 34px;
+    content: ''; position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+    width: 190px; height: 62px;
     background: radial-gradient(ellipse at 50% 100%,
-      rgba(255,60,60,.85), rgba(255,60,60,0) 72%);
+      rgba(255,40,40,.95), rgba(255,90,60,.55) 45%, rgba(255,60,60,0) 75%);
     clip-path: polygon(0 100%, 50% 0, 100% 100%);
+    filter: drop-shadow(0 0 6px rgba(255,40,40,.7));
+  }
+  /* A thin bright leading edge makes the bearing readable at a glance. */
+  .dmg::after {
+    content: ''; position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
+    width: 70px; height: 3px; border-radius: 2px;
+    background: linear-gradient(90deg, rgba(255,60,60,0), #ff5a4a, rgba(255,60,60,0));
+  }
+
+  /* Full-screen red vignette pulse when hit, so damage registers even if you are looking
+     away from the indicator. */
+  #hitflash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    transition: opacity .35s ease-out;
+    background: radial-gradient(ellipse at 50% 50%,
+      rgba(255,0,0,0) 42%, rgba(190,0,0,.42) 100%);
   }
 
   /* ---------- vitals (bottom-left) ---------- */
@@ -176,14 +194,39 @@
 
   /* ---------- bot nameplates ---------- */
   #plates { position: absolute; inset: 0; overflow: hidden; }
-  .plate { position: absolute; width: 74px; margin-left: -37px;
+  /* Enemy / ally nameplate: callsign, health bar, and a segmented tick overlay so the bar
+     reads as a quantity rather than a smear. Only shown on clear line of sight. */
+  .plate { position: absolute; width: 108px; margin-left: -54px;
            text-align: center; will-change: transform; }
-  .plate .pn { font-size: 10px; letter-spacing: 1px; text-shadow: 0 0 4px #000;
-               margin-bottom: 2px; }
-  .plate .ph { height: 4px; border-radius: 2px; background: rgba(0,0,0,.6);
-               border: 1px solid rgba(0,0,0,.7); overflow: hidden; }
+  .plate .pn { font-size: 11px; letter-spacing: 1.5px; font-weight: 700;
+               text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.9); margin-bottom: 3px; }
+  .plate .ph { position: relative; height: 6px; border-radius: 3px;
+               background: rgba(0,0,0,.72); border: 1px solid rgba(0,0,0,.85);
+               overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.6); }
   .plate .ph > i { display: block; height: 100%; width: 100%;
-                   transform-origin: left center; }
+                   transform-origin: left center; transition: transform .12s linear; }
+  /* Tick marks every 25% — cheap, and makes remaining health readable at a glance. */
+  .plate .ph::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(90deg,
+      rgba(0,0,0,0) 0 24%, rgba(0,0,0,.65) 24% 26%);
+  }
+  .plate.hurt .pn { color: #ff8a7a !important; }
+
+  /* Ally marker: a chevron that stays on screen even when the ally is not visible, so you
+     always know where your team is. Clamped to the viewport edge when off-screen. */
+  #allies { position: absolute; inset: 0; pointer-events: none; }
+  .ally-mark {
+    position: absolute; transform: translate(-50%, -50%);
+    font-size: 11px; letter-spacing: 1px; font-weight: 700; color: var(--ally);
+    text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.9); white-space: nowrap;
+  }
+  .ally-mark .chev { font-size: 15px; display: block; line-height: 1; }
+  .ally-mark.off { opacity: .75; }
+  .ally-mark .ahp { display: block; width: 40px; height: 3px; margin: 2px auto 0;
+                    border-radius: 2px; background: rgba(0,0,0,.6); overflow: hidden; }
+  .ally-mark .ahp > i { display: block; height: 100%; width: 100%;
+                        background: var(--ally); transform-origin: left center; }
 
   /* ---------- scoreboard ---------- */
   #board { position: absolute; inset: 0; display: none;
@@ -355,7 +398,9 @@
 <div id="hud" class="hidden">
   <div id="lowhp"></div>
   <div id="dmgwrap"></div>
+  <div id="hitflash"></div>
   <div id="plates"></div>
+  <div id="allies"></div>
 
   <div id="crosshair">
     <i class="ch-up"></i><i class="ch-dn"></i><i class="ch-lf"></i><i class="ch-rt"></i><i class="ch-dot"></i>

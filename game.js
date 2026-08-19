@@ -3359,6 +3359,20 @@ class Bot {
 
   update(dt) {
     this.updateTransforms();
+
+    // Fall-out guard. The player has had one of these forever; bots did not, so a bot that
+    // slipped through the floor (a bad spawn, or getting shoved into a seam by the separation
+    // push) fell for the rest of the match and never came back. A 90 s soak found this on
+    // every map — three of four bots were gone by the end of one run.
+    if (this.body.position.y < -20) {
+      const sp = pickSpawn(this.team);
+      this.body.position.set(sp.x, sp.y + 0.6, sp.z);
+      this.body.velocity.set(0, 0, 0);
+      this.body.wakeUp();
+      this.path = null;
+      this.updateTransforms();
+    }
+
     this.fireCd = Math.max(0, this.fireCd - dt);
     // Aim settles the longer a bot holds the same target in view, and resets the moment it
     // loses them — so peeking a fresh angle is punished less than standing in the open.
@@ -5630,6 +5644,13 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     currentMapId: () => currentMapId,
     forceUpdatePlates: (dt) => updatePlates(dt),
+    // Everything that normally runs once per rendered frame, so a headless soak test can
+    // exercise the same code paths the real loop does.
+    forceRenderTick: (dt) => {
+      updateBursts(dt); updateExplosionFx(dt); updateSmoke(dt); updateBrass(dt);
+      updatePickups(dt); updateAmmoChests(dt); updateConsumables(dt);
+      updateShake(dt); updateSpotting(dt); updateMatch(dt); updateLights();
+    },
     forceUpdateConsumables: (dt) => updateConsumables(dt),
   };
 

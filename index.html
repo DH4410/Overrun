@@ -38,14 +38,17 @@
   }
 
   /* ---------- crosshair ---------- */
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px;
-               transform: translate(-50%, -50%); transition: opacity .12s; }
-  #crosshair i { position: absolute; background: var(--accent); box-shadow: 0 0 3px #000; }
-  .ch-dot { left: 14px; top: 14px; width: 2px; height: 2px; border-radius: 50%; }
-  .ch-up  { left: 14px; top: 0;    width: 2px; height: 9px; }
-  .ch-dn  { left: 14px; bottom: 0; width: 2px; height: 9px; }
-  .ch-lf  { top: 14px;  left: 0;   height: 2px; width: 9px; }
-  .ch-rt  { top: 14px;  right: 0;  height: 2px; width: 9px; }
+  /* Gap-style crosshair. The arms are positioned outward from centre by --xhair-gap, so the
+     settings panel can open and close the gap without touching any other rule. */
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+               transition: opacity .12s; }
+  #crosshair i { position: absolute; background: var(--xhair, var(--accent));
+                 box-shadow: 0 0 3px #000, 0 0 1px #000; }
+  .ch-dot { width: 3px; height: 3px; border-radius: 50%; left: -1.5px; top: -1.5px; }
+  .ch-up  { width: 2px; height: 9px; left: -1px; top:  calc(-1 * (var(--xhair-gap, 8px) + 9px)); }
+  .ch-dn  { width: 2px; height: 9px; left: -1px; top:  var(--xhair-gap, 8px); }
+  .ch-lf  { height: 2px; width: 9px; top: -1px;  left: calc(-1 * (var(--xhair-gap, 8px) + 9px)); }
+  .ch-rt  { height: 2px; width: 9px; top: -1px;  left: var(--xhair-gap, 8px); }
   #crosshair.off { opacity: 0; }
 
   /* ---------- sniper scope ---------- */
@@ -255,6 +258,56 @@
     padding: 8px 20px; border-radius: 20px; transition: background .15s;
   }
   #map-blurb { margin-top: 8px; font-size: 11px; color: var(--dim); line-height: 1.5; }
+
+  /* ---------- settings panel ---------- */
+  #settings {
+    position: fixed; inset: 0; z-index: 60; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(2,5,9,.82); backdrop-filter: blur(6px);
+  }
+  #settings.hidden { display: none; }
+  .set-card {
+    pointer-events: auto; width: min(620px, 92vw); max-height: 86vh; overflow-y: auto;
+    background: linear-gradient(180deg, rgba(16,24,33,.98), rgba(9,14,20,.98));
+    border: 1px solid rgba(110,231,255,.22); border-radius: 12px; padding: 22px 26px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.7);
+  }
+  .set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .set-head h2 { margin: 0; font-size: 20px; letter-spacing: 5px; color: var(--accent); font-weight: 700; }
+  .set-actions { display: flex; gap: 8px; }
+  .set-actions button, .pause-btns button, .ghost-btn {
+    pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 11px;
+    letter-spacing: 2px; padding: 8px 16px; border-radius: 6px;
+    background: rgba(110,231,255,.08); border: 1px solid rgba(110,231,255,.3); color: var(--hud);
+    transition: background .15s;
+  }
+  .set-actions button:hover, .pause-btns button:hover, .ghost-btn:hover { background: rgba(110,231,255,.2); }
+  .ghost-btn { display: block; margin: 10px auto 0; }
+
+  .set-group {
+    margin: 18px 0 6px; font-size: 10px; letter-spacing: 4px; color: var(--accent);
+    border-bottom: 1px solid rgba(110,231,255,.15); padding-bottom: 6px;
+  }
+  .set-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 9px 0; font-size: 13px; color: var(--hud);
+  }
+  .set-label { flex: 1; }
+  .set-ctl { display: flex; align-items: center; gap: 10px; }
+  .set-ctl input[type=range] { width: 170px; accent-color: var(--accent); }
+  .set-ctl input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
+  .set-ctl input[type=color] { width: 40px; height: 26px; border: none; background: none; padding: 0; }
+  .set-ctl b { min-width: 46px; text-align: right; color: var(--accent); font-size: 12px; }
+  .set-choice { display: flex; gap: 6px; }
+  .set-choice button {
+    pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 10px;
+    letter-spacing: 1px; padding: 6px 11px; border-radius: 5px; color: var(--hud);
+    background: rgba(110,231,255,.05); border: 1px solid rgba(110,231,255,.22);
+  }
+  .set-choice button.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
+  .set-hint { font-size: 10px; color: var(--dim); line-height: 1.5; margin: -2px 0 6px; max-width: 78%; }
+
+  .pause-btns { display: flex; gap: 10px; justify-content: center; margin-top: 18px; pointer-events: auto; }
   .pill:hover { background: rgba(110,231,255,.14); }
   .pill.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
 
@@ -366,6 +419,24 @@
   <div class="big" id="p-big">PAUSED</div>
   <div class="sm" id="p-sm"></div>
   <div class="cta" id="p-cta">CLICK TO RESUME &nbsp;·&nbsp; ESC RELEASES THE CURSOR</div>
+  <div class="pause-btns">
+    <button id="settings-open-pause">SETTINGS</button>
+    <button id="quit-match">LEAVE MATCH</button>
+  </div>
+</div>
+
+<!-- ========================== SETTINGS ========================== -->
+<div id="settings" class="hidden">
+  <div class="set-card">
+    <div class="set-head">
+      <h2>SETTINGS</h2>
+      <div class="set-actions">
+        <button id="settings-reset">RESET</button>
+        <button id="settings-close">DONE</button>
+      </div>
+    </div>
+    <div id="settings-body"></div>
+  </div>
 </div>
 
 <!-- ============================= MENU ============================= -->
@@ -416,6 +487,7 @@
   </div>
 
   <button id="play" disabled>LOADING</button>
+  <button id="settings-open" class="ghost-btn">SETTINGS</button>
   <div id="loading">preparing arena…</div>
 
   <div id="keyhelp">

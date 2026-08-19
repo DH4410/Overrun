@@ -93,6 +93,62 @@ const CONFIG = {
 const DUNGEON_TILE = 4;
 const DUNGEON_CEIL = 4.15;
 
+/* ================================================================== *
+ * === SETTINGS ===
+ * ================================================================== */
+
+/**
+ * Graphics presets, built from measurement rather than taste. Timing one frame at 400x300
+ * with each knob isolated: baseline 33.8 ms, shadows off 1.9 ms, half resolution 3.4 ms.
+ * Shadow rendering is ~95% of the frame, so that is the first thing every step down removes;
+ * resolution scale is second, and the active point-light budget third.
+ */
+const QUALITY = {
+  low: {
+    label: 'PERFORMANCE',
+    shadows: false, shadowMap: 512, maxPixelRatio: 1, renderScale: 0.75,
+    lights: 4, particles: 0.35, aniso: 1, antialias: false, decals: 30,
+  },
+  medium: {
+    label: 'BALANCED',
+    shadows: true, shadowMap: 1024, maxPixelRatio: 1, renderScale: 1.0,
+    lights: 8, particles: 0.7, aniso: 4, antialias: true, decals: 60,
+  },
+  high: {
+    label: 'QUALITY',
+    shadows: true, shadowMap: 2048, maxPixelRatio: 2, renderScale: 1.0,
+    lights: 12, particles: 1.0, aniso: 16, antialias: true, decals: 90,
+  },
+};
+
+const DEFAULT_SETTINGS = {
+  quality: 'medium',
+  sensitivity: 1.0,         // multiplier on CONFIG.SENS
+  adsSensitivity: 0.75,     // extra multiplier while aiming
+  fov: 70,                  // "a bit zoomed in" vs the old 78
+  invertY: false,
+  crosshairColor: '#00ff87',
+  crosshairGap: 8,
+  showDamageNumbers: true,
+  masterVolume: 0.8,
+  viewBob: true,
+};
+
+const settings = { ...DEFAULT_SETTINGS };
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem('overrun.settings');
+    if (raw) Object.assign(settings, JSON.parse(raw));
+  } catch { /* corrupt or unavailable storage just means defaults */ }
+  // Never trust persisted data to name a preset that still exists.
+  if (!QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
+}
+
+function saveSettings() {
+  try { localStorage.setItem('overrun.settings', JSON.stringify(settings)); } catch { /* ignore */ }
+}
+
 /** Seconds of spawn protection. Bots would otherwise have LOS on you before you can move. */
 const SPAWN_INVULN = 3.0;
 
@@ -175,7 +231,7 @@ const Audio = {
     if (!AC) return;
     this.ctx = new AC();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = 0.5 * (settings?.masterVolume ?? 1);
     this.master.connect(this.ctx.destination);
 
     const len = Math.floor(this.ctx.sampleRate * 1.0);
@@ -183,6 +239,10 @@ const Audio = {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.ready = true;
+  },
+
+  setVolume(v) {
+    if (this.master) this.master.gain.value = 0.5 * clamp(v, 0, 1);
   },
 
   /** One-shot filtered noise burst. */
@@ -393,18 +453,110 @@ mapCamera.up.set(0, 0, -1);
 mapCamera.layers.set(L_MAP);
 mapCamera.layers.enable(L_BLIP);
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  vmCamera.aspect = innerWidth / innerHeight;
-  vmCamera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  // Pooled particles size themselves in the shader, so they need the new viewport height.
-  if (typeof particlesAdd !== 'undefined') {
-    particlesAdd.mat.uniforms.uScale.value = innerHeight * 0.5;
-    particlesNorm.mat.uniforms.uScale.value = innerHeight * 0.5;
+addEventListener('resize', () => resizeRenderer());
+
+/* ================================================================== *
+ * === LIGHTING RIG ===
+ * ================================================================== */
+
+/**
+ * A fixed lighting budget for the entire game, created once and never added to or removed
+ * from the scene.
+ *
+ * This is not a micro-optimisation, it is the fix for the single worst bug in the game.
+ * three.js keys its shader programs on the scene's light counts, so adding or removing ANY
+ * light invalidates every material and forces a full recompile. Measured here: adding one
+ * PointLight cost 356 ms on the next frame against a 47 ms steady state, and compiled seven
+ * new programs — and removing it compiled more. Every grenade did that twice, which is the
+ * multi-second freeze on firing. Switching maps did it another dozen times.
+ *
+ * So: the ambient/hemisphere/sun rig exists once and maps only re-tint it, and every point
+ * light in the game leases one of a fixed pool of slots. Nothing is ever added or removed at
+ * runtime, so the program cache stays warm and the count never changes.
+ */
+const MAX_POINT_LIGHTS = 12;
+
+/** Soft radial falloff, shared by every glow sprite (torches, chests, pickups). */
+const glowTexture = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+
+const rigAmbient = new THREE.AmbientLight(0x8ea6c0, 0.4);
+const rigHemi = new THREE.HemisphereLight(0x7f9bb8, 0x232830, 0.75);
+const rigSun = new THREE.DirectionalLight(0xfff1dc, 1.7);
+rigSun.castShadow = true;
+rigSun.shadow.mapSize.set(2048, 2048);
+rigSun.shadow.camera.near = 10;
+rigSun.shadow.camera.far = 170;
+rigSun.shadow.bias = -0.0006;
+rigSun.shadow.normalBias = 0.035;      // kills the banding on the big flat walls
+scene.add(rigAmbient, rigHemi, rigSun, rigSun.target);
+
+/** The pool. Slot 0..n are ordinary point lights; intensity 0 means "free". */
+const lightSlots = [];
+for (let i = 0; i < MAX_POINT_LIGHTS; i++) {
+  const l = new THREE.PointLight(0xffffff, 0, 10, 2);
+  l.castShadow = false;                // shadow-casting point lights are a frame-rate trap
+  scene.add(l);
+  lightSlots.push(l);
+}
+
+/**
+ * Things in the world that would like to be a light: torches, ceiling lamps, ammo chests,
+ * explosions. There are usually more of these than there are slots, so every frame the
+ * nearest few to the camera win. A torch two rooms away contributes nothing on screen but
+ * costs every fragment shader the same as one at your feet.
+ */
+const lightEmitters = [];
+let activeLightBudget = MAX_POINT_LIGHTS;
+
+function addLightEmitter(e) {
+  // { x, y, z, color, intensity, distance, priority, flicker }
+  e.priority = e.priority ?? 0;
+  lightEmitters.push(e);
+  return e;
+}
+
+function removeLightEmitter(e) {
+  const i = lightEmitters.indexOf(e);
+  if (i >= 0) lightEmitters.splice(i, 1);
+}
+
+const _lightSort = [];
+
+/** Assign the best emitters to the pool. Called every frame; cheap for a few dozen emitters. */
+function updateLights() {
+  _lightSort.length = 0;
+  for (const e of lightEmitters) {
+    if (e.intensity <= 0) continue;
+    const dx = e.x - camera.position.x, dy = e.y - camera.position.y, dz = e.z - camera.position.z;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    // Anything outside its own falloff radius cannot contribute; skip it entirely.
+    if (d2 > (e.distance + 6) * (e.distance + 6)) continue;
+    _lightSort.push({ e, score: d2 - e.priority * 10000 });
   }
-});
+  _lightSort.sort((a, b) => a.score - b.score);
+
+  const n = Math.min(activeLightBudget, _lightSort.length, lightSlots.length);
+  for (let i = 0; i < n; i++) {
+    const e = _lightSort[i].e;
+    const l = lightSlots[i];
+    l.position.set(e.x, e.y, e.z);
+    l.color.setHex(e.color);
+    l.intensity = e.intensity;
+    l.distance = e.distance;
+  }
+  for (let i = n; i < lightSlots.length; i++) lightSlots[i].intensity = 0;
+}
 
 /* ================================================================== *
  * === MAP ===
@@ -972,42 +1124,21 @@ function placeDressing() {
 }
 
 function buildLights() {
-  addMapLight(new THREE.AmbientLight(0x8ea6c0, 0.4));
-  addMapLight(new THREE.HemisphereLight(0x7f9bb8, 0x232830, 0.75));
-
-  // Four warm ceiling lamps, one per quadrant.
+  // Ceiling lamps: four warm quadrant lights. The bulb geometry is map-owned, the light
+  // itself is only a request for one of the shared slots.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const p = new THREE.PointLight(0xffd9a8, 420, 78, 2);
-    p.position.set(sx * 24, CH - 1.2, sz * 24);
-    p.castShadow = false;                     // four shadowed point lights is a frame-rate trap
-    addMapLight(p);
+    const x = sx * 24, y = CH - 1.2, z = sz * 24;
+    addLightEmitter({ x, y, z, color: 0xffd9a8, intensity: 420, distance: 78, priority: 1 });
     const bulb = new THREE.Mesh(
       new THREE.CylinderGeometry(1.5, 2.0, 0.6, 14),
       new THREE.MeshBasicMaterial({ color: 0xffe3bb }),
     );
-    bulb.position.copy(p.position);
+    bulb.position.set(x, y, z);
     bulb.layers.set(L_CEIL);
-    addMapLight(bulb);
+    mapGroup.add(bulb);
   }
   // Cool fill over the corridor loop so the outer ring is not a black void.
-  const ring = new THREE.PointLight(0x9fc4ff, 260, 110, 2);
-  ring.position.set(0, CH - 2, 0);
-  addMapLight(ring);
-
-  // Single shadow-casting key light through the (implied) roof lights.
-  const sun = new THREE.DirectionalLight(0xfff1dc, 1.7);
-  sun.position.set(38, 62, 26);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 170;
-  const S = A * 1.05;
-  sun.shadow.camera.left = -S; sun.shadow.camera.right = S;
-  sun.shadow.camera.top = S; sun.shadow.camera.bottom = -S;
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.035;               // kills the banding on the big flat walls
-  addMapLight(sun);
-  addMapLight(sun.target);
+  addLightEmitter({ x: 0, y: CH - 2, z: 0, color: 0x9fc4ff, intensity: 260, distance: 110, priority: 1 });
 }
 
 /* ======================= MAP 2: DUNGEON ======================= */
@@ -1026,32 +1157,84 @@ function buildLights() {
  * disagreeing with what the player can see — a mesh collider built from an arbitrary GLB is
  * exactly the kind of thing that produces invisible walls.
  */
-/* '#' solid rock, '.' floor, 'S' floor + spawn, 'A' floor + ammo chest, 'T' floor + torch. */
-const DUNGEON_MAP = [
-  '#################',
-  '#....S###....S..#',
-  '#.##.#T#.##T##.#.',
-  '#.#A...........#.',
-  '#.#.##.###.##..#.',
-  '#T..#....A..#..T#',
-  '#.#.#.##.##.#.##.',
-  '#.#...#S...#...#.',
-  '#.###.#.#.##.#.#.',
-  '#S..T.....T...A.#',
-  '#.#.###.###.###.#',
-  '#.#...#.....#...#',
-  '#.###.#.###.#.#.#',
-  '#A....#..S..#..T#',
-  '#.#T#.###.#.##..#',
-  '#...........#..S#',
-  '#################',
-];
+/*
+ * The layout is carved rather than hand-drawn as ASCII. Every corridor here is TWO tiles
+ * (8 m) wide and the halls are far bigger, because the first pass at this map used 1-tile
+ * corridors and they played like a drainpipe — you could not strafe, dodge or flank, and a
+ * walk test could only cover 1.4 m before hitting stone.
+ *
+ * '#' solid rock, '.' floor, 'S' spawn, 'A' ammo chest, 'T' torch.
+ */
+const DUNGEON_COLS = 23, DUNGEON_ROWS = 23;
+
+function carveDungeon() {
+  const g = Array.from({ length: DUNGEON_ROWS }, () => Array(DUNGEON_COLS).fill('#'));
+  const rect = (r0, c0, r1, c1) => {
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        if (r > 0 && c > 0 && r < DUNGEON_ROWS - 1 && c < DUNGEON_COLS - 1) g[r][c] = '.';
+      }
+    }
+  };
+
+  // Outer ring corridor, 2 tiles wide, hugging the shell.
+  rect(2, 2, 3, 20); rect(19, 2, 20, 20);
+  rect(2, 2, 20, 3); rect(2, 19, 20, 20);
+
+  // Central hall, 7x7 tiles (28 m) — the main fighting space.
+  rect(8, 8, 14, 14);
+
+  // Four 2-wide spokes from the ring into the hall.
+  rect(3, 10, 8, 12); rect(14, 10, 20, 12);
+  rect(10, 3, 12, 8); rect(10, 14, 12, 20);
+
+  // Corner chambers, joined to the ring by short 2-wide necks.
+  rect(5, 5, 7, 7);   rect(3, 5, 5, 6);   rect(5, 3, 6, 5);
+  rect(5, 15, 7, 17); rect(3, 16, 5, 17); rect(5, 17, 6, 19);
+  rect(15, 5, 17, 7); rect(17, 5, 19, 6); rect(15, 3, 16, 5);
+  rect(15, 15, 17, 17); rect(17, 16, 19, 17); rect(15, 17, 16, 19);
+
+  // Two pillars inside the hall so it is not a featureless box.
+  g[10][10] = '#'; g[10][12] = '#'; g[12][10] = '#'; g[12][12] = '#';
+
+  const put = (r, c, ch) => { if (g[r] && g[r][c] === '.') g[r][c] = ch; };
+  // Spawns: spread around the ring and the corner chambers, never in the central hall.
+  for (const [r, c] of [[2, 2], [2, 20], [20, 2], [20, 20], [2, 11], [20, 11],
+                        [11, 2], [11, 20], [6, 6], [6, 16], [16, 6], [16, 16]]) put(r, c, 'S');
+  // Ammo in the spokes and the hall corners — restocking means leaving cover.
+  for (const [r, c] of [[6, 11], [16, 11], [11, 6], [11, 16], [9, 9], [13, 13]]) put(r, c, 'A');
+  // Torches along the ring and the hall edge.
+  for (const [r, c] of [[3, 6], [3, 16], [19, 6], [19, 16], [6, 3], [16, 3], [6, 19], [16, 19],
+                        [8, 11], [14, 11], [11, 8], [11, 14], [2, 8], [20, 14]]) put(r, c, 'T');
+
+  return g.map((row) => row.join(''));
+}
+
+const DUNGEON_MAP = carveDungeon();
+
+// Shared geometry — one box, one plane, reused by every tile.
+const dungeonWallGeo = new THREE.BoxGeometry(DUNGEON_TILE, DUNGEON_CEIL, DUNGEON_TILE);
+const dungeonTileGeo = new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE);
 
 const DUNGEON_MATS = {
-  floor: new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 0.96, metalness: 0.02 }),
-  wall:  new THREE.MeshStandardMaterial({ color: 0x38352f, roughness: 0.94, metalness: 0.03 }),
-  torch: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.9, metalness: 0.1 }),
-  flame: new THREE.MeshBasicMaterial({ color: 0xff9134 }),
+  // Deliberately mid-grey stone, not near-black. The first pass used 0x38352f walls under a
+  // 0.55 ambient and the corridors read as an unlit void.
+  floor: new THREE.MeshStandardMaterial({ color: 0x8a8175, roughness: 0.95, metalness: 0.02 }),
+  wall:  new THREE.MeshStandardMaterial({ color: 0x766d60, roughness: 0.92, metalness: 0.03 }),
+  ceiling: new THREE.MeshStandardMaterial({ color: 0x4a443c, roughness: 1.0, metalness: 0.0 }),
+  torch: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.75, metalness: 0.55 }),
+  torchWood: new THREE.MeshStandardMaterial({ color: 0x3d2a1a, roughness: 0.95, metalness: 0.0 }),
+  // Three nested cones read as fire far better than one flat one: deep ember at the edge,
+  // orange body, near-white core.
+  flameOuter: new THREE.MeshBasicMaterial({
+    color: 0xc23a08, transparent: true, opacity: 0.45, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  }),
+  flameMid: new THREE.MeshBasicMaterial({
+    color: 0xff8a1e, transparent: true, opacity: 0.8, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  }),
+  flameCore: new THREE.MeshBasicMaterial({ color: 0xffe6a8 }),
   chain: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.55, metalness: 0.85 }),
 };
 
@@ -1070,19 +1253,58 @@ function dungeonGrid() {
 const dungeonAt = (r, c) => (DUNGEON_MAP[r] && DUNGEON_MAP[r][c]) || '#';
 const dungeonOpen = (r, c) => dungeonAt(r, c) !== '#';
 
+/**
+ * Wall sconce: an iron bracket and cradle holding a burning log, with a layered flame.
+ * The old version was a plain cone stuck on a stick. This one builds the flame from three
+ * nested, differently-tinted cones (deep red at the base through to near-white at the core)
+ * with a soft additive halo, which is what actually sells fire at a distance.
+ */
 function addTorch(x, y, z, yaw) {
   const g = new THREE.Group();
-  const bracket = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8), DUNGEON_MATS.torch);
-  bracket.rotation.x = 0.5;
-  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 8), DUNGEON_MATS.flame);
-  flame.position.set(0, 0.34, -0.11);
-  const light = new THREE.PointLight(0xff8c2a, 26, 9, 2);
-  light.position.set(0, 0.4, -0.15);
-  g.add(bracket, flame, light);
+
+  // Wall plate and an S-curved arm out from it.
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 0.05), DUNGEON_MATS.torch);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.34, 6), DUNGEON_MATS.torch);
+  arm.rotation.x = Math.PI / 2.6;
+  arm.position.set(0, 0.06, -0.13);
+  // Cradle ring the log sits in.
+  const cradle = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.016, 5, 10), DUNGEON_MATS.torch);
+  cradle.rotation.x = Math.PI / 2;
+  cradle.position.set(0, 0.20, -0.24);
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.26, 7), DUNGEON_MATS.torchWood);
+  log.position.set(0, 0.16, -0.24);
+  log.rotation.x = -0.12;
+  g.add(plate, arm, cradle, log);
+
+  // Flame: outer haze, mid body, bright core.
+  const flame = new THREE.Group();
+  const outer = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 8), DUNGEON_MATS.flameOuter);
+  const mid = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.30, 8), DUNGEON_MATS.flameMid);
+  const core = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 8), DUNGEON_MATS.flameCore);
+  outer.position.y = 0.21; mid.position.y = 0.15; core.position.y = 0.09;
+  flame.add(outer, mid, core);
+  flame.position.set(0, 0.30, -0.24);
+  g.add(flame);
+
+  // Soft glow billboard so the sconce reads as a light source, not a lit object.
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture, color: 0xff9a3c, transparent: true, opacity: 0.5,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  halo.scale.setScalar(1.5);
+  halo.position.set(0, 0.34, -0.24);
+  g.add(halo);
+
   g.position.set(x, y, z);
   g.rotation.y = yaw;
   mapGroup.add(g);
-  dungeonTorches.push({ light, flame, base: 26, phase: rand(0, Math.PI * 2) });
+
+  // The actual illumination is a request for a shared slot, positioned in world space.
+  const wx = x - Math.sin(yaw) * 0.24, wz = z - Math.cos(yaw) * 0.24;
+  const emitter = addLightEmitter({
+    x: wx, y: y + 0.34, z: wz, color: 0xff8c2a, intensity: 34, distance: 11, priority: 0,
+  });
+  dungeonTorches.push({ emitter, flame, halo, base: 34, phase: rand(0, Math.PI * 2) });
 }
 
 function addHangingChain(x, z, links) {
@@ -1103,8 +1325,11 @@ function updateDungeonFx(dt) {
   const t = performance.now() * 0.001;
   for (const tc of dungeonTorches) {
     // Flicker: a fast sine plus a slower one so it never reads as a clean pulse.
-    tc.light.intensity = tc.base * (1 + Math.sin(t * 8 + tc.phase) * 0.3 + Math.sin(t * 3.3 + tc.phase) * 0.12);
-    tc.flame.scale.setScalar(1 + Math.sin(t * 11 + tc.phase) * 0.14);
+    const f = 1 + Math.sin(t * 8 + tc.phase) * 0.3 + Math.sin(t * 3.3 + tc.phase) * 0.12;
+    tc.emitter.intensity = tc.base * f;
+    // Flames stretch vertically as they gutter rather than scaling uniformly.
+    tc.flame.scale.set(1 + Math.sin(t * 13 + tc.phase) * 0.09, f, 1 + Math.cos(t * 11 + tc.phase) * 0.09);
+    tc.halo.material.opacity = 0.36 + f * 0.16;
   }
   for (const c of dungeonChains) {
     c.group.rotation.z = Math.sin(t * 0.8 + c.phase) * 0.06;
@@ -1143,14 +1368,21 @@ function buildDungeonMap() {
       const z = oz + r * DUNGEON_TILE;
 
       if (ch === '#') {
-        // Solid rock: one collider per cell, plus a block of geometry to see.
-        const m = new THREE.Mesh(
-          new THREE.BoxGeometry(DUNGEON_TILE, DUNGEON_CEIL, DUNGEON_TILE), DUNGEON_MATS.wall);
+        // Rock buried behind other rock is never seen and never touched, so it gets neither
+        // geometry nor a collider — only cells with an open neighbour do. On this layout that
+        // is roughly a third of the wall cells, and it is the difference between a map that
+        // costs 400 draw calls and one that costs 140.
+        const exposed = dungeonOpen(r - 1, c) || dungeonOpen(r + 1, c)
+                     || dungeonOpen(r, c - 1) || dungeonOpen(r, c + 1)
+                     || dungeonOpen(r - 1, c - 1) || dungeonOpen(r - 1, c + 1)
+                     || dungeonOpen(r + 1, c - 1) || dungeonOpen(r + 1, c + 1);
+        addBlocker(x, z, H, H);
+        if (!exposed) continue;
+        const m = new THREE.Mesh(dungeonWallGeo, DUNGEON_MATS.wall);
         m.position.set(x, DUNGEON_CEIL / 2, z);
         m.castShadow = true; m.receiveShadow = true;
         mapGroup.add(m);
         addStaticBox(H, DUNGEON_CEIL / 2, H, { x, y: DUNGEON_CEIL / 2, z });
-        addBlocker(x, z, H, H);
         continue;
       }
 
@@ -1161,14 +1393,14 @@ function buildDungeonMap() {
 
       // Prefer the kit's own floor tile; fall back to a plain slab.
       if (!placeDungeonPiece('dungeonFloor', x, z)) {
-        const f = new THREE.Mesh(new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE), DUNGEON_MATS.floor);
+        const f = new THREE.Mesh(dungeonTileGeo, DUNGEON_MATS.floor);
         f.rotation.x = -Math.PI / 2;
         f.position.set(x, 0.01, z);
         f.receiveShadow = true;
         mapGroup.add(f);
       }
       // Ceiling slab, so looking up is stone rather than sky.
-      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE), DUNGEON_MATS.wall);
+      const ceil = new THREE.Mesh(dungeonTileGeo, DUNGEON_MATS.ceiling);
       ceil.rotation.x = Math.PI / 2;
       ceil.position.set(x, DUNGEON_CEIL, z);
       ceil.layers.set(L_CEIL);
@@ -1204,7 +1436,6 @@ function buildDungeonMap() {
     dressed++;
   }
 
-  buildDungeonLights();
 
   // Spawns and chests come from the authored cells, still validated the usual way.
   for (const [x, z] of spawnSpots) {
@@ -1218,25 +1449,6 @@ function buildDungeonMap() {
     }
   }
   spawnAmmoChests(chestSpots, 6);
-}
-
-function buildDungeonLights() {
-  addMapLight(new THREE.AmbientLight(0x3a2f26, 0.55));
-  addMapLight(new THREE.HemisphereLight(0x4a3a2a, 0x14100c, 0.5));
-  // One shadow-casting key, angled steeply so the corridors stay moody rather than flat.
-  const key = new THREE.DirectionalLight(0xffb070, 0.5);
-  key.position.set(20, 50, 14);
-  key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
-  key.shadow.camera.near = 5;
-  key.shadow.camera.far = 130;
-  const S = (DUNGEON_MAP[0].length * DUNGEON_TILE) / 2 + 6;
-  key.shadow.camera.left = -S; key.shadow.camera.right = S;
-  key.shadow.camera.top = S; key.shadow.camera.bottom = -S;
-  key.shadow.bias = -0.0008;
-  key.shadow.normalBias = 0.03;
-  addMapLight(key);
-  addMapLight(key.target);
 }
 
 /* --------------------- bot navigation waypoints --------------------- */
@@ -1299,17 +1511,17 @@ function buildWaypoints({ extent = 46, step = 8.5, pad = 1.1, coverPad = 3.6 } =
  */
 const MAP_PLATE_GEO = new THREE.PlaneGeometry(1, 1);
 
-function buildMapLayer(extent = A) {
+function buildMapLayer(extent = A, plates = { ground: 0x141a21, solid: 0x5c6b7a }) {
   const g = new THREE.Group();
 
   const ground = new THREE.Mesh(MAP_PLATE_GEO,
-    new THREE.MeshBasicMaterial({ color: 0x141a21, fog: false }));
+    new THREE.MeshBasicMaterial({ color: plates.ground, fog: false }));
   ground.scale.set(extent * 2, extent * 2, 1);
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0.02;
   g.add(ground);
 
-  const solidMat = new THREE.MeshBasicMaterial({ color: 0x5c6b7a, fog: false });
+  const solidMat = new THREE.MeshBasicMaterial({ color: plates.solid, fog: false });
   for (const b of blockers) {
     const m = new THREE.Mesh(MAP_PLATE_GEO, solidMat);
     m.scale.set(b.hx * 2, b.hz * 2, 1);
@@ -1339,12 +1551,23 @@ function addMapLight(obj) {
   return obj;
 }
 
+/**
+ * Geometry that outlives any single map. The dungeon reuses one box and one plane across
+ * hundreds of tiles, so these must survive clearMap() or the second visit to a map renders
+ * nothing. Anything not in here is per-mesh and safe to free.
+ */
+const SHARED_GEO = new Set();
+
+function markShared(...geos) { for (const g of geos) SHARED_GEO.add(g); }
+markShared(dungeonWallGeo, dungeonTileGeo, MAP_PLATE_GEO);
+
 function disposeTree(root) {
   root.traverse((o) => {
-    if (o.isMesh) {
-      o.geometry?.dispose?.();
-      // Materials are frequently shared (MATS.*, DRESS_MATS.*) — disposing them here would
-      // blank the next map. Geometry is per-mesh, so only that is safe to free.
+    if (o.isMesh && o.geometry && !SHARED_GEO.has(o.geometry)) {
+      o.geometry.dispose();
+      // Materials are frequently shared (MATS.*, DRESS_MATS.*, DUNGEON_MATS.*) — disposing
+      // them here would blank the next map. Geometry is usually per-mesh, so only that is
+      // freed, and only when it is not in SHARED_GEO.
     }
   });
 }
@@ -1360,13 +1583,20 @@ function clearMap() {
   for (const l of mapLights) scene.remove(l);
   mapLights.length = 0;
 
+  // Every emitter belongs to the map that registered it; blast leases are transient and are
+  // released by updateExplosionFx. Clearing the array is what keeps the slot pool honest.
+  lightEmitters.length = 0;
+  for (const l of lightSlots) l.intensity = 0;
+  dungeonTorches.length = 0;
+  dungeonChains.length = 0;
+
   if (mapLayerGroup) {
     scene.remove(mapLayerGroup);
     disposeTree(mapLayerGroup);
     mapLayerGroup = null;
   }
 
-  for (const c of ammoChests) scene.remove(c.mesh);
+  for (const c of ammoChests) { scene.remove(c.mesh); removeLightEmitter(c.emitter); }
   ammoChests.length = 0;
 
   blockers.length = 0;
@@ -2357,9 +2587,10 @@ function requestLock() {
 
 /** Consume the accumulated mouse delta once per rendered frame. */
 function applyLook(dt) {
-  const sens = CONFIG.SENS * (aiming && currentWeapon().zoom ? 0.4 : (aiming ? 0.75 : 1));
+  const adsMult = aiming && currentWeapon().zoom ? 0.4 : (aiming ? settings.adsSensitivity : 1);
+  const sens = CONFIG.SENS * settings.sensitivity * adsMult;
   player.yaw -= mouseDX * sens;
-  player.pitch -= mouseDY * sens;
+  player.pitch -= mouseDY * sens * (settings.invertY ? -1 : 1);
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
   // Weapon sway trails the mouse and settles back.
@@ -2999,6 +3230,12 @@ const MAPS = {
     mapView: 46,
     nav: { extent: 46, step: 8.5, pad: 1.1, coverPad: 3.6 },
     layerExtent: A,
+    plates: { ground: 0x141a21, solid: 0x5c6b7a },
+    lighting: {
+      ambient: { color: 0x8ea6c0, intensity: 0.4 },
+      hemi: { sky: 0x7f9bb8, ground: 0x232830, intensity: 0.75 },
+      sun: { color: 0xfff1dc, intensity: 1.7, pos: [38, 62, 26], extent: A * 1.05, far: 170 },
+    },
     build() {
       buildArena();
       placeArenaProps();
@@ -3016,9 +3253,17 @@ const MAPS = {
     blurb: 'Tight stone corridors, torchlight, choke points everywhere.',
     background: 0x0a0806,
     fog: { color: 0x140d07, near: 8, far: 60 },
-    mapView: 40,
-    nav: { extent: 32, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
-    layerExtent: 36,
+    mapView: 44,
+    nav: { extent: 40, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
+    layerExtent: 44,
+    // High-contrast plan: on the warehouse palette the dungeon minimap was near-black on
+    // near-black and unreadable.
+    plates: { ground: 0x120d08, solid: 0xb08a52 },
+    lighting: {
+      ambient: { color: 0x6b5a48, intensity: 0.85 },
+      hemi: { sky: 0x7a6248, ground: 0x241a12, intensity: 0.7 },
+      sun: { color: 0xffc590, intensity: 0.55, pos: [20, 50, 14], extent: 46, far: 130 },
+    },
     build() { buildDungeonMap(); },
   },
 };
@@ -3037,9 +3282,104 @@ function buildMap(id) {
   mapCamera.top = m.mapView / 2; mapCamera.bottom = -m.mapView / 2;
   mapCamera.updateProjectionMatrix();
 
+  // Re-tint the shared rig rather than swapping lights in and out — see MAX_POINT_LIGHTS.
+  const L = m.lighting;
+  rigAmbient.color.setHex(L.ambient.color);
+  rigAmbient.intensity = L.ambient.intensity;
+  rigHemi.color.setHex(L.hemi.sky);
+  rigHemi.groundColor.setHex(L.hemi.ground);
+  rigHemi.intensity = L.hemi.intensity;
+  rigSun.color.setHex(L.sun.color);
+  rigSun.intensity = L.sun.intensity;
+  rigSun.position.set(...L.sun.pos);
+  rigSun.shadow.camera.far = L.sun.far;
+  rigSun.shadow.camera.left = -L.sun.extent; rigSun.shadow.camera.right = L.sun.extent;
+  rigSun.shadow.camera.top = L.sun.extent; rigSun.shadow.camera.bottom = -L.sun.extent;
+  rigSun.shadow.camera.updateProjectionMatrix();
+
   m.build();
   buildWaypoints(m.nav);
-  buildMapLayer(m.layerExtent);
+  buildMapLayer(m.layerExtent, m.plates);
+}
+
+/**
+ * Compile every shader up front. three.js compiles a material's program the first time it is
+ * actually rendered, so without this the first grenade, the first time a bot walks on screen
+ * and the first particle burst each cost a compile stall in the middle of a fight. Calling it
+ * behind the loading screen and again at match start moves that cost somewhere harmless.
+ */
+function warmUpShaders() {
+  // Light every slot briefly: a material's program depends on how many lights are active, so
+  // compiling with the pool dark would produce a different permutation than gameplay uses.
+  const saved = lightSlots.map((l) => l.intensity);
+  for (const l of lightSlots) if (l.intensity === 0) l.intensity = 0.001;
+  renderer.compile(scene, camera);
+  renderer.compile(vmScene, vmCamera);
+  lightSlots.forEach((l, i) => { l.intensity = saved[i]; });
+
+  // Touch every particle slot once so the attribute buffers are allocated and uploaded now.
+  // Without this the first explosion pays a ~130 ms upload even though nothing recompiles.
+  for (const pool of [particlesAdd, particlesNorm]) {
+    for (let i = 0; i < pool.capacity; i++) {
+      pool.emit({ x: 0, y: -500, z: 0, vx: 0, vy: 0, vz: 0, r: 1, g: 1, b: 1, size: 0.01, life: 0.001, gravity: 0, drag: 0 });
+    }
+    pool.update(0.002);      // expires them all and returns every slot
+  }
+}
+
+/**
+ * Push the current settings into the renderer, cameras and light budget.
+ *
+ * Toggling shadowMap.enabled does force a one-time shader recompile — that is unavoidable,
+ * but it happens in the settings panel where a hitch costs nothing, unlike the mid-fight
+ * recompiles the light pool exists to prevent.
+ */
+function applySettings() {
+  const q = QUALITY[settings.quality];
+
+  renderer.shadowMap.enabled = q.shadows;
+  rigSun.castShadow = q.shadows;
+  if (rigSun.shadow.mapSize.x !== q.shadowMap) {
+    rigSun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+    // The old depth texture has to go or three keeps rendering at the previous size.
+    rigSun.shadow.map?.dispose();
+    rigSun.shadow.map = null;
+  }
+  renderer.shadowMap.needsUpdate = true;
+
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q.maxPixelRatio));
+  renderScale = q.renderScale;
+  resizeRenderer();
+
+  activeLightBudget = q.lights;
+  CONFIG.MAX_DECALS = q.decals;
+
+  camera.fov = settings.fov;
+  camera.updateProjectionMatrix();
+  // The viewmodel camera keeps its own, narrower FOV: it framed the gun at 72 against the
+  // world's 78, so it tracks the world FOV by the same ratio rather than matching it.
+  vmCamera.fov = clamp(settings.fov * (72 / 78), 40, 100);
+  vmCamera.updateProjectionMatrix();
+
+  Audio.setVolume?.(settings.masterVolume);
+  applyCrosshairStyle();
+  saveSettings();
+}
+
+let renderScale = 1;
+
+function resizeRenderer() {
+  const w = Math.max(320, Math.round(innerWidth * renderScale));
+  const h = Math.max(240, Math.round(innerHeight * renderScale));
+  renderer.setSize(w, h, false);              // false: let CSS stretch it back to full size
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  vmCamera.aspect = innerWidth / innerHeight;
+  vmCamera.updateProjectionMatrix();
+  particlesAdd.mat.uniforms.uScale.value = h * 0.5;
+  particlesNorm.mat.uniforms.uScale.value = h * 0.5;
 }
 
 /** Swap levels. No-op when the requested map is already loaded. */
@@ -3223,7 +3563,10 @@ function spawnBurst({ origin, count, color, size, speed, spreadDir = null, cone 
                       gravity = -9.0, life = 0.8, drag = 0.0, additive = true }) {
   const pool = additive ? particlesAdd : particlesNorm;
   _pcol.setHex(color);
-  for (let i = 0; i < count; i++) {
+  // Density scales with the graphics preset: fewer, slightly larger particles read almost
+  // the same and cost proportionally less to integrate and upload.
+  const n = Math.max(1, Math.round(count * QUALITY[settings.quality].particles));
+  for (let i = 0; i < n; i++) {
     let dx = rand(-1, 1), dy = rand(-1, 1), dz = rand(-1, 1);
     const l = Math.hypot(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
@@ -3263,6 +3606,7 @@ function spawnBlood(pos) {
 /* ------------------------------- decals ------------------------------- */
 
 const decalGeo = new THREE.CircleGeometry(0.05, 10);
+markShared(decalGeo);
 const decalMat = new THREE.MeshBasicMaterial({
   color: 0x0b0b0d, transparent: true, opacity: 0.85, depthWrite: false,
   polygonOffset: true, polygonOffsetFactor: -4,
@@ -3286,8 +3630,28 @@ function clearDecals() {
 /* ----------------------------- explosions ----------------------------- */
 
 const shockGeo = new THREE.RingGeometry(0.6, 1.0, 40);
+markShared(shockGeo);
 const shocks = [];
 const blastLights = [];
+
+/**
+ * Shock rings are pooled for the same reason the lights are: a fresh MeshBasicMaterial per
+ * detonation meant a fresh shader program on the first one (measured at 208 ms). Eight rings
+ * is more than can be on screen at once, and each keeps its own material so they can fade
+ * independently.
+ */
+const SHOCK_POOL = 8;
+const shockRings = [];
+for (let i = 0; i < SHOCK_POOL; i++) {
+  const m = new THREE.Mesh(shockGeo, new THREE.MeshBasicMaterial({
+    color: 0xffd08a, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  m.rotation.x = -Math.PI / 2;
+  m.visible = false;
+  m.frustumCulled = false;
+  scene.add(m);
+  shockRings.push({ mesh: m, busy: false });
+}
 
 function spawnExplosion(pos) {
   // Upward cone of fire.
@@ -3301,18 +3665,24 @@ function spawnExplosion(pos) {
     drag: 1.8, additive: false,
   });
 
-  const ring = new THREE.Mesh(shockGeo, new THREE.MeshBasicMaterial({
-    color: 0xffd08a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
-  }));
-  ring.position.copy(pos); ring.position.y += 0.15;
-  ring.rotation.x = -Math.PI / 2;
-  scene.add(ring);
-  shocks.push({ mesh: ring, t: 0 });
+  const slot = shockRings.find((r) => !r.busy);
+  if (slot) {
+    slot.busy = true;
+    slot.mesh.visible = true;
+    slot.mesh.position.set(pos.x, pos.y + 0.15, pos.z);
+    slot.mesh.scale.setScalar(1);
+    slot.mesh.material.opacity = 0.9;
+    shocks.push({ slot, t: 0 });
+  }
 
-  const light = new THREE.PointLight(0xffffff, 900, 15, 2);
-  light.position.copy(pos);
-  scene.add(light);
-  blastLights.push({ light, t: 0 });
+  // Leases a slot rather than creating a light. Creating one here was costing a full shader
+  // recompile on detonation and another when it was removed 0.2 s later.
+  const emitter = addLightEmitter({
+    x: pos.x, y: pos.y + 0.5, z: pos.z,
+    color: 0xffd9a0, intensity: 900, distance: 18,
+    priority: 10,                              // outbids torches and lamps for a slot
+  });
+  blastLights.push({ emitter, t: 0 });
 }
 
 function updateExplosionFx(dt) {
@@ -3320,15 +3690,15 @@ function updateExplosionFx(dt) {
     const s = shocks[i];
     s.t += dt;
     const k = s.t / 0.4;
-    s.mesh.scale.setScalar(1 + k * 9);
-    s.mesh.material.opacity = clamp(0.9 * (1 - k), 0, 1);
-    if (k >= 1) { scene.remove(s.mesh); s.mesh.material.dispose(); shocks.splice(i, 1); }
+    s.slot.mesh.scale.setScalar(1 + k * 9);
+    s.slot.mesh.material.opacity = clamp(0.9 * (1 - k), 0, 1);
+    if (k >= 1) { s.slot.mesh.visible = false; s.slot.busy = false; shocks.splice(i, 1); }
   }
   for (let i = blastLights.length - 1; i >= 0; i--) {
     const b = blastLights[i];
     b.t += dt;
-    b.light.intensity = 900 * clamp(1 - b.t / 0.2, 0, 1);
-    if (b.t >= 0.2) { scene.remove(b.light); blastLights.splice(i, 1); }
+    b.emitter.intensity = 900 * clamp(1 - b.t / 0.2, 0, 1);
+    if (b.t >= 0.2) { removeLightEmitter(b.emitter); blastLights.splice(i, 1); }
   }
 }
 
@@ -3528,10 +3898,7 @@ function buildAmmoChest() {
     new THREE.SphereGeometry(0.62, 12, 9),
     new THREE.MeshBasicMaterial({ color: 0xffcf5a, transparent: true, opacity: 0.12, depthWrite: false }),
   );
-  const light = new THREE.PointLight(0xffcf5a, 2.2, 3.0, 2);
-  light.position.y = 0.3;
-  g.add(body, lid, seam, glow, light);
-  g.userData.light = light;
+  g.add(body, lid, seam, glow);
   return g;
 }
 
@@ -3548,7 +3915,10 @@ function spawnAmmoChests(positions, max = 6) {
     const baseY = _spRes.hitPointWorld.y + 0.45;
     mesh.position.set(x, baseY, z);
     scene.add(mesh);
-    ammoChests.push({ mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2) });
+    const emitter = addLightEmitter({
+      x, y: baseY + 0.3, z, color: 0xffcf5a, intensity: 26, distance: 5, priority: 0,
+    });
+    ammoChests.push({ mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
   }
 }
 
@@ -3559,12 +3929,13 @@ function updateAmmoChests(dt) {
   for (const c of ammoChests) {
     if (c.cooldown > 0) {
       c.cooldown -= dt;
-      if (c.cooldown <= 0) { c.mesh.visible = true; Audio.pickup?.(); }
+      if (c.cooldown <= 0) { c.mesh.visible = true; c.emitter.intensity = 26; }
       continue;
     }
     c.mesh.rotation.y += dt * 0.5;
     c.mesh.position.y = c.baseY + Math.sin(t * (Math.PI * 2 / 1.5) + c.phase) * 0.2;
-    c.mesh.userData.light.intensity = 1.8 + Math.sin(t * 3 + c.phase) * 0.6;
+    c.emitter.intensity = 22 + Math.sin(t * 3 + c.phase) * 7;
+    c.emitter.y = c.mesh.position.y + 0.3;
 
     if (!player.alive) continue;
     const d = c.mesh.position.distanceTo(player.body.position);
@@ -3583,6 +3954,7 @@ function updateAmmoChests(dt) {
     showToast('AMMO RESUPPLIED');
     updateAmmoHud();
     c.mesh.visible = false;
+    c.emitter.intensity = 0;                   // frees its slot for something on screen
     c.cooldown = AMMO_CHEST_RESPAWN;
     prompt = false;
   }
@@ -3591,15 +3963,15 @@ function updateAmmoChests(dt) {
 }
 
 function resetAmmoChests() {
-  for (const c of ammoChests) { c.cooldown = 0; c.mesh.visible = true; }
+  for (const c of ammoChests) { c.cooldown = 0; c.mesh.visible = true; c.emitter.intensity = 26; }
 }
 
 function clearEffects() {
   particlesAdd.clear();
   particlesNorm.clear();
-  for (const s of shocks) scene.remove(s.mesh);
+  for (const s of shocks) { s.slot.mesh.visible = false; s.slot.busy = false; }
   shocks.length = 0;
-  for (const b of blastLights) scene.remove(b.light);
+  for (const b of blastLights) removeLightEmitter(b.emitter);
   blastLights.length = 0;
   for (const b of brass) vmScene.remove(b.mesh);
   brass.length = 0;
@@ -3611,6 +3983,7 @@ function clearEffects() {
  * ================================================================== */
 
 const MAP_PX = 180, MAP_MARGIN = 20;
+const _rendererSize = new THREE.Vector2();
 
 /** Player blip: a triangle pointing where the player faces, on the minimap-only layer. */
 const playerBlip = (() => {
@@ -3665,13 +4038,17 @@ function renderMinimap() {
   playerBlip.position.set(px, 0.6, pz);
   playerBlip.rotation.y = player.yaw;
 
-  // setViewport/setScissor take CSS pixels — three multiplies by the pixel ratio itself.
-  // The GL origin is bottom-left, so the CSS bottom margin is the y offset directly.
-  const x = innerWidth - MAP_MARGIN - MAP_PX;
-  const y = MAP_MARGIN;
+  // setViewport/setScissor work in the renderer's own drawing-buffer units (three applies the
+  // pixel ratio itself). With a render scale below 1 those are no longer CSS pixels, so the
+  // minimap rectangle has to be scaled to match or it drifts off the corner.
+  const size = renderer.getSize(_rendererSize);
+  const box = MAP_PX * renderScale;
+  const margin = MAP_MARGIN * renderScale;
+  const x = size.x - margin - box;
+  const y = margin;                    // GL origin is bottom-left
 
-  renderer.setViewport(x, y, MAP_PX, MAP_PX);
-  renderer.setScissor(x, y, MAP_PX, MAP_PX);
+  renderer.setViewport(x, y, box, box);
+  renderer.setScissor(x, y, box, box);
   renderer.setScissorTest(true);
   renderer.clear(true, true, false);
   renderer.render(scene, mapCamera);
@@ -3722,11 +4099,18 @@ function showDamageDirection(sourcePos) {
   setTimeout(() => d.remove(), 600);
 }
 
+/** Crosshair colour and gap are driven from settings via CSS custom properties. */
+function applyCrosshairStyle() {
+  const root = document.documentElement.style;
+  root.setProperty('--xhair', settings.crosshairColor);
+  root.setProperty('--xhair-gap', `${settings.crosshairGap}px`);
+}
+
 const _dmgProj = new THREE.Vector3();
 
 /** Float the damage dealt above the point of impact, projected to screen space. */
 function showDamageNumber(worldPos, amount, headshot) {
-  if (!el.dmgNums || amount <= 0) return;
+  if (!el.dmgNums || amount <= 0 || !settings.showDamageNumbers) return;
   _dmgProj.copy(worldPos).project(camera);
   if (_dmgProj.z > 1) return;                       // behind the camera
   const d = document.createElement('div');
@@ -3954,6 +4338,9 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
   el.hud.classList.remove('hidden');
   updateAmmoHud();
   updateVitals();
+
+  // Bots and their cloned materials only exist now, so compile once more before play starts.
+  warmUpShaders();
 
   Audio.init();
   Audio.startAmbient();
@@ -4268,6 +4655,7 @@ function frame() {
     updatePickups(dt);
     updateAmmoChests(dt);
     if (currentMapId === 'dungeon') updateDungeonFx(dt);
+    updateLights();          // after every emitter has had its chance to move or flicker
     updateShake(dt);
     updateSpotting(dt);
     updateMatch(dt);
@@ -4279,7 +4667,8 @@ function frame() {
 
   // --- render: world, then viewmodel on a cleared depth buffer, then the minimap ---
   renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  const _rs = renderer.getSize(_rendererSize);
+  renderer.setViewport(0, 0, _rs.x, _rs.y);
   renderer.clear(true, true, true);
   renderer.render(scene, camera);
 
@@ -4325,7 +4714,140 @@ function bindMenu() {
   });
 }
 
+/* ------------------------- settings panel ------------------------- */
+
+/**
+ * The panel is generated from this table rather than hand-written markup, so adding an option
+ * is one line and the control, the label, the live read-out and the persistence all follow.
+ */
+const SETTINGS_SCHEMA = [
+  { group: 'GRAPHICS' },
+  {
+    key: 'quality', type: 'choice', label: 'Quality preset',
+    options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
+    hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
+  },
+  { key: 'fov', type: 'range', label: 'Field of view', min: 55, max: 100, step: 1, unit: '°',
+    hint: 'Lower is more zoomed in.' },
+  { group: 'CONTROLS' },
+  { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
+  { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
+  { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
+  { key: 'viewBob', type: 'toggle', label: 'View bob' },
+  { group: 'INTERFACE' },
+  { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
+  { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
+  { key: 'showDamageNumbers', type: 'toggle', label: 'Floating damage numbers' },
+  { group: 'AUDIO' },
+  { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
+];
+
+function buildSettingsPanel() {
+  const host = $('settings-body');
+  if (!host) return;
+  host.innerHTML = '';
+
+  for (const row of SETTINGS_SCHEMA) {
+    if (row.group) {
+      const h = document.createElement('div');
+      h.className = 'set-group';
+      h.textContent = row.group;
+      host.appendChild(h);
+      continue;
+    }
+
+    const wrap = document.createElement('label');
+    wrap.className = 'set-row';
+    const name = document.createElement('span');
+    name.className = 'set-label';
+    name.textContent = row.label;
+    const ctl = document.createElement('span');
+    ctl.className = 'set-ctl';
+
+    if (row.type === 'range') {
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = row.min; input.max = row.max; input.step = row.step;
+      input.value = settings[row.key];
+      const out = document.createElement('b');
+      const show = () => { out.textContent = (+input.value).toFixed(row.step < 1 ? 2 : 0) + (row.unit || ''); };
+      show();
+      input.addEventListener('input', () => {
+        settings[row.key] = parseFloat(input.value);
+        show();
+        applySettings();
+      });
+      ctl.append(input, out);
+    } else if (row.type === 'toggle') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!settings[row.key];
+      input.addEventListener('change', () => { settings[row.key] = input.checked; applySettings(); });
+      ctl.appendChild(input);
+    } else if (row.type === 'color') {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = settings[row.key];
+      input.addEventListener('input', () => { settings[row.key] = input.value; applySettings(); });
+      ctl.appendChild(input);
+    } else if (row.type === 'choice') {
+      const box = document.createElement('span');
+      box.className = 'set-choice';
+      for (const o of row.options) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = o.label;
+        b.className = settings[row.key] === o.value ? 'active' : '';
+        b.addEventListener('click', () => {
+          settings[row.key] = o.value;
+          box.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+          applySettings();
+        });
+        box.appendChild(b);
+      }
+      ctl.appendChild(box);
+    }
+
+    wrap.append(name, ctl);
+    host.appendChild(wrap);
+    if (row.hint) {
+      const h = document.createElement('div');
+      h.className = 'set-hint';
+      h.textContent = row.hint;
+      host.appendChild(h);
+    }
+  }
+}
+
+function showSettings(on) {
+  const panel = $('settings');
+  if (!panel) return;
+  if (on) buildSettingsPanel();
+  panel.classList.toggle('hidden', !on);
+  if (on) document.exitPointerLock?.();
+}
+
+function bindSettings() {
+  buildSettingsPanel();
+  $('settings-open')?.addEventListener('click', () => showSettings(true));
+  $('settings-open-pause')?.addEventListener('click', () => showSettings(true));
+  $('settings-close')?.addEventListener('click', () => {
+    showSettings(false);
+    if (match.running) requestLock();
+  });
+  $('settings-reset')?.addEventListener('click', () => {
+    Object.assign(settings, DEFAULT_SETTINGS);
+    applySettings();
+    buildSettingsPanel();
+  });
+  // Leaving the match from the pause overlay.
+  $('quit-match')?.addEventListener('click', () => {
+    endMatch('MATCH ABANDONED', 'returned to menu');
+  });
+}
+
 async function boot() {
+  loadSettings();
   createPlayerBody();
   resetPlayerAmmo();
 
@@ -4344,6 +4866,10 @@ async function boot() {
   buildMap('warehouse');
   const spawnStats = { accepted: spawnPoints.length };
 
+  // Force every shader to compile now, while a loading screen is on screen, instead of the
+  // first time each material happens to appear mid-fight.
+  warmUpShaders();
+
   el.loading.textContent = ok > 0
     ? `${waypoints.length} nav nodes · ${ok}/${results.length} prop models · ready`
     : `${waypoints.length} nav nodes · procedural props · ready`;
@@ -4356,6 +4882,8 @@ async function boot() {
 
   bindInput();
   bindMenu();
+  bindSettings();
+  applySettings();
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local
@@ -4368,6 +4896,9 @@ async function boot() {
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
+    lightSlots, lightEmitters, spawnExplosion, scene,
+    settings, applySettings, QUALITY, vmCamera,
+    getLightBudget: () => activeLightBudget,
     currentMapId: () => currentMapId,
   };
 

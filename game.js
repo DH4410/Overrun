@@ -87,6 +87,12 @@ const CONFIG = {
   SENS: 0.0022,
 };
 
+/** Dungeon grid pitch and ceiling, measured from the Kenney Modular Dungeon Kit: every
+ *  corridor piece is a 4 x 4 m footprint 4.15 m tall. Declared up here because PROP_FILES
+ *  refers to the pitch, and that is evaluated at module load. */
+const DUNGEON_TILE = 4;
+const DUNGEON_CEIL = 4.15;
+
 /** Seconds of spawn protection. Bots would otherwise have LOS on you before you can move. */
 const SPAWN_INVULN = 3.0;
 
@@ -314,12 +320,16 @@ world.addContactMaterial(new CANNON.ContactMaterial(MAT_NADE, MAT_BODY, { fricti
 const G_WORLD = 1, G_BODY = 2, G_NADE = 4;
 const RAY_OPTS = { skipBackfaces: true, collisionFilterGroup: -1, collisionFilterMask: G_WORLD };
 
+/** Every static body the current map owns, so switching maps can take them all back out. */
+const mapBodies = [];
+
 function addStaticBox(halfX, halfY, halfZ, pos, quat = null) {
   const body = new CANNON.Body({ mass: 0, material: MAT_WORLD, collisionFilterGroup: G_WORLD });
   body.addShape(new CANNON.Box(new CANNON.Vec3(halfX, halfY, halfZ)));
   body.position.set(pos.x, pos.y, pos.z);
   if (quat) body.quaternion.copy(quat);
   world.addBody(body);
+  mapBodies.push(body);
   return body;
 }
 
@@ -328,6 +338,7 @@ function addStaticCylinder(radius, height, pos) {
   body.addShape(new CANNON.Cylinder(radius, radius, height, 12));
   body.position.set(pos.x, pos.y, pos.z);
   world.addBody(body);
+  mapBodies.push(body);
   return body;
 }
 
@@ -565,6 +576,9 @@ const PROP_FILES = {
   tank:    { file: 'machine-fortified.glb', size: 2.6 },
   shelf:   { file: 'machine.glb',     size: 2.4 },
   piston:  { file: 'piston-round.glb', size: 2.2 },
+  // Dungeon kit. Its floor tile is authored at exactly the 4 m grid pitch the dungeon map
+  // uses, so normalising to size 4 is a no-op and the tiles butt up seamlessly.
+  dungeonFloor: { file: 'dungeon/template-floor.glb', size: DUNGEON_TILE },
 };
 
 function loadProp(key) {
@@ -806,30 +820,179 @@ function placeArenaProps() {
     ['crateLg', -30, 42, 0], ['crateLg', 30, -42, 0],
   ];
   for (const [key, x, z, yaw] of layout) placeProp(key, x, z, yaw);
+  placeDressing();
+}
+
+/* ---------------------- environment dressing ---------------------- */
+
+/**
+ * Set dressing. None of it registers a blocker or a physics body: it is small enough to walk
+ * through visually, and adding colliders here would silently invalidate spawn points and carve
+ * holes in the nav graph for the sake of a soda can.
+ */
+const DRESS_MATS = {
+  bin:      matte(0x3b4046, 0.85, 0.15),
+  binLid:   matte(0x2b3036, 0.8, 0.25),
+  alu:      matte(0xc0c0c0, 0.2, 0.9),
+  duct:     matte(0x8b9299, 0.6, 0.55),
+  cable:    matte(0x17191c, 0.9, 0.1),
+  lampCase: matte(0x2a2e34, 0.7, 0.4),
+  lampGlow: new THREE.MeshBasicMaterial({ color: 0xffdca8 }),
+  drain:    new THREE.MeshBasicMaterial({ color: 0x0d1014 }),
+};
+
+/** Yellow/black hazard stripes, drawn once into a canvas and shared by every strip. */
+const cautionTexture = (() => {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 16;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f2c200';
+  x.fillRect(0, 0, 64, 16);
+  x.fillStyle = '#141414';
+  // Diagonal bars. Drawn as a skewed parallelogram so the stripe reads at a glance.
+  for (let i = -16; i < 64; i += 16) {
+    x.beginPath();
+    x.moveTo(i, 0); x.lineTo(i + 8, 0); x.lineTo(i + 8 + 16, 16); x.lineTo(i + 16, 16);
+    x.closePath(); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
+
+function addDeco(mesh, x, y, z, yaw = 0) {
+  mesh.position.set(x, y, z);
+  mesh.rotation.y = yaw;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mapGroup.add(mesh);
+  return mesh;
+}
+
+function addTrashCan(x, z) {
+  const g = new THREE.Group();
+  const can = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.8, 12), DRESS_MATS.bin);
+  can.position.y = 0.4;
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 12), DRESS_MATS.binLid);
+  lid.position.y = 0.82;
+  g.add(can, lid);
+  addDeco(g, x, 0, z, rand(0, Math.PI));
+}
+
+function addSodaCans(x, y, z, n) {
+  const g = new THREE.Group();
+  for (let i = 0; i < n; i++) {
+    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), DRESS_MATS.alu);
+    can.position.set(rand(-0.22, 0.22), 0.06, rand(-0.22, 0.22));
+    can.rotation.z = Math.random() < 0.35 ? Math.PI / 2 : 0;   // a few knocked over
+    if (can.rotation.z !== 0) can.position.y = 0.04;
+    g.add(can);
+  }
+  addDeco(g, x, y, z);
+}
+
+function addDuct(x, y, z, len, horizontalAlongX) {
+  const geo = horizontalAlongX
+    ? new THREE.BoxGeometry(len, 0.4, 0.4)
+    : new THREE.BoxGeometry(0.4, 0.4, len);
+  addDeco(new THREE.Mesh(geo, DRESS_MATS.duct), x, y, z);
+}
+
+function addCautionTape(x, y, z, len, yaw) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: cautionTexture.clone(), side: THREE.DoubleSide, transparent: false,
+  });
+  mat.map.needsUpdate = true;
+  mat.map.repeat.set(Math.max(1, Math.round(len / 0.6)), 1);
+  addDeco(new THREE.Mesh(new THREE.PlaneGeometry(len, 0.15), mat), x, y, z, yaw);
+}
+
+function addCable(x, y, z, len, yaw, sag = 0.35) {
+  // A slack cable is a quadratic bezier; three's TubeGeometry renders it for almost nothing.
+  const curve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(-len / 2, 0, 0),
+    new THREE.Vector3(0, -sag, 0),
+    new THREE.Vector3(len / 2, 0, 0),
+  );
+  addDeco(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.025, 6, false), DRESS_MATS.cable), x, y, z, yaw);
+}
+
+function addWallLamp(x, y, z, yaw) {
+  const g = new THREE.Group();
+  const casing = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.2), DRESS_MATS.lampCase);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8), DRESS_MATS.lampGlow);
+  tube.rotation.z = Math.PI / 2;
+  tube.position.y = -0.08;
+  g.add(casing, tube);
+  addDeco(g, x, y, z, yaw);
+}
+
+function addFloorDrain(x, z) {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), DRESS_MATS.drain);
+  m.rotation.x = -Math.PI / 2;
+  addDeco(m, x, 0.012, z);      // just above the floor so it does not z-fight
+}
+
+function placeDressing() {
+  const R = CONFIG.RING, A = CONFIG.ARENA;
+
+  for (const [x, z] of [[-R + 3, -12], [R - 3, 12], [-12, R - 3], [12, -R + 3],
+                        [-A + 4, 24], [A - 4, -24]]) addTrashCan(x, z);
+
+  for (const [x, y, z, n] of [[-6, 1.3, -20, 3], [6, 1.3, 20, 2], [-42, 1.3, -18, 4],
+                              [42, 1.3, 18, 2], [-30, 1.3, 42, 3]]) addSodaCans(x, y, z, n);
+
+  const ductY = CONFIG.CEIL - 1.2;
+  for (const s of [-1, 1]) {
+    addDuct(0, ductY, s * (R - 2), 40, true);
+    addDuct(s * (R - 2), ductY, 0, 40, false);
+    addDuct(0, ductY, s * (A - 3), 60, true);
+  }
+
+  for (const [x, y, z, len, yaw] of [
+    [0, 1.15, -CONFIG.GAP - 0.2, 5, 0], [0, 1.15, CONFIG.GAP + 0.2, 5, 0],
+    [-CONFIG.GAP - 0.2, 1.15, 0, 5, Math.PI / 2], [CONFIG.GAP + 0.2, 1.15, 0, 5, Math.PI / 2],
+    [-16, 1.45, -6.2, 6, 0], [16, 1.45, 6.2, 6, 0],
+  ]) addCautionTape(x, y, z, len, yaw);
+
+  for (const s of [-1, 1]) {
+    addCable(s * (A - 0.6), CONFIG.CEIL - 2.0, -20, 12, Math.PI / 2);
+    addCable(s * (A - 0.6), CONFIG.CEIL - 2.4, 20, 12, Math.PI / 2);
+    addCable(-20, CONFIG.CEIL - 2.2, s * (A - 0.6), 12, 0);
+  }
+
+  for (const s of [-1, 1]) {
+    for (const d of [-24, 0, 24]) {
+      addWallLamp(s * (A - 0.7), 4.2, d, s > 0 ? -Math.PI / 2 : Math.PI / 2);
+      addWallLamp(d, 4.2, s * (A - 0.7), s > 0 ? Math.PI : 0);
+    }
+  }
+
+  for (const [x, z] of [[-14, 14], [14, -14], [0, 0], [-30, -30], [30, 30]]) addFloorDrain(x, z);
 }
 
 function buildLights() {
-  scene.add(new THREE.AmbientLight(0x8ea6c0, 0.4));
-  scene.add(new THREE.HemisphereLight(0x7f9bb8, 0x232830, 0.75));
+  addMapLight(new THREE.AmbientLight(0x8ea6c0, 0.4));
+  addMapLight(new THREE.HemisphereLight(0x7f9bb8, 0x232830, 0.75));
 
   // Four warm ceiling lamps, one per quadrant.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const p = new THREE.PointLight(0xffd9a8, 420, 78, 2);
     p.position.set(sx * 24, CH - 1.2, sz * 24);
     p.castShadow = false;                     // four shadowed point lights is a frame-rate trap
-    scene.add(p);
+    addMapLight(p);
     const bulb = new THREE.Mesh(
       new THREE.CylinderGeometry(1.5, 2.0, 0.6, 14),
       new THREE.MeshBasicMaterial({ color: 0xffe3bb }),
     );
     bulb.position.copy(p.position);
     bulb.layers.set(L_CEIL);
-    scene.add(bulb);
+    addMapLight(bulb);
   }
   // Cool fill over the corridor loop so the outer ring is not a black void.
   const ring = new THREE.PointLight(0x9fc4ff, 260, 110, 2);
   ring.position.set(0, CH - 2, 0);
-  scene.add(ring);
+  addMapLight(ring);
 
   // Single shadow-casting key light through the (implied) roof lights.
   const sun = new THREE.DirectionalLight(0xfff1dc, 1.7);
@@ -843,8 +1006,237 @@ function buildLights() {
   sun.shadow.camera.top = S; sun.shadow.camera.bottom = -S;
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.035;               // kills the banding on the big flat walls
-  scene.add(sun);
-  scene.add(sun.target);
+  addMapLight(sun);
+  addMapLight(sun.target);
+}
+
+/* ======================= MAP 2: DUNGEON ======================= */
+
+/**
+ * A tiled stone map built on the Kenney Modular Dungeon Kit's native grid.
+ *
+ * The kit measures out cleanly: every corridor piece is a 4 x 4 m footprint 4.15 m tall with
+ * its origin centred on the tile and its floor on y=0, and the rooms are exact multiples
+ * (room-small 12 m, room-large 20 m). So the map is authored as a character grid on a 4 m
+ * pitch and each open cell gets a floor; walls go on the boundary between an open cell and a
+ * closed one.
+ *
+ * Colliders are generated procedurally from that same grid rather than from the GLB meshes.
+ * The art can then be swapped, or fail to load entirely, without any risk of the physics
+ * disagreeing with what the player can see — a mesh collider built from an arbitrary GLB is
+ * exactly the kind of thing that produces invisible walls.
+ */
+/* '#' solid rock, '.' floor, 'S' floor + spawn, 'A' floor + ammo chest, 'T' floor + torch. */
+const DUNGEON_MAP = [
+  '#################',
+  '#....S###....S..#',
+  '#.##.#T#.##T##.#.',
+  '#.#A...........#.',
+  '#.#.##.###.##..#.',
+  '#T..#....A..#..T#',
+  '#.#.#.##.##.#.##.',
+  '#.#...#S...#...#.',
+  '#.###.#.#.##.#.#.',
+  '#S..T.....T...A.#',
+  '#.#.###.###.###.#',
+  '#.#...#.....#...#',
+  '#.###.#.###.#.#.#',
+  '#A....#..S..#..T#',
+  '#.#T#.###.#.##..#',
+  '#...........#..S#',
+  '#################',
+];
+
+const DUNGEON_MATS = {
+  floor: new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 0.96, metalness: 0.02 }),
+  wall:  new THREE.MeshStandardMaterial({ color: 0x38352f, roughness: 0.94, metalness: 0.03 }),
+  torch: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.9, metalness: 0.1 }),
+  flame: new THREE.MeshBasicMaterial({ color: 0xff9134 }),
+  chain: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.55, metalness: 0.85 }),
+};
+
+const dungeonTorches = [];     // flickered every frame
+const dungeonChains = [];      // gently swayed
+
+const dungeonCells = [];       // { x, z, char } for every open cell, in world coordinates
+
+function dungeonGrid() {
+  const rows = DUNGEON_MAP.length, cols = DUNGEON_MAP[0].length;
+  const ox = -(cols - 1) / 2 * DUNGEON_TILE;
+  const oz = -(rows - 1) / 2 * DUNGEON_TILE;
+  return { rows, cols, ox, oz };
+}
+
+const dungeonAt = (r, c) => (DUNGEON_MAP[r] && DUNGEON_MAP[r][c]) || '#';
+const dungeonOpen = (r, c) => dungeonAt(r, c) !== '#';
+
+function addTorch(x, y, z, yaw) {
+  const g = new THREE.Group();
+  const bracket = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8), DUNGEON_MATS.torch);
+  bracket.rotation.x = 0.5;
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 8), DUNGEON_MATS.flame);
+  flame.position.set(0, 0.34, -0.11);
+  const light = new THREE.PointLight(0xff8c2a, 26, 9, 2);
+  light.position.set(0, 0.4, -0.15);
+  g.add(bracket, flame, light);
+  g.position.set(x, y, z);
+  g.rotation.y = yaw;
+  mapGroup.add(g);
+  dungeonTorches.push({ light, flame, base: 26, phase: rand(0, Math.PI * 2) });
+}
+
+function addHangingChain(x, z, links) {
+  const g = new THREE.Group();
+  for (let i = 0; i < links; i++) {
+    const t = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.018, 5, 10), DUNGEON_MATS.chain);
+    t.position.y = -i * 0.1;
+    t.rotation.x = Math.PI / 2;
+    t.rotation.y = (i % 2) * Math.PI / 2;
+    g.add(t);
+  }
+  g.position.set(x, DUNGEON_CEIL - 0.1, z);
+  mapGroup.add(g);
+  dungeonChains.push({ group: g, phase: rand(0, Math.PI * 2) });
+}
+
+function updateDungeonFx(dt) {
+  const t = performance.now() * 0.001;
+  for (const tc of dungeonTorches) {
+    // Flicker: a fast sine plus a slower one so it never reads as a clean pulse.
+    tc.light.intensity = tc.base * (1 + Math.sin(t * 8 + tc.phase) * 0.3 + Math.sin(t * 3.3 + tc.phase) * 0.12);
+    tc.flame.scale.setScalar(1 + Math.sin(t * 11 + tc.phase) * 0.14);
+  }
+  for (const c of dungeonChains) {
+    c.group.rotation.z = Math.sin(t * 0.8 + c.phase) * 0.06;
+    c.group.rotation.x = Math.cos(t * 0.6 + c.phase) * 0.04;
+  }
+}
+
+/** Instance a dungeon GLB on a tile. Silently does nothing if the kit failed to download. */
+function placeDungeonPiece(key, x, z, yaw = 0) {
+  const src = propCache[key];
+  if (!src) return false;
+  const m = src.clone(true);
+  m.position.set(x, 0, z);
+  m.rotation.y = yaw;
+  m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  mapGroup.add(m);
+  return true;
+}
+
+function buildDungeonMap() {
+  const { rows, cols, ox, oz } = dungeonGrid();
+  const H = DUNGEON_TILE / 2;
+  dungeonCells.length = 0;
+  dungeonTorches.length = 0;
+  dungeonChains.length = 0;
+
+  const torchSpots = [];
+  const chestSpots = [];
+  const spawnSpots = [];
+
+  // Floor + ceiling slabs for the whole footprint, then per-cell art.
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ch = dungeonAt(r, c);
+      const x = ox + c * DUNGEON_TILE;
+      const z = oz + r * DUNGEON_TILE;
+
+      if (ch === '#') {
+        // Solid rock: one collider per cell, plus a block of geometry to see.
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(DUNGEON_TILE, DUNGEON_CEIL, DUNGEON_TILE), DUNGEON_MATS.wall);
+        m.position.set(x, DUNGEON_CEIL / 2, z);
+        m.castShadow = true; m.receiveShadow = true;
+        mapGroup.add(m);
+        addStaticBox(H, DUNGEON_CEIL / 2, H, { x, y: DUNGEON_CEIL / 2, z });
+        addBlocker(x, z, H, H);
+        continue;
+      }
+
+      dungeonCells.push({ x, z, char: ch });
+      if (ch === 'T') torchSpots.push([r, c, x, z]);
+      if (ch === 'A') chestSpots.push([x, z]);
+      if (ch === 'S') spawnSpots.push([x, z]);
+
+      // Prefer the kit's own floor tile; fall back to a plain slab.
+      if (!placeDungeonPiece('dungeonFloor', x, z)) {
+        const f = new THREE.Mesh(new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE), DUNGEON_MATS.floor);
+        f.rotation.x = -Math.PI / 2;
+        f.position.set(x, 0.01, z);
+        f.receiveShadow = true;
+        mapGroup.add(f);
+      }
+      // Ceiling slab, so looking up is stone rather than sky.
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE), DUNGEON_MATS.wall);
+      ceil.rotation.x = Math.PI / 2;
+      ceil.position.set(x, DUNGEON_CEIL, z);
+      ceil.layers.set(L_CEIL);
+      mapGroup.add(ceil);
+    }
+  }
+
+  // Outer shell: floor plate and a lid, so nothing can fall out of the level.
+  addStaticBox(cols * DUNGEON_TILE, 0.5, rows * DUNGEON_TILE, { x: 0, y: -0.5, z: 0 });
+  addStaticBox(cols * DUNGEON_TILE, 0.5, rows * DUNGEON_TILE,
+    { x: 0, y: DUNGEON_CEIL + 0.5, z: 0 });
+
+  // Torch sconces face into the corridor from an adjacent wall.
+  for (const [r, c, x, z] of torchSpots) {
+    const dirs = [[0, -1, 0], [0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]];
+    for (const [dc, dr, yaw] of dirs) {
+      if (!dungeonOpen(r + dr, c + dc)) {
+        addTorch(x + dc * (H - 0.25), 2.3, z + dr * (H - 0.25), yaw);
+        break;
+      }
+    }
+  }
+
+  for (const { x, z, char } of dungeonCells) {
+    if (char === '.' && Math.random() < 0.06) addHangingChain(x, z, 5 + randInt(0, 3));
+  }
+
+  // Props from the factory kit dress the rooms; they already have procedural fallbacks.
+  let dressed = 0;
+  for (const { x, z, char } of dungeonCells) {
+    if (char !== '.' || dressed > 14 || Math.random() > 0.12) continue;
+    placeProp(pick(['barrel', 'crate', 'crateSm']), x + rand(-0.8, 0.8), z + rand(-0.8, 0.8), rand(0, Math.PI));
+    dressed++;
+  }
+
+  buildDungeonLights();
+
+  // Spawns and chests come from the authored cells, still validated the usual way.
+  for (const [x, z] of spawnSpots) {
+    if (inBlocker(x, z, 0.8)) continue;
+    spawnPoints.push(new THREE.Vector3(x, 0.9, z));
+  }
+  if (spawnPoints.length < 4) {
+    for (const { x, z, char } of dungeonCells) {
+      if (spawnPoints.length >= 8) break;
+      if (char === '.' && !inBlocker(x, z, 0.8)) spawnPoints.push(new THREE.Vector3(x, 0.9, z));
+    }
+  }
+  spawnAmmoChests(chestSpots, 6);
+}
+
+function buildDungeonLights() {
+  addMapLight(new THREE.AmbientLight(0x3a2f26, 0.55));
+  addMapLight(new THREE.HemisphereLight(0x4a3a2a, 0x14100c, 0.5));
+  // One shadow-casting key, angled steeply so the corridors stay moody rather than flat.
+  const key = new THREE.DirectionalLight(0xffb070, 0.5);
+  key.position.set(20, 50, 14);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.camera.near = 5;
+  key.shadow.camera.far = 130;
+  const S = (DUNGEON_MAP[0].length * DUNGEON_TILE) / 2 + 6;
+  key.shadow.camera.left = -S; key.shadow.camera.right = S;
+  key.shadow.camera.top = S; key.shadow.camera.bottom = -S;
+  key.shadow.bias = -0.0008;
+  key.shadow.normalBias = 0.03;
+  addMapLight(key);
+  addMapLight(key.target);
 }
 
 /* --------------------- bot navigation waypoints --------------------- */
@@ -864,15 +1256,14 @@ function losClear(ax, ay, az, bx, by, bz) {
   return !_rayResult.hasHit;
 }
 
-function buildWaypoints() {
-  const step = 8.5;
-  for (let x = -46; x <= 46; x += step) {
-    for (let z = -46; z <= 46; z += step) {
-      if (inBlocker(x, z, 1.1)) continue;
+function buildWaypoints({ extent = 46, step = 8.5, pad = 1.1, coverPad = 3.6 } = {}) {
+  for (let x = -extent; x <= extent; x += step) {
+    for (let z = -extent; z <= extent; z += step) {
+      if (inBlocker(x, z, pad)) continue;
       waypoints.push({
         pos: new THREE.Vector3(x, 0.9, z),
         links: [],
-        cover: inBlocker(x, z, 3.6),          // hugging a solid = usable as a cover spot
+        cover: inBlocker(x, z, coverPad),     // hugging a solid = usable as a cover spot
       });
     }
   }
@@ -908,12 +1299,12 @@ function buildWaypoints() {
  */
 const MAP_PLATE_GEO = new THREE.PlaneGeometry(1, 1);
 
-function buildMapLayer() {
+function buildMapLayer(extent = A) {
   const g = new THREE.Group();
 
   const ground = new THREE.Mesh(MAP_PLATE_GEO,
     new THREE.MeshBasicMaterial({ color: 0x141a21, fog: false }));
-  ground.scale.set(A * 2, A * 2, 1);
+  ground.scale.set(extent * 2, extent * 2, 1);
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0.02;
   g.add(ground);
@@ -929,6 +1320,60 @@ function buildMapLayer() {
 
   g.traverse((o) => o.layers.set(L_MAP));
   scene.add(g);
+  mapLayerGroup = g;
+}
+
+/* ======================= map lifecycle ======================= */
+
+/**
+ * Anything a map adds straight to the scene (lights, the minimap plate layer) is tracked so a
+ * map switch can take it back out again. mapGroup holds the geometry, mapBodies the colliders;
+ * these two arrays cover the rest.
+ */
+const mapLights = [];
+let mapLayerGroup = null;
+
+function addMapLight(obj) {
+  mapLights.push(obj);
+  scene.add(obj);
+  return obj;
+}
+
+function disposeTree(root) {
+  root.traverse((o) => {
+    if (o.isMesh) {
+      o.geometry?.dispose?.();
+      // Materials are frequently shared (MATS.*, DRESS_MATS.*) — disposing them here would
+      // blank the next map. Geometry is per-mesh, so only that is safe to free.
+    }
+  });
+}
+
+/** Tear the current level down completely: colliders, meshes, lights, nav data, pickups. */
+function clearMap() {
+  for (const b of mapBodies) world.removeBody(b);
+  mapBodies.length = 0;
+
+  disposeTree(mapGroup);
+  mapGroup.clear();
+
+  for (const l of mapLights) scene.remove(l);
+  mapLights.length = 0;
+
+  if (mapLayerGroup) {
+    scene.remove(mapLayerGroup);
+    disposeTree(mapLayerGroup);
+    mapLayerGroup = null;
+  }
+
+  for (const c of ammoChests) scene.remove(c.mesh);
+  ammoChests.length = 0;
+
+  blockers.length = 0;
+  spawnPoints.length = 0;
+  sniperPerches.length = 0;
+  waypoints.length = 0;
+  clearPickups();
 }
 
 function nearestWaypoint(pos, skip = -1) {
@@ -2538,6 +2983,72 @@ function alertBots(origin, shooter) {
   }
 }
 
+/* ======================= map registry ======================= */
+
+/**
+ * The two playable levels. Each entry owns everything that differs between them: how the
+ * geometry is built, the sky/fog treatment, and the nav-graph and minimap tuning (the dungeon
+ * is a 4 m corridor grid, so it needs a much finer graph than the open warehouse).
+ */
+const MAPS = {
+  warehouse: {
+    name: 'WAREHOUSE',
+    blurb: 'Open industrial plaza, long sight lines, four ramps to the hub.',
+    background: 0x0a0e14,
+    fog: { color: 0x0a0e14, near: 55, far: 190 },
+    mapView: 46,
+    nav: { extent: 46, step: 8.5, pad: 1.1, coverPad: 3.6 },
+    layerExtent: A,
+    build() {
+      buildArena();
+      placeArenaProps();
+      buildSpawnPoints();
+      spawnAmmoChests([
+        [0, 38], [0, -38], [38, 0], [-38, 0],
+        [22, 22], [-22, -22], [22, -22], [-22, 22],
+        [12, 12], [-12, -12], [12, -12], [-12, 12],
+        [30, 12], [-30, 12], [12, 30], [-12, 30],
+      ]);
+    },
+  },
+  dungeon: {
+    name: 'DUNGEON',
+    blurb: 'Tight stone corridors, torchlight, choke points everywhere.',
+    background: 0x0a0806,
+    fog: { color: 0x140d07, near: 8, far: 60 },
+    mapView: 40,
+    nav: { extent: 32, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
+    layerExtent: 36,
+    build() { buildDungeonMap(); },
+  },
+};
+
+let currentMapId = 'warehouse';
+
+/** Build a level from scratch. Assumes clearMap() has already run if one was loaded. */
+function buildMap(id) {
+  const m = MAPS[id];
+  currentMapId = id;
+
+  scene.background = new THREE.Color(m.background);
+  scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
+
+  mapCamera.left = -m.mapView / 2; mapCamera.right = m.mapView / 2;
+  mapCamera.top = m.mapView / 2; mapCamera.bottom = -m.mapView / 2;
+  mapCamera.updateProjectionMatrix();
+
+  m.build();
+  buildWaypoints(m.nav);
+  buildMapLayer(m.layerExtent);
+}
+
+/** Swap levels. No-op when the requested map is already loaded. */
+function switchMap(id) {
+  if (id === currentMapId || !MAPS[id]) return;
+  clearMap();
+  buildMap(id);
+}
+
 /** Drop any lock bots already had on a combatant — used when it respawns elsewhere, so
  *  nobody keeps shooting at the coordinates of a corpse (or at your new spawn). */
 function clearAlertsOn(who) {
@@ -3396,7 +3907,11 @@ function clearBots() {
   bots.length = 0;
 }
 
-function startMatch(mode, diffKey, name) {
+function startMatch(mode, diffKey, name, mapId = currentMapId) {
+  // Rebuilding the level has to happen before any bot is spawned or the player is placed:
+  // both read spawnPoints, and switchMap() empties it.
+  switchMap(mapId);
+
   match.mode = mode;
   match.diff = DIFFICULTY[diffKey];
   match.running = true;
@@ -3752,6 +4267,7 @@ function frame() {
     updateBrass(dt);
     updatePickups(dt);
     updateAmmoChests(dt);
+    if (currentMapId === 'dungeon') updateDungeonFx(dt);
     updateShake(dt);
     updateSpotting(dt);
     updateMatch(dt);
@@ -3779,7 +4295,17 @@ function frame() {
  * ================================================================== */
 
 function bindMenu() {
-  let mode = 'dm', diff = 'medium';
+  let mode = 'dm', diff = 'medium', map = 'warehouse';
+
+  const blurb = $('map-blurb');
+  for (const b of document.querySelectorAll('#maps .pill')) {
+    b.addEventListener('click', () => {
+      map = b.dataset.map;
+      document.querySelectorAll('#maps .pill').forEach((x) => x.classList.toggle('active', x === b));
+      if (blurb) blurb.textContent = MAPS[map].blurb;
+    });
+  }
+  if (blurb) blurb.textContent = MAPS[map].blurb;
 
   for (const b of document.querySelectorAll('.mode-btn')) {
     b.addEventListener('click', () => {
@@ -3795,14 +4321,13 @@ function bindMenu() {
   }
   el.play.addEventListener('click', () => {
     Audio.init();
-    startMatch(mode, diff, el.nameInput.value.trim());
+    startMatch(mode, diff, el.nameInput.value.trim(), map);
   });
 }
 
 async function boot() {
   createPlayerBody();
   resetPlayerAmmo();
-  buildArena();
 
   el.loading.textContent = 'loading props…';
   const results = await Promise.all(Object.keys(PROP_FILES).map(loadProp));
@@ -3812,22 +4337,12 @@ async function boot() {
   // fallback already in place, so a 404 costs a nicety and never the match.
   const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadBlasterViewModels()]);
 
-  // Props are placed after the GLBs resolve so each one uses the model when it exists and
-  // the primitive when it does not — a missing file costs one crate, never the arena.
-  placeArenaProps();
-  // Spawns and waypoints last: both are carved out of the finished blocker set.
-  const spawnStats = buildSpawnPoints();
-  // Resupply points, deliberately off the spawn ring so restocking means moving. More
-  // candidates than we need: each is validated against the props, and the first six that
-  // clear are kept.
-  spawnAmmoChests([
-    [0, 38], [0, -38], [38, 0], [-38, 0],
-    [22, 22], [-22, -22], [22, -22], [-22, 22],
-    [12, 12], [-12, -12], [12, -12], [-12, 12],
-    [30, 12], [-30, 12], [12, 30], [-12, 30],
-  ]);
-  buildWaypoints();
-  buildMapLayer();
+  // The level is built only after the GLBs resolve, so every prop uses its model when the
+  // file exists and its primitive when it does not — a missing file costs one crate, never
+  // the arena. Spawns, nav graph and minimap plan are all carved out of the finished
+  // blocker set inside buildMap().
+  buildMap('warehouse');
+  const spawnStats = { accepted: spawnPoints.length };
 
   el.loading.textContent = ok > 0
     ? `${waypoints.length} nav nodes · ${ok}/${results.length} prop models · ready`
@@ -3849,6 +4364,8 @@ async function boot() {
     renderer, fixedStep, camera, spawnStats,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
     ammoChests, particlesAdd, particlesNorm,
+    mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
+    currentMapId: () => currentMapId,
   };
 
   frame();

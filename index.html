@@ -254,6 +254,7 @@
     color: var(--hud); font-family: inherit; font-size: 12px; letter-spacing: 2px;
     padding: 8px 20px; border-radius: 20px; transition: background .15s;
   }
+  #map-blurb { margin-top: 8px; font-size: 11px; color: var(--dim); line-height: 1.5; }
   .pill:hover { background: rgba(110,231,255,.14); }
   .pill.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
 
@@ -394,6 +395,15 @@
         <div class="md">Endless waves, 4 → 6 → 8 …<br>Score is your total kills.</div>
       </button>
     </div>
+  </div>
+
+  <div class="grp">
+    <div class="glbl">MAP</div>
+    <div id="maps">
+      <button class="pill active" data-map="warehouse">WAREHOUSE</button>
+      <button class="pill" data-map="dungeon">DUNGEON</button>
+    </div>
+    <div id="map-blurb"></div>
   </div>
 
   <div class="grp">

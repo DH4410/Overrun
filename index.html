@@ -110,17 +110,35 @@
   }
 
   /* ---------- vitals (bottom-left) ---------- */
-  #vitals { bottom: 20px; left: 20px; padding: 12px 14px; width: 250px; }
-  #vitals .name { font-size: 12px; letter-spacing: 2px; color: var(--dim); margin-bottom: 8px; }
-  .bar { height: 13px; border-radius: 2px; background: rgba(255,255,255,.08);
-         overflow: hidden; margin-bottom: 6px; position: relative; }
+  /* Health reads as a number first and a bar second — in a firefight you want "37" not a
+     length you have to estimate. The bar turns amber then red as it drains, and pulses when
+     critical, so peripheral vision picks it up without you looking away from the crosshair. */
+  #vitals { bottom: 20px; left: 20px; padding: 12px 16px; width: 268px; }
+  #vitals .name { font-size: 11px; letter-spacing: 2.5px; color: var(--dim); margin-bottom: 9px; }
+  .vrow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .vrow .vicon { font-size: 13px; width: 15px; text-align: center; opacity: .85; }
+  .vrow .vnum {
+    font-size: 27px; line-height: 1; font-weight: 700; min-width: 56px;
+    letter-spacing: -0.5px; text-shadow: 0 1px 4px rgba(0,0,0,.8);
+  }
+  .vrow.hp .vnum { color: #ff6b5c; }
+  .vrow.ap .vnum { font-size: 19px; color: #9fc4ff; min-width: 44px; }
+  .bar { flex: 1; height: 9px; border-radius: 5px; background: rgba(255,255,255,.09);
+         overflow: hidden; position: relative;
+         box-shadow: inset 0 1px 2px rgba(0,0,0,.5); }
   .bar > span { display: block; height: 100%; width: 100%;
                 transform-origin: left center; transition: transform .18s ease-out; }
-  .bar > b { position: absolute; right: 6px; top: -1px; font-size: 10px;
-             font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 3px #000; }
-  #hpfill  { background: linear-gradient(90deg, #ff3b3b, #ff7a5c); }
-  #apfill  { background: linear-gradient(90deg, #7f9bb5, #b9cadb); }
-  #vitals .lbl { font-size: 10px; color: var(--dim); letter-spacing: 2px; }
+  /* Segment ticks so the bar is a quantity, not a smear. */
+  .bar::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(90deg,
+      rgba(0,0,0,0) 0 9%, rgba(0,0,0,.55) 9% 10%);
+  }
+  #hpfill  { background: linear-gradient(90deg, #ff3b3b, #ff8a5c); }
+  #apfill  { background: linear-gradient(90deg, #4d8bff, #9fc4ff); }
+  #vitals.low #hpfill { animation: hpPulse 0.85s ease-in-out infinite; }
+  @keyframes hpPulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.75); } }
+  #vitals .lbl { font-size: 9px; color: var(--dim); letter-spacing: 2.5px; }
 
   /* ---------- ammo (bottom-right, left of minimap) ---------- */
   #ammo { bottom: 20px; right: 215px; padding: 10px 16px; text-align: right; min-width: 190px; }
@@ -259,18 +277,45 @@
            text-shadow: 0 0 6px #000; opacity: 0; transition: opacity .3s; }
 
   /* ================= MENU ================= */
+  /* The menu deliberately does not black out the arena behind it: the live 3D view is the
+     best art the game has, so it is framed by a vignette and a scanline wash instead. */
   #menu {
     position: fixed; inset: 0; z-index: 30; overflow-y: auto;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 20px; text-align: center; padding: 40px 20px;
+    gap: 18px; text-align: center; padding: 40px 20px;
     background:
-      radial-gradient(circle at 50% 32%, rgba(14,26,38,.92), rgba(3,5,8,.985));
+      radial-gradient(ellipse at 50% 38%, rgba(10,20,30,.55), rgba(2,4,7,.94) 72%),
+      linear-gradient(180deg, rgba(2,4,7,.9), rgba(2,4,7,.55) 30%, rgba(2,4,7,.92));
   }
   #menu.hidden { display: none; }
-  #menu h1 { margin: 0; font-size: 58px; letter-spacing: 16px; font-weight: 300;
-             text-indent: 16px; }
-  #menu h1 b { color: var(--accent); font-weight: 300; }
-  #menu .tag2 { font-size: 11px; letter-spacing: 5px; color: var(--dim); margin-top: -14px; }
+  /* Faint horizontal scanlines — reads as a tactical display without costing anything. */
+  #menu::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .35;
+    background: repeating-linear-gradient(180deg,
+      rgba(110,231,255,.045) 0 1px, rgba(0,0,0,0) 1px 3px);
+  }
+  #menu > * { position: relative; z-index: 1; }
+
+  .title-wrap { position: relative; }
+  #menu h1 {
+    margin: 0; font-size: 76px; letter-spacing: 20px; font-weight: 200;
+    text-indent: 20px; line-height: 1;
+    background: linear-gradient(180deg, #ffffff 10%, #9fdcea 55%, #3d8fa6 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 4px 18px rgba(110,231,255,.35));
+  }
+  #menu h1 b { font-weight: 200; }
+  /* Accent rules either side of the tagline. */
+  #menu .tag2 {
+    font-size: 11px; letter-spacing: 6px; color: var(--dim); margin-top: 6px;
+    display: flex; align-items: center; gap: 14px; justify-content: center;
+  }
+  #menu .tag2::before, #menu .tag2::after {
+    content: ''; height: 1px; width: 54px;
+    background: linear-gradient(90deg, rgba(110,231,255,0), rgba(110,231,255,.7));
+  }
+  #menu .tag2::after { background: linear-gradient(90deg, rgba(110,231,255,.7), rgba(110,231,255,0)); }
   #menu .grp { display: flex; flex-direction: column; align-items: center; gap: 9px; }
   #menu .glbl { font-size: 10px; letter-spacing: 4px; color: var(--dim); }
 
@@ -355,14 +400,18 @@
   .pill.active { background: var(--accent); color: #04222b; border-color: var(--accent); }
 
   #play {
-    pointer-events: auto; cursor: pointer; margin-top: 4px;
-    background: var(--accent); color: #04222b; border: none; border-radius: 6px;
-    font-family: inherit; font-size: 17px; letter-spacing: 6px; font-weight: 700;
-    padding: 14px 54px; text-indent: 6px;
-    box-shadow: 0 0 30px rgba(110,231,255,.28);
+    pointer-events: auto; cursor: pointer; margin-top: 6px;
+    background: linear-gradient(180deg, #8df0ff, var(--accent));
+    color: #04222b; border: none; border-radius: 7px;
+    font-family: inherit; font-size: 17px; font-weight: 700; letter-spacing: 7px;
+    padding: 15px 62px; text-indent: 7px;
+    box-shadow: 0 6px 26px rgba(110,231,255,.35), inset 0 1px 0 rgba(255,255,255,.5);
+    transition: transform .12s, box-shadow .18s, filter .15s;
   }
-  #play:hover { background: #9df2ff; }
-  #play:disabled { background: #2a3b45; color: var(--dim); box-shadow: none; cursor: default; }
+  #play:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08);
+                               box-shadow: 0 10px 34px rgba(110,231,255,.5), inset 0 1px 0 rgba(255,255,255,.6); }
+  #play:active:not(:disabled) { transform: translateY(0); }
+  #play:disabled { background: #223038; color: var(--dim); box-shadow: none; cursor: default; }
 
   #menuresult { font-size: 15px; letter-spacing: 3px; min-height: 22px; color: var(--warn); }
   #keyhelp { font-size: 11px; color: var(--dim); line-height: 2; max-width: 620px; }
@@ -432,8 +481,16 @@
 
   <div id="vitals" class="panel">
     <div class="name" id="v-name">PLAYER</div>
-    <div class="bar"><span id="hpfill"></span><b id="hptxt">100</b></div>
-    <div class="bar" style="height:8px"><span id="apfill"></span><b id="aptxt" style="top:-3px">50</b></div>
+    <div class="vrow hp">
+      <span class="vicon">✚</span>
+      <span class="vnum" id="hptxt">100</span>
+      <span class="bar"><span id="hpfill"></span></span>
+    </div>
+    <div class="vrow ap">
+      <span class="vicon">🛡</span>
+      <span class="vnum" id="aptxt">50</span>
+      <span class="bar"><span id="apfill"></span></span>
+    </div>
     <div class="lbl">HEALTH &nbsp;/&nbsp; ARMOR</div>
   </div>
 
@@ -486,8 +543,10 @@
 
 <!-- ============================= MENU ============================= -->
 <div id="menu">
-  <h1>OVER<b>RUN</b></h1>
-  <div class="tag2">BALLISTIC BOT DEATHMATCH</div>
+  <div class="title-wrap">
+    <h1>OVER<b>RUN</b></h1>
+    <div class="tag2">BALLISTIC BOT DEATHMATCH</div>
+  </div>
   <div id="menuresult"></div>
 
   <div class="grp">

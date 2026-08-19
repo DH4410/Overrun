@@ -132,6 +132,12 @@ const DEFAULT_SETTINGS = {
   showDamageNumbers: true,
   masterVolume: 0.8,
   viewBob: true,
+  // Laptop/trackpad friendly toggles. Holding a modifier while dragging a trackpad is
+  // genuinely painful, so every hold-to-act binding can be made a press-to-toggle instead.
+  toggleAim: false,
+  toggleCrouch: false,
+  toggleSprint: false,
+  arrowKeys: false,          // arrows as a second movement set for laptops without WASD comfort
 };
 
 const settings = { ...DEFAULT_SETTINGS };
@@ -1895,11 +1901,105 @@ const VM_ADS = new THREE.Vector3(0.0, -0.085, -0.46);
  * a sensible pistol -> rifle -> shotgun -> sniper progression.
  */
 const BLASTER_FILES = {
-  pistol:  { file: 'blaster-b', len: 0.46, muzzleZ: -0.40 },
+  // No pistol entry on purpose: the Kenney blaster reads as a toy ray gun in the one slot the
+  // player looks at most, so the pistol keeps a hand-built model (see buildPistolModel).
   ar:      { file: 'blaster-h', len: 0.95, muzzleZ: -0.76 },
   shotgun: { file: 'blaster-p', len: 1.05, muzzleZ: -0.86 },
   sniper:  { file: 'blaster-f', len: 1.35, muzzleZ: -1.14 },
 };
+
+/**
+ * Hand-built sidearm.
+ *
+ * This is the model the player stares at for the whole match, and both the original blocky
+ * version and the Kenney blaster were wrong for it — one was a stack of grey boxes, the other
+ * a toy ray gun. This is a real handgun silhouette: a tapered slide with cut serrations, a
+ * dust-cover frame, a raked grip with checkering, a proper trigger guard built from an arc,
+ * and three-dot sights. It is ~40 small meshes, which costs nothing in a viewmodel scene that
+ * only ever draws one gun.
+ */
+function buildPistolModel() {
+  const g = new THREE.Group();
+  const steel = matte(0x2b2f36, 0.38, 0.85);
+  const dark = matte(0x1b1e23, 0.55, 0.6);
+  const poly = matte(0x24262b, 0.9, 0.05);
+  const dot = new THREE.MeshBasicMaterial({ color: 0xf2f6ff });
+  const brassMat2 = matte(0xc9a227, 0.35, 0.95);
+
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    g.add(m);
+    return m;
+  };
+
+  // ---- slide: main block, tapered nose, and a raised rib along the top ----
+  add(new THREE.BoxGeometry(0.072, 0.078, 0.30), steel, 0, 0.012, -0.10);
+  add(new THREE.BoxGeometry(0.066, 0.062, 0.075), steel, 0, 0.008, -0.275);
+  add(new THREE.BoxGeometry(0.040, 0.012, 0.28), dark, 0, 0.050, -0.11);
+  // Ejection port.
+  add(new THREE.BoxGeometry(0.010, 0.040, 0.085), dark, 0.034, 0.020, -0.13);
+  // Slide serrations — the detail that makes it read as a pistol rather than a block.
+  for (let i = 0; i < 7; i++) {
+    add(new THREE.BoxGeometry(0.075, 0.055, 0.006), dark, 0, 0.012, 0.012 - i * 0.017);
+  }
+
+  // ---- frame / dust cover under the slide ----
+  add(new THREE.BoxGeometry(0.060, 0.036, 0.26), poly, 0, -0.040, -0.12);
+  add(new THREE.BoxGeometry(0.030, 0.018, 0.10), dark, 0, -0.056, -0.21);   // accessory rail
+  for (let i = 0; i < 3; i++) {
+    add(new THREE.BoxGeometry(0.032, 0.006, 0.006), poly, 0, -0.066, -0.17 - i * 0.022);
+  }
+
+  // ---- barrel and crown ----
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.0155, 0.0155, 0.075, 12), dark);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.008, -0.325);
+  g.add(barrel);
+  const crown = new THREE.Mesh(new THREE.TorusGeometry(0.014, 0.004, 6, 14), steel);
+  crown.position.set(0, 0.008, -0.360);
+  g.add(crown);
+
+  // ---- grip, raked back the way a real one is, with checkering ----
+  const grip = add(new THREE.BoxGeometry(0.058, 0.185, 0.085), poly, 0, -0.135, 0.048, 0.30);
+  grip.geometry.translate(0, 0, 0);
+  for (let r = 0; r < 5; r++) {
+    for (const sx of [-1, 1]) {
+      add(new THREE.BoxGeometry(0.004, 0.020, 0.058), dark,
+        sx * 0.030, -0.100 - r * 0.028, 0.040 + r * 0.0085, 0.30);
+    }
+  }
+  // Magazine baseplate and a hint of brass at the top of the mag well.
+  add(new THREE.BoxGeometry(0.062, 0.014, 0.092), dark, 0, -0.228, 0.075, 0.30);
+  add(new THREE.BoxGeometry(0.030, 0.010, 0.030), brassMat2, 0, -0.052, 0.020, 0.30);
+
+  // ---- trigger guard: an arc of short segments, so it is a real loop ----
+  for (let i = 0; i <= 8; i++) {
+    const a = (i / 8) * Math.PI;
+    add(new THREE.BoxGeometry(0.010, 0.012, 0.012), poly,
+      0, -0.075 - Math.sin(a) * 0.042, -0.020 + Math.cos(a) * 0.046, 0, 0, 0);
+  }
+  add(new THREE.BoxGeometry(0.009, 0.032, 0.010), dark, 0, -0.062, -0.020, 0.18);  // trigger
+  add(new THREE.BoxGeometry(0.012, 0.026, 0.014), steel, 0, -0.020, 0.055, 0.30);  // hammer
+
+  // ---- three-dot sights ----
+  add(new THREE.BoxGeometry(0.012, 0.016, 0.010), dark, 0, 0.064, -0.245);
+  add(new THREE.SphereGeometry(0.0035, 6, 5), dot, 0, 0.068, -0.250);
+  add(new THREE.BoxGeometry(0.030, 0.016, 0.012), dark, 0, 0.064, 0.020);
+  add(new THREE.SphereGeometry(0.0032, 6, 5), dot, -0.010, 0.068, 0.016);
+  add(new THREE.SphereGeometry(0.0032, 6, 5), dot, 0.010, 0.068, 0.016);
+
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.008, -0.40);
+  g.add(muzzle);
+  g.userData.muzzle = muzzle;
+
+  g.add(buildHand(0.045, -0.155, 0.10, -0.32));
+  g.rotation.set(-0.03, 0.09, 0.04);
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  return g;
+}
 
 const SKIN_MAT = matte(0x9a6b4f, 0.85, 0.0);
 const SLEEVE_MAT = matte(0x2f3640, 0.9, 0.05);
@@ -1955,6 +2055,13 @@ function fitBlaster(root, spec) {
 /** Swap the procedural guns for the Kenney blasters. Any failure leaves the fallback in place. */
 async function loadBlasterViewModels() {
   const loaded = [];
+  // The sidearm is always the hand-built model, never a kit blaster.
+  const pistol = buildPistolModel();
+  pistol.visible = false;
+  vmRig.remove(vmModels.pistol);
+  vmRig.add(pistol);
+  vmModels.pistol = pistol;
+  loaded.push('pistol(custom)');
   await Promise.all(Object.entries(BLASTER_FILES).map(async ([id, spec]) => {
     try {
       const gltf = await gltfLoader.loadAsync(`./assets/models/blaster/${spec.file}.glb`);
@@ -2339,6 +2446,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
 const _up = new CANNON.Vec3(0, 1, 0);
 const _cn = new CANNON.Vec3();
 const _wish = new THREE.Vector3();
+let crouchLatch = false, sprintLatch = false;
 
 function playerGroundCheck() {
   player.grounded = false;
@@ -2400,18 +2508,21 @@ function stepPlayer(dt) {
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
 
   playerGroundCheck();
-  setCrouch(!!keys.KeyC);
-  player.sprinting = !!keys.ShiftLeft && !player.crouching && !aiming;
+  // Crouch and sprint read from a latch when the player has chosen toggle-style bindings
+  // (see settings.toggleCrouch / toggleSprint), otherwise straight from the held key.
+  setCrouch(settings.toggleCrouch ? crouchLatch : !!keys.KeyC);
+  const wantSprint = settings.toggleSprint ? sprintLatch : !!keys.ShiftLeft;
+  player.sprinting = wantSprint && !player.crouching && !aiming;
 
   // Movement basis is camera yaw with the pitch stripped out.
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
   let fx = -sy, fz = -cy;        // forward
   let rx = cy, rz = -sy;         // right
   let ix = 0, iz = 0;
-  if (keys.KeyW) iz += 1;
-  if (keys.KeyS) iz -= 1;
-  if (keys.KeyD) ix += 1;
-  if (keys.KeyA) ix -= 1;
+  if (keys.KeyW || (settings.arrowKeys && keys.ArrowUp)) iz += 1;
+  if (keys.KeyS || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
+  if (keys.KeyD || (settings.arrowKeys && keys.ArrowRight)) ix += 1;
+  if (keys.KeyA || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
 
   let speed = CONFIG.WALK_SPEED;
   if (player.sprinting) speed *= CONFIG.SPRINT_MULT;
@@ -2496,7 +2607,7 @@ function switchWeapon(id) {
   player.current = id;
   player.reloading = 0;
   player.cooldown = Math.max(player.cooldown, 0.25);
-  aiming = false;
+  aiming = false; crouchLatch = false; sprintLatch = false;
   updateAmmoHud();
 }
 
@@ -2581,14 +2692,14 @@ function bindInput() {
       if (currentWeapon().thrown) startCook('frag');
       else { firing = true; tryFire(); }
     }
-    if (e.button === 2) { aiming = true; }
+    if (e.button === 2) aiming = settings.toggleAim ? !aiming : true;
   });
   addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       firing = false;
       if (player.cooking === 'frag' && !keys.KeyG) releaseCook();
     }
-    if (e.button === 2) aiming = false;
+    if (e.button === 2 && !settings.toggleAim) aiming = false;
   });
   // Without this the browser context menu eats every right-click ADS.
   addEventListener('contextmenu', (e) => e.preventDefault());
@@ -2603,6 +2714,10 @@ function bindInput() {
     if (e.code === 'Tab') e.preventDefault();
     if (keys[e.code]) return;                    // ignore auto-repeat
     keys[e.code] = true;
+
+    // Toggle latches for the trackpad-friendly bindings.
+    if (e.code === 'KeyC' && settings.toggleCrouch) crouchLatch = !crouchLatch;
+    if (e.code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
 
     switch (e.code) {
       case 'Digit1': switchWeapon('pistol'); break;
@@ -4191,7 +4306,7 @@ const el = {
   pBig: $('p-big'), pSm: $('p-sm'), pCta: $('p-cta'), loading: $('loading'), play: $('play'),
   nameInput: $('nameinput'), menuResult: $('menuresult'),
   dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'), allies: $('allies'),
-  hitflash: $('hitflash'),
+  hitflash: $('hitflash'), vitals: $('vitals'),
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
@@ -4358,6 +4473,8 @@ function updatePlates(dt) {
 }
 
 function updateVitals() {
+  // Critical-health pulse is a class on the panel so the CSS animation owns the timing.
+  el.vitals?.classList.toggle('low', player.alive && player.health < 35);
   el.hp.style.transform = `scaleX(${clamp(player.health / CONFIG.MAX_HEALTH, 0, 1)})`;
   el.ap.style.transform = `scaleX(${clamp(player.armor / CONFIG.MAX_ARMOR, 0, 1)})`;
   el.hptxt.textContent = Math.ceil(player.health);
@@ -4923,6 +5040,11 @@ const SETTINGS_SCHEMA = [
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
   { key: 'viewBob', type: 'toggle', label: 'View bob' },
+  { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle' ,
+    hint: 'Trackpad friendly — right-click toggles aim instead of having to hold it.' },
+  { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
+  { key: 'toggleSprint', type: 'toggle', label: 'Sprint: press to toggle' },
+  { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
   { group: 'INTERFACE' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },

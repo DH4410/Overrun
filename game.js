@@ -2519,10 +2519,10 @@ function stepPlayer(dt) {
   let fx = -sy, fz = -cy;        // forward
   let rx = cy, rz = -sy;         // right
   let ix = 0, iz = 0;
-  if (keys.KeyW || (settings.arrowKeys && keys.ArrowUp)) iz += 1;
-  if (keys.KeyS || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
-  if (keys.KeyD || (settings.arrowKeys && keys.ArrowRight)) ix += 1;
-  if (keys.KeyA || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
+  if (keys.KeyW || keys.GpForward || (settings.arrowKeys && keys.ArrowUp)) iz += 1;
+  if (keys.KeyS || keys.GpBack || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
+  if (keys.KeyD || keys.GpRight || (settings.arrowKeys && keys.ArrowRight)) ix += 1;
+  if (keys.KeyA || keys.GpLeft || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
 
   let speed = CONFIG.WALK_SPEED;
   if (player.sprinting) speed *= CONFIG.SPRINT_MULT;
@@ -2756,6 +2756,73 @@ function requestLock() {
 }
 
 /** Consume the accumulated mouse delta once per rendered frame. */
+/* ---------------------------- gamepad ---------------------------- */
+
+/**
+ * Controller support, polled rather than event-driven because the Gamepad API has no events
+ * for axis movement. Standard mapping: left stick moves, right stick looks, RT fires, LT aims,
+ * A jumps, B crouches, LB throws a frag, right stick click sprints, D-pad swaps weapons.
+ *
+ * Sticks get a radial dead zone and the look axes are cubed — a linear stick makes fine aim
+ * impossible, and squaring loses the sign.
+ */
+const GP_DEADZONE = 0.18;
+const gpPrev = [];
+let gamepadActive = false;
+
+function gpAxis(v) {
+  const a = Math.abs(v);
+  if (a < GP_DEADZONE) return 0;
+  const scaled = (a - GP_DEADZONE) / (1 - GP_DEADZONE);
+  return Math.sign(v) * scaled;
+}
+
+function pollGamepad(dt) {
+  const pads = navigator.getGamepads?.();
+  if (!pads) return;
+  let pad = null;
+  for (const p of pads) if (p && p.connected) { pad = p; break; }
+  if (!pad) { gamepadActive = false; return; }
+
+  const ax = pad.axes, btn = pad.buttons;
+  const moveX = gpAxis(ax[0] ?? 0), moveY = gpAxis(ax[1] ?? 0);
+  const lookX = gpAxis(ax[2] ?? 0), lookY = gpAxis(ax[3] ?? 0);
+  if (moveX || moveY || lookX || lookY) gamepadActive = true;
+
+  // Movement is fed through the same key flags the keyboard sets, so nothing downstream
+  // needs to know where the input came from.
+  keys.GpForward = moveY < -0.1; keys.GpBack = moveY > 0.1;
+  keys.GpLeft = moveX < -0.1; keys.GpRight = moveX > 0.1;
+
+  // Look. Cubed for fine control, and scaled by dt so it is frame-rate independent.
+  const lookRate = 3.4 * settings.sensitivity * dt;
+  player.yaw -= (lookX ** 3) * lookRate;
+  player.pitch -= (lookY ** 3) * lookRate * (settings.invertY ? -1 : 1);
+  player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
+
+  const down = (i) => !!(btn[i] && btn[i].pressed);
+  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
+
+  aiming = down(6) || (settings.toggleAim && aiming);      // LT
+  if (down(7)) { if (!firing) { firing = true; tryFire(); } }   // RT
+  else firing = false;
+  if (down(7) && currentWeapon().auto) tryFire();
+
+  keys.Space = down(0);                                     // A
+  if (pressed(1)) crouchLatch = !crouchLatch;               // B toggles crouch
+  keys.KeyC = down(1);
+  keys.ShiftLeft = down(11);                                // right stick click sprints
+  if (pressed(4)) startCook('frag');                        // LB
+  if (!down(4) && player.cooking === 'frag') releaseCook();
+  if (pressed(2)) startReload();                            // X
+  if (pressed(3)) switchWeapon('frag');                     // Y
+  if (pressed(12)) switchWeapon('pistol');
+  if (pressed(13)) switchWeapon('ar');
+  if (pressed(14)) switchWeapon('shotgun');
+  if (pressed(15)) switchWeapon('sniper');
+  if (pressed(9)) showPause(true);                          // start
+}
+
 function applyLook(dt) {
   const adsMult = aiming && currentWeapon().zoom ? 0.4 : (aiming ? settings.adsSensitivity : 1);
   const sens = CONFIG.SENS * settings.sensitivity * adsMult;
@@ -4925,6 +4992,7 @@ function frame() {
   lastTime = now;
 
   if (match.running) {
+    pollGamepad(dt);
     applyLook(dt);
 
     if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);

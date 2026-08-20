@@ -56,7 +56,9 @@ const CONFIG = {
   SPRINT_MULT: 1.6,
   CROUCH_MULT: 0.5,
   MOVE_ACCEL: 60,
-  JUMP_SPEED: 6.4,
+  // v^2 / 2g is the apex: 6.4 m/s put it at 2.09 m, which is why jumping read as floaty and
+  // unreal. 4.7 gives 1.12 m — still a game jump, but one a person could plausibly make.
+  JUMP_SPEED: 4.7,
   MAX_HEALTH: 100,
   MAX_ARMOR: 100,
   START_ARMOR: 50,
@@ -125,11 +127,15 @@ const DEFAULT_SETTINGS = {
   quality: 'medium',
   sensitivity: 1.0,         // multiplier on CONFIG.SENS
   adsSensitivity: 0.75,     // extra multiplier while aiming
-  fov: 70,                  // "a bit zoomed in" vs the old 78
+  // Fixed, not a user control. FOV changes how large every character reads on screen, so
+  // letting it drift re-opens the "bots look small" problem and makes the crosshair
+  // convergence and viewmodel framing inconsistent between players.
+  fov: 68,
   invertY: false,
   crosshairColor: '#00ff87',
   crosshairGap: 8,
   showDamageNumbers: true,
+  showEnemyHealth: false,   // enemies show a callsign only; damage numbers convey the rest
   masterVolume: 0.8,
   viewBob: true,
   // Laptop/trackpad friendly toggles. Holding a modifier while dragging a trackpad is
@@ -211,6 +217,26 @@ const WEAPONS = [
 const WEAPON_BY_ID = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 /** Slots 1-4 are the guns bots may spawn with. */
 const BOT_GUN_IDS = ['pistol', 'ar', 'shotgun', 'sniper'];
+
+/**
+ * Bot aim error, in radians. These were tuned against a measured duel rather than guessed:
+ * a single bot with a fixed AR, a verified clear lane, and a fixed range, counting hits per
+ * round fired. Before tuning, a medium bot hit a stationary target 89% of the time at 15 m and
+ * a hard bot 99.6% — which is exactly the "they never miss" complaint.
+ *
+ * Targets, per bullet at 15 m against a stationary player: easy ~15%, medium ~30%, hard ~50%.
+ * Those look low written down, but a burst is many rounds and bots fight in groups.
+ */
+const AIM = {
+  // A fixed angular error already gets harder to land as range grows, so the range term is
+  // deliberately small — the first tuning pass double-counted it and bots became useless past
+  // 30 m (2.8% per round at 35 m). The floor is what stops a hard bot being a hitscan laser.
+  floor: 0.030,      // even a perfect bot is not a laser
+  base: 0.15,        // scaled by (1 - skill)
+  range: 0.06,       // per unit of (distance / 100), scaled by (1 - skill)
+  tracking: 0.020,   // per m/s of target lateral speed
+  snap: 0.12,        // penalty immediately after acquiring, decays as aim settles
+};
 
 /** The range each bot weapon wants to fight at. Inside min it backs off, beyond max it closes. */
 const BOT_RANGE_BAND = {
@@ -1258,12 +1284,73 @@ const DUNGEON_MAP = carveDungeon();
 const dungeonWallGeo = new THREE.BoxGeometry(DUNGEON_TILE, DUNGEON_CEIL, DUNGEON_TILE);
 const dungeonTileGeo = new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE);
 
+/**
+ * Procedural stone. The dungeon read as flat coloured boxes because it literally was flat
+ * coloured boxes — no map of any kind. This draws a masonry pattern into a canvas once
+ * (mortar courses, per-brick tone variation, speckle and a little wear) and derives a bump
+ * map from it, which is what makes the surfaces catch the torchlight.
+ *
+ * Generated rather than downloaded so the map cannot end up untextured if a CDN is blocked.
+ */
+function makeStoneTexture({ size = 256, rows = 6, cols = 6, base = [122, 112, 96],
+                            mortar = [58, 52, 44], jitter = 26, seedSpeckle = 0.16 } = {}) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const rgb = (a) => `rgb(${a[0]|0},${a[1]|0},${a[2]|0})`;
+
+  g.fillStyle = rgb(mortar);
+  g.fillRect(0, 0, size, size);
+
+  const bw = size / cols, bh = size / rows, gap = Math.max(1.5, size * 0.008);
+  for (let r = 0; r < rows; r++) {
+    // Every other course is offset half a brick, the way real masonry is laid.
+    const offset = (r % 2) * bw * 0.5;
+    for (let i = -1; i <= cols; i++) {
+      const x = i * bw + offset, y = r * bh;
+      const v = (Math.random() - 0.5) * 2 * jitter;
+      g.fillStyle = rgb([base[0] + v, base[1] + v, base[2] + v]);
+      g.fillRect(x + gap, y + gap, bw - gap * 2, bh - gap * 2);
+      // A darker corner wash so bricks are not perfectly flat.
+      g.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.09})`;
+      g.fillRect(x + gap, y + bh - gap * 3, bw - gap * 2, gap * 2);
+    }
+  }
+  // Speckle for grain.
+  const img = g.getImageData(0, 0, size, size), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (Math.random() > seedSpeckle) continue;
+    const n = (Math.random() - 0.5) * 42;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = MAX_ANISO;
+  return tex;
+}
+
+const STONE_WALL_TEX = makeStoneTexture({ rows: 5, cols: 5, base: [126, 116, 99] });
+const STONE_FLOOR_TEX = makeStoneTexture({ rows: 4, cols: 4, base: [138, 129, 112], jitter: 20 });
+const STONE_CEIL_TEX = makeStoneTexture({ rows: 3, cols: 3, base: [86, 78, 66], jitter: 14 });
+for (const [t, n] of [[STONE_WALL_TEX, 1], [STONE_FLOOR_TEX, 1], [STONE_CEIL_TEX, 1]]) t.repeat.set(n, n);
+
 const DUNGEON_MATS = {
-  // Deliberately mid-grey stone, not near-black. The first pass used 0x38352f walls under a
-  // 0.55 ambient and the corridors read as an unlit void.
-  floor: new THREE.MeshStandardMaterial({ color: 0x8a8175, roughness: 0.95, metalness: 0.02 }),
-  wall:  new THREE.MeshStandardMaterial({ color: 0x766d60, roughness: 0.92, metalness: 0.03 }),
-  ceiling: new THREE.MeshStandardMaterial({ color: 0x4a443c, roughness: 1.0, metalness: 0.0 }),
+  // Textured stone, and deliberately mid-tone rather than "realistically" black — two passes
+  // of this map came back as unplayably dark.
+  floor: new THREE.MeshStandardMaterial({
+    map: STONE_FLOOR_TEX, bumpMap: STONE_FLOOR_TEX, bumpScale: 0.04,
+    color: 0xbfb6a4, roughness: 0.95, metalness: 0.02,
+  }),
+  wall: new THREE.MeshStandardMaterial({
+    map: STONE_WALL_TEX, bumpMap: STONE_WALL_TEX, bumpScale: 0.06,
+    color: 0xb3a893, roughness: 0.92, metalness: 0.03,
+  }),
+  ceiling: new THREE.MeshStandardMaterial({
+    map: STONE_CEIL_TEX, color: 0x8d8477, roughness: 1.0, metalness: 0.0,
+  }),
   torch: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.75, metalness: 0.55 }),
   torchWood: new THREE.MeshStandardMaterial({ color: 0x3d2a1a, roughness: 0.95, metalness: 0.0 }),
   // Three nested cones read as fire far better than one flat one: deep ember at the edge,
@@ -1491,6 +1578,15 @@ function buildDungeonMap() {
     }
   }
   spawnAmmoChests(chestSpots, 6);
+
+  // Health and shield go in the corner chambers, deliberately off the ammo route.
+  const T = DUNGEON_TILE, gx = (c) => (c - (DUNGEON_COLS - 1) / 2) * T, gz = (r) => (r - (DUNGEON_ROWS - 1) / 2) * T;
+  spawnConsumables([
+    ['health', gx(6), gz(6)], ['health', gx(16), gz(16)],
+    ['health', gx(11), gz(2)], ['health', gx(11), gz(20)],
+    ['shield', gx(16), gz(6)], ['shield', gx(6), gz(16)],
+    ['shield', gx(2), gz(11)], ['shield', gx(20), gz(11)],
+  ]);
 }
 
 /* --------------------- bot navigation waypoints --------------------- */
@@ -1640,6 +1736,8 @@ function clearMap() {
 
   for (const c of ammoChests) { scene.remove(c.mesh); removeLightEmitter(c.emitter); }
   ammoChests.length = 0;
+  for (const c of consumables) { scene.remove(c.mesh); removeLightEmitter(c.emitter); }
+  consumables.length = 0;
 
   blockers.length = 0;
   spawnPoints.length = 0;
@@ -1749,7 +1847,9 @@ function segmentCylinderY(o, d, len, cx, cy, cz, r, halfH) {
  * Offsets are relative to `pos`, which is the chest.
  */
 const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78 };
-const HB_BOT = { bodyR: 0.34, bodyHalfH: 0.40, headR: 0.20, headY: 0.53 };
+// Scaled in lockstep with BOT_TARGET_HEIGHT. If these drift apart, bots either soak shots
+// that visually connected or die to shots that visually missed.
+const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
 
 /** Nearest combatant the segment hits, honouring team and self filters. */
 /**
@@ -1770,7 +1870,9 @@ function nearestCombatantHit(o, d, len, shooter) {
     const p = c.pos, hb = c.hb;
     const th = segmentSphere(o, d, len, _v1.set(p.x, p.y + hb.headY, p.z), hb.headR);
     const tb = segmentCylinderY(o, d, len, p.x, p.y, p.z, hb.bodyR, hb.bodyHalfH);
-    const tl = segmentCylinderY(o, d, len, p.x, p.y - 0.06, p.z, hb.bodyR * 1.6, hb.bodyHalfH * 1.15);
+    // Centred lower and made taller than the torso so legs are genuinely hittable — the
+    // previous limb volume stopped at roughly hip height.
+    const tl = segmentCylinderY(o, d, len, p.x, p.y - 0.25, p.z, hb.bodyR * 1.6, hb.bodyHalfH * 1.6);
     let t = -1, zone = 'body';
     // Nearest wins, and ties resolve toward the more specific volume.
     if (th >= 0) { t = th; zone = 'head'; }
@@ -2859,8 +2961,8 @@ const ST = {
 // rest, which puts the chest 0.45 m and the head/eye 0.95 m above that centre.
 const BOT_MESH_SCALE = 1.2;
 const BOT_MESH_Y = 0.04;
-const BOT_CHEST = 0.45;
-const BOT_EYE = 0.95;
+const BOT_CHEST = 0.50;
+const BOT_EYE = 1.05;
 
 /* --------------------- rigged soldier bot mesh --------------------- */
 
@@ -2873,7 +2975,7 @@ const BOT_EYE = 0.95;
 let soldierGltf = null;
 
 const SOLDIER_HEIGHT = 1.832;   // measured from the GLB's bounding box
-const BOT_TARGET_HEIGHT = 1.8;
+const BOT_TARGET_HEIGHT = 2.0;
 const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MESH_SCALE = -0.78)
 
 async function loadSoldier() {
@@ -3025,6 +3127,8 @@ class Bot {
     this.nadeCd = rand(6, 16);
     this.deathTimer = 0;
     this.respawnTimer = 0;
+    this.aimOff = new THREE.Vector3();     // persistent aim error, random-walks while firing
+    this.aimSettle = 0;                    // seconds spent tracking the current target
     this.strafeDir = Math.random() < 0.5 ? -1 : 1;
     this.strafeTimer = rand(0.5, 1.5);
     this.yaw = rand(-Math.PI, Math.PI);
@@ -3201,13 +3305,48 @@ class Bot {
     if (this.fireCd > 0) return;
 
     const muzzle = this.gunMesh.userData.muzzle.getWorldPosition(_v1);
-    const flight = muzzle.distanceTo(target.pos) / w.speed;
-    _v2.copy(target.pos).addScaledVector(target.vel, flight * 0.85);
-    _v2.y += 0.5 * 9.82 * flight * flight;              // compensate bullet drop
+    const dist = muzzle.distanceTo(target.pos);
+    const flight = dist / w.speed;
+
+    // Imperfect lead. The old code led the target perfectly and compensated bullet drop
+    // exactly, then applied a tight cone around that flawless solution — which is why bots
+    // never missed. Both the lead and the drop compensation are now sloppy, and how sloppy
+    // depends on the difficulty, so a bot mis-times a moving target the way a person does.
+    const skill = this.diff.accuracy;
+    const leadErr = lerp(0.45, 0.95, skill) * rand(0.75, 1.2);
+    _v2.copy(target.pos).addScaledVector(target.vel, flight * leadErr);
+    _v2.y += 0.5 * 9.82 * flight * flight * lerp(0.55, 1.0, skill);
     _v2.sub(muzzle).normalize();
 
-    const cone = (1 - this.diff.accuracy) * 0.085 + w.spread * 0.5;
-    _v2.x += rand(-cone, cone); _v2.y += rand(-cone, cone); _v2.z += rand(-cone, cone);
+    /**
+     * Aim error has three parts, because a single per-shot random cone reads as a laser that
+     * occasionally twitches rather than as someone aiming:
+     *
+     *  1. A persistent offset that random-walks. This is the bot's current "aim point", so a
+     *     burst lands as a cluster slightly off target instead of every round being an
+     *     independent coin flip. It is what makes a burst survivable.
+     *  2. Distance scaling — holding a bead at 40 m is genuinely harder than at 5 m.
+     *  3. Situational penalties: freshly acquired targets, and targets moving laterally.
+     */
+    const lateral = Math.hypot(target.vel.x, target.vel.z);
+    const freshness = clamp(1 - this.aimSettle, 0, 1);           // 1 right after acquiring
+    const spread = AIM.floor
+                 + (1 - skill) * AIM.base
+                 + (dist / 100) * (1 - skill) * AIM.range        // range penalty
+                 + lateral * AIM.tracking * (1 - skill * 0.5)    // tracking penalty
+                 + freshness * AIM.snap * (1 - skill * 0.6);     // snap-shot penalty
+
+    // Random-walk the persistent offset, then clamp it so it cannot drift absurdly wide.
+    const drift = spread * 0.55;
+    this.aimOff.x = clamp(this.aimOff.x + rand(-drift, drift), -spread, spread);
+    this.aimOff.y = clamp(this.aimOff.y + rand(-drift, drift), -spread, spread);
+    this.aimOff.z = clamp(this.aimOff.z + rand(-drift, drift), -spread, spread);
+
+    // Per-shot jitter on top, plus the weapon's own mechanical spread.
+    const jitter = spread * 0.5 + w.spread * 0.5;
+    _v2.x += this.aimOff.x + rand(-jitter, jitter);
+    _v2.y += this.aimOff.y + rand(-jitter, jitter);
+    _v2.z += this.aimOff.z + rand(-jitter, jitter);
     _v2.normalize();
 
     this.mag--;
@@ -3220,7 +3359,26 @@ class Bot {
 
   update(dt) {
     this.updateTransforms();
+
+    // Fall-out guard. The player has had one of these forever; bots did not, so a bot that
+    // slipped through the floor (a bad spawn, or getting shoved into a seam by the separation
+    // push) fell for the rest of the match and never came back. A 90 s soak found this on
+    // every map — three of four bots were gone by the end of one run.
+    if (this.body.position.y < -20) {
+      const sp = pickSpawn(this.team);
+      this.body.position.set(sp.x, sp.y + 0.6, sp.z);
+      this.body.velocity.set(0, 0, 0);
+      this.body.wakeUp();
+      this.path = null;
+      this.updateTransforms();
+    }
+
     this.fireCd = Math.max(0, this.fireCd - dt);
+    // Aim settles the longer a bot holds the same target in view, and resets the moment it
+    // loses them — so peeking a fresh angle is punished less than standing in the open.
+    if (this.hasLOS && this.target === this._lastAimTarget) this.aimSettle += dt;
+    else { this.aimSettle = 0; this.aimOff.set(0, 0, 0); }
+    this._lastAimTarget = this.hasLOS ? this.target : null;
     this.stepTimer = Math.max(0, this.stepTimer - dt);
     this.stateTime += dt;
     this.repathTimer -= dt;
@@ -3548,12 +3706,17 @@ const MAPS = {
         [12, 12], [-12, -12], [12, -12], [-12, 12],
         [30, 12], [-30, 12], [12, 30], [-12, 30],
       ]);
+      // Health and shield sit away from the ammo, so topping up costs a separate trip.
+      spawnConsumables([
+        ['health', 0, 20], ['health', 0, -20], ['health', -34, -34], ['health', 34, 34],
+        ['shield', 20, 0], ['shield', -20, 0], ['shield', 34, -34], ['shield', -34, 34],
+      ]);
     },
   },
   dungeon: {
     name: 'DUNGEON',
     blurb: 'Tight stone corridors, torchlight, choke points everywhere.',
-    background: 0x0a0806,
+    background: 0x1a1410,
     fog: { color: 0x140d07, near: 8, far: 60 },
     mapView: 44,
     nav: { extent: 40, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
@@ -3562,9 +3725,11 @@ const MAPS = {
     // near-black and unreadable.
     plates: { ground: 0x120d08, solid: 0xb08a52 },
     lighting: {
-      ambient: { color: 0x6b5a48, intensity: 0.85 },
-      hemi: { sky: 0x7a6248, ground: 0x241a12, intensity: 0.7 },
-      sun: { color: 0xffc590, intensity: 0.55, pos: [20, 50, 14], extent: 46, far: 130 },
+      // Deliberately much brighter than a "realistic" dungeon. Two passes of this map were
+      // reported as unplayably black; atmosphere is worth nothing if you cannot see a target.
+      ambient: { color: 0x9c8a72, intensity: 1.15 },
+      hemi: { sky: 0xa08d70, ground: 0x3a2c20, intensity: 0.95 },
+      sun: { color: 0xffd9ad, intensity: 0.95, pos: [20, 50, 14], extent: 46, far: 130 },
     },
     build() { buildDungeonMap(); },
   },
@@ -3615,8 +3780,29 @@ function warmUpShaders() {
   // compiling with the pool dark would produce a different permutation than gameplay uses.
   const saved = lightSlots.map((l) => l.intensity);
   for (const l of lightSlots) if (l.intensity === 0) l.intensity = 0.001;
+
+  // compile() walks the scene with traverseVisible and needs current world matrices, so make
+  // sure everything is both visible and up to date first. Anything skipped here compiles on
+  // the frame it first appears instead — which is a ~70 ms hitch in the middle of a fight.
+  const hidden = [];
+  for (const c of ammoChests) if (!c.mesh.visible) { c.mesh.visible = true; hidden.push(c.mesh); }
+  for (const c of consumables) if (!c.mesh.visible) { c.mesh.visible = true; hidden.push(c.mesh); }
+  scene.updateMatrixWorld(true);
+  vmScene.updateMatrixWorld(true);
+
   renderer.compile(scene, camera);
   renderer.compile(vmScene, vmCamera);
+
+  // compile() only covers what it can reach; actually drawing a frame is what proves it. This
+  // runs behind the loading screen or at match start, so the cost is invisible.
+  const vw = vmRig.visible;
+  vmRig.visible = true;
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(vmScene, vmCamera);
+  vmRig.visible = vw;
+
+  for (const m of hidden) m.visible = false;
   lightSlots.forEach((l, i) => { l.intensity = saved[i]; });
 
   // Touch every particle slot once so the attribute buffers are allocated and uploaded now.
@@ -4234,6 +4420,9 @@ function updateAmmoChests(dt) {
       if (c.cooldown <= 0) { c.mesh.visible = true; c.emitter.intensity = 26; }
       continue;
     }
+    const camDist = c.mesh.position.distanceTo(camera.position);
+    c.mesh.visible = camDist < PICKUP_DRAW_DIST;
+    if (!c.mesh.visible) continue;
     c.mesh.rotation.y += dt * 0.5;
     c.mesh.position.y = c.baseY + Math.sin(t * (Math.PI * 2 / 1.5) + c.phase) * 0.2;
     c.emitter.intensity = 22 + Math.sin(t * 3 + c.phase) * 7;
@@ -4261,11 +4450,156 @@ function updateAmmoChests(dt) {
     prompt = false;
   }
 
-  if (el.ammoPrompt) el.ammoPrompt.style.opacity = prompt ? '1' : '0';
+  ammoPromptActive = prompt ? 'AMMO' : null;
+}
+
+/** Ammo chests and consumables share one on-screen prompt; whichever is nearer wins. */
+let ammoPromptActive = null;
+
+function updatePickupPrompt(consumableLabel) {
+  if (!el.ammoPrompt) return;
+  const label = consumableLabel || ammoPromptActive;
+  el.ammoPrompt.style.opacity = label ? '1' : '0';
+  if (label && el.ammoPromptLabel) el.ammoPromptLabel.textContent = label;
 }
 
 function resetAmmoChests() {
   for (const c of ammoChests) { c.cooldown = 0; c.mesh.visible = true; c.emitter.intensity = 26; }
+}
+
+/* --------------------- health and shield pickups --------------------- */
+
+/**
+ * Consumables, on the same lease-a-light / respawn-on-a-timer pattern as the ammo chests.
+ *
+ * Health is capped at MAX_HEALTH so it can only undo damage, but shield stacks on top of the
+ * armour you spawn with, which gives a reason to cross the map for one. Both are picked up by
+ * walking over them, and both refuse the pickup when you are already full so you cannot waste
+ * a respawn cycle by brushing past.
+ */
+const consumables = [];
+
+const CONSUMABLE_KINDS = {
+  health: {
+    label: 'HEALTH', color: 0x46e07a, amount: 35, respawn: 22,
+    apply(p) {
+      if (p.health >= CONFIG.MAX_HEALTH) return false;
+      p.health = Math.min(CONFIG.MAX_HEALTH, p.health + this.amount);
+      return true;
+    },
+  },
+  shield: {
+    label: 'SHIELD', color: 0x4db4ff, amount: 40, respawn: 30,
+    apply(p) {
+      if (p.armor >= CONFIG.MAX_ARMOR) return false;
+      p.armor = Math.min(CONFIG.MAX_ARMOR, p.armor + this.amount);
+      return true;
+    },
+  },
+};
+
+/** Potion-ish vial: tinted glass body, glowing core, floating ring. */
+function buildConsumableMesh(kind) {
+  const spec = CONSUMABLE_KINDS[kind];
+  const g = new THREE.Group();
+  const glass = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.17, 0.21, 0.34, 12),
+    // Opaque, not transparent glass. Transparency here meant a blended pass with no early-z
+    // for 8 objects, measured at ~3 ms of a 4.9 ms frame at 400x300 — and that scales with
+    // resolution, so it is much worse on a real display. A strong emissive reads as "glowing
+    // vial" just as well and costs a normal opaque draw.
+    new THREE.MeshStandardMaterial({
+      color: spec.color, roughness: 0.25, metalness: 0.1,
+      emissive: spec.color, emissiveIntensity: 0.7,
+    }),
+  );
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07, 0.09, 0.12, 10),
+    matte(0xdad6cc, 0.6, 0.2),
+  );
+  neck.position.y = 0.22;
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.10, 10, 8),
+    new THREE.MeshBasicMaterial({ color: spec.color }),
+  );
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.30, 0.018, 6, 22),
+    new THREE.MeshBasicMaterial({ color: spec.color }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.16;
+  // No additive glow sprite here, deliberately. An earlier version had one and it was
+  // catastrophic: 8 pickups took a 400x300 frame from 1.8 ms to 77 ms, because a camera-facing
+  // additive sprite is pure overdraw and eight of them covered the screen several times over.
+  // The emissive core plus the light this pickup leases carry the same read for nothing.
+  g.add(glass, neck, core, ring);
+  g.userData.ring = ring;
+  return g;
+}
+
+/** Pickups past this are not worth drawing; they are dots on screen and pure overdraw. */
+const PICKUP_DRAW_DIST = 34;
+
+function spawnConsumables(entries, max = 8) {
+  for (const [kind, x, z] of entries) {
+    if (consumables.length >= max) break;
+    if (inBlocker(x, z, 1.2)) continue;
+    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spTo.set(x, -1, z);
+    _spRes.reset();
+    world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
+    if (!_spRes.hasHit) continue;
+    const spec = CONSUMABLE_KINDS[kind];
+    const mesh = buildConsumableMesh(kind);
+    const baseY = _spRes.hitPointWorld.y + 0.5;
+    mesh.position.set(x, baseY, z);
+    scene.add(mesh);
+    const emitter = addLightEmitter({
+      x, y: baseY + 0.2, z, color: spec.color, intensity: 18, distance: 4.5, priority: 0,
+    });
+    consumables.push({ kind, spec, mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
+  }
+}
+
+function updateConsumables(dt) {
+  const t = performance.now() * 0.001;
+  let prompt = null;
+
+  for (const c of consumables) {
+    if (c.cooldown > 0) {
+      c.cooldown -= dt;
+      if (c.cooldown <= 0) { c.mesh.visible = true; c.emitter.intensity = 18; }
+      continue;
+    }
+    // Cull by distance before doing any per-frame work on it.
+    const camDist = c.mesh.position.distanceTo(camera.position);
+    c.mesh.visible = camDist < PICKUP_DRAW_DIST;
+    if (!c.mesh.visible) continue;
+    c.mesh.rotation.y += dt * 0.9;
+    c.mesh.position.y = c.baseY + Math.sin(t * 2.0 + c.phase) * 0.14;
+    c.mesh.userData.ring.rotation.z += dt * 1.6;
+    c.emitter.y = c.mesh.position.y + 0.2;
+
+    if (!player.alive) continue;
+    const d = c.mesh.position.distanceTo(player.body.position);
+    if (d < 2.4) prompt = c.spec.label;
+    if (d > 1.5) continue;
+
+    if (!c.spec.apply(player)) continue;      // already full — leave it for later
+    Audio.pickup();
+    showToast(`+${c.spec.amount} ${c.spec.label}`);
+    updateVitals();
+    c.mesh.visible = false;
+    c.emitter.intensity = 0;
+    c.cooldown = c.spec.respawn;
+    prompt = null;
+  }
+
+  return prompt;
+}
+
+function resetConsumables() {
+  for (const c of consumables) { c.cooldown = 0; c.mesh.visible = true; c.emitter.intensity = 18; }
 }
 
 function clearEffects() {
@@ -4373,7 +4707,7 @@ const el = {
   pBig: $('p-big'), pSm: $('p-sm'), pCta: $('p-cta'), loading: $('loading'), play: $('play'),
   nameInput: $('nameinput'), menuResult: $('menuresult'),
   dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'), allies: $('allies'),
-  hitflash: $('hitflash'), vitals: $('vitals'),
+  hitflash: $('hitflash'), vitals: $('vitals'), ammoPromptLabel: $('ammo-prompt-label'),
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
@@ -4451,7 +4785,7 @@ function makePlate(name, color) {
   bar.appendChild(fill);
   root.append(n, bar);
   el.plates.appendChild(root);
-  return { root, fill };
+  return { root, fill, bar };
 }
 
 /**
@@ -4521,21 +4855,49 @@ function updatePlates(dt) {
   for (const b of bots) {
     const p = b.plate;
     if (!b.alive) { p.root.style.display = 'none'; continue; }
-    _proj.set(b.pos.x, b.pos.y + 0.85, b.pos.z).project(camera);
+    // b.pos is the chest, so this lands a little above the top of the head at BOT_TARGET_HEIGHT.
+    _proj.set(b.pos.x, b.pos.y + 0.95, b.pos.z).project(camera);
     // z > 1 means it is behind the near plane — otherwise the plate mirrors behind you.
     if (_proj.z > 1 || Math.abs(_proj.x) > 1.3) { p.root.style.display = 'none'; continue; }
     const d = b.pos.distanceTo(camera.position);
     if (d > 55) { p.root.style.display = 'none'; continue; }
     if (recheck) {
-      b.plateLos = losClear(player.eye.x, player.eye.y, player.eye.z, b.pos.x, b.pos.y, b.pos.z);
+      // Sample three points up the body, not just the chest, and take the plate as visible if
+      // ANY of them is clear.
+      //
+      // This is why nameplates seemed never to appear: a single chest ray is blocked by any
+      // crate, railing or low wall a bot is standing behind — which is most of the time — so
+      // a bot whose head and shoulders you can plainly see, and can shoot, had no plate.
+      //
+      // The ray also starts at the camera rather than player.eye. The plate is a screen-space
+      // overlay projected from the camera, so the camera is the geometrically correct origin;
+      // view bob, shake and the crouch offset make eye and camera disagree by enough to matter
+      // when you are peeking a corner.
+      const ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
+      b.plateLos =
+        losClear(ox, oy, oz, b.pos.x, b.pos.y + b.hb.headY, b.pos.z) ||
+        losClear(ox, oy, oz, b.pos.x, b.pos.y, b.pos.z) ||
+        losClear(ox, oy, oz, b.pos.x, b.pos.y - 0.30, b.pos.z);
     }
     if (!b.plateLos) { p.root.style.display = 'none'; continue; }
     p.root.style.display = '';
     p.root.style.left = `${(_proj.x * 0.5 + 0.5) * innerWidth}px`;
     p.root.style.top = `${(-_proj.y * 0.5 + 0.5) * innerHeight}px`;
+    // THE reason plates read as sitting ON the head rather than above it: `top` places the
+    // element's TOP edge at the projected point, so the whole plate then hangs downward over
+    // the model. Pulling it up by its own height puts it where a nameplate belongs. Set
+    // inline rather than in CSS so a UI restyle cannot silently drop it.
+    p.root.style.transform = 'translateY(-100%)';
     p.root.style.opacity = String(clamp(1.15 - d / 55, 0.25, 1));
-    p.fill.style.transform = `scaleX(${clamp(b.health / 100, 0, 1)})`;
-    p.root.classList.toggle('hurt', b.health < 35);
+
+    // Enemy health is hidden by default: knowing exactly how close a target is to death is a
+    // big information advantage, and the floating damage numbers already say how hard you hit.
+    // Teammates still show a bar, because coordinating with them needs it.
+    const friendly = player.team !== TEAM.SOLO && b.team === player.team;
+    const showBar = friendly || settings.showEnemyHealth;
+    p.bar.style.display = showBar ? '' : 'none';
+    if (showBar) p.fill.style.transform = `scaleX(${clamp(b.health / 100, 0, 1)})`;
+    p.root.classList.toggle('hurt', showBar && b.health < 35);
   }
 }
 
@@ -4689,6 +5051,7 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
   clearBots();
   clearEffects();
   resetAmmoChests();
+  resetConsumables();
   el.feed.innerHTML = '';
 
   if (mode === 'tdm') {
@@ -5027,6 +5390,7 @@ function frame() {
     updateBrass(dt);
     updatePickups(dt);
     updateAmmoChests(dt);
+    updatePickupPrompt(updateConsumables(dt));
     if (currentMapId === 'dungeon') updateDungeonFx(dt);
     updateLights();          // after every emitter has had its chance to move or flicker
     updateShake(dt);
@@ -5101,8 +5465,6 @@ const SETTINGS_SCHEMA = [
     options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
     hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
   },
-  { key: 'fov', type: 'range', label: 'Field of view', min: 55, max: 100, step: 1, unit: '°',
-    hint: 'Lower is more zoomed in.' },
   { group: 'CONTROLS' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
@@ -5117,6 +5479,8 @@ const SETTINGS_SCHEMA = [
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
   { key: 'showDamageNumbers', type: 'toggle', label: 'Floating damage numbers' },
+  { key: 'showEnemyHealth', type: 'toggle', label: 'Show enemy health bars',
+    hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
   { group: 'AUDIO' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
 ];
@@ -5277,8 +5641,17 @@ async function boot() {
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,
     settings, applySettings, QUALITY, vmCamera,
-    getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND,
+    getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     currentMapId: () => currentMapId,
+    forceUpdatePlates: (dt) => updatePlates(dt),
+    // Everything that normally runs once per rendered frame, so a headless soak test can
+    // exercise the same code paths the real loop does.
+    forceRenderTick: (dt) => {
+      updateBursts(dt); updateExplosionFx(dt); updateSmoke(dt); updateBrass(dt);
+      updatePickups(dt); updateAmmoChests(dt); updateConsumables(dt);
+      updateShake(dt); updateSpotting(dt); updateMatch(dt); updateLights();
+    },
+    forceUpdateConsumables: (dt) => updateConsumables(dt),
   };
 
   frame();

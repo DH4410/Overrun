@@ -61,6 +61,7 @@
 <div id="pause"><div class="big" id="p-big">PAUSED</div><div class="sm" id="p-sm"></div><div class="cta" id="p-cta">CLICK TO RESUME &nbsp;·&nbsp; ESC RELEASES THE CURSOR</div><div class="pause-btns"><button id="settings-open-pause">SETTINGS</button><button id="quit-match">LEAVE MATCH</button></div></div>
 <div id="settings" class="hidden"><div class="set-card"><div class="set-head"><h2>SETTINGS</h2><div class="set-actions"><button id="settings-reset">RESET</button><button id="settings-close">DONE</button></div></div><div id="settings-body"></div></div></div>
 <div id="menu">
+<div id="menu-sidebar">
 <div class="title-wrap"><h1>OVER<b>RUN</b></h1><div class="tag2">BALLISTIC BOT DEATHMATCH</div></div><div id="menuresult"></div>
 <div class="grp"><div class="glbl">CALLSIGN</div><input id="nameinput" maxlength="12" value="PLAYER" spellcheck="false" /></div>
 <div class="grp"><div class="glbl">GAME MODE</div><div id="modes"><button class="mode-btn active" data-mode="dm"><div class="mt">DEATHMATCH</div><div class="md">Free-for-all against the bots.<br>First to 20 kills, 5 minute limit.</div></button><button class="mode-btn" data-mode="tdm"><div class="mt">TEAM DM</div><div class="md">You + 2 allies vs 3 enemies.<br>First team to 25 kills.</div></button><button class="mode-btn" data-mode="sv"><div class="mt">SURVIVAL</div><div class="md">Endless waves, 4 → 6 → 8 …<br>Score is your total kills.</div></button></div></div>
@@ -68,6 +69,8 @@
 <div class="grp"><div class="glbl">BOT DIFFICULTY</div><div id="diffs"><button class="pill" data-diff="easy">EASY</button><button class="pill active" data-diff="medium">MEDIUM</button><button class="pill" data-diff="hard">HARD</button></div></div>
 <button id="play" disabled>LOADING</button><button id="settings-open" class="ghost-btn">SETTINGS</button><div id="loading">preparing arena…</div>
 <div id="keyhelp"><kbd>WASD</kbd> move &nbsp; <kbd>SPACE</kbd> jump &nbsp; <kbd>SHIFT</kbd> sprint &nbsp; <kbd>C</kbd> crouch &nbsp; <kbd>LMB</kbd> fire &nbsp; <kbd>RMB</kbd> aim / scope<br><kbd>1</kbd>–<kbd>5</kbd> weapons &nbsp; <kbd>R</kbd> reload &nbsp; <kbd>G</kbd> hold to cook a frag &nbsp; <kbd>F</kbd> smoke &nbsp; <kbd>TAB</kbd> scoreboard &nbsp; <kbd>ESC</kbd> release cursor<br>Bullets are real projectiles — they take time to arrive and they drop.</div>
+<div id="player-card"><div class="pc-avatar">☠</div><div class="pc-info"><div class="pc-name">DH4410</div><div class="pc-level">LEVEL 12</div><div class="pc-xpbar"><div class="pc-xpfill"></div></div></div></div>
+</div>
 </div>
 <script>if('serviceWorker' in navigator&&location.protocol.startsWith('http')){addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}</script>
 <script type="module" src="./game.js"></script>

@@ -2975,6 +2975,12 @@ const ST = {
 
 // The bot mesh is scaled 1.2x and its feet sit 0.04 m above the compound body's centre-of-
 // rest, which puts the chest 0.45 m and the head/eye 0.95 m above that centre.
+// Bot perception. 130 degrees total — generous enough that bots are not oblivious, narrow
+// enough that flanking and back-lines actually work. Anything within BOT_AWARE_NEAR metres is
+// noticed regardless of which way the bot is looking.
+const BOT_FOV_COS = Math.cos((65 * Math.PI) / 180);
+const BOT_AWARE_NEAR = 6;
+
 // Planar speed (m/s) each locomotion clip in soldier.glb was authored for. Used to drive
 // action.timeScale so playback rate tracks how fast the bot is actually travelling.
 const WALK_CLIP_SPEED = 1.6;
@@ -3229,6 +3235,20 @@ class Bot {
     if (target.invulnTimer > 0) return false;   // spawn-protected: bots do not acquire you
     const d = this.eye.distanceTo(target.pos);
     if (d > 90) return false;
+    // Vision cone. Without this a bot acquired anything it had line of sight to anywhere in a
+    // 90 m *sphere* — including directly behind it — which is why standing still and watching
+    // a bot got you shot: it had already seen you through the back of its head. Targets nearer
+    // than BOT_AWARE_NEAR are still noticed regardless of facing, so you cannot walk up and
+    // stand on someone. Bots that miss you this way are not blind: a gunshot within 20 m
+    // routes them to ALERT via alertBots(), which walks them to lastKnown and re-acquires.
+    if (d > BOT_AWARE_NEAR) {
+      const dx = target.pos.x - this.body.position.x;
+      const dz = target.pos.z - this.body.position.z;
+      const inv = 1 / Math.max(1e-4, Math.hypot(dx, dz));
+      // faceDir measures yaw from +Z, so forward is (sin yaw, cos yaw).
+      const facing = dx * inv * Math.sin(this.yaw) + dz * inv * Math.cos(this.yaw);
+      if (facing < BOT_FOV_COS) return false;
+    }
     if (!losClear(this.eye.x, this.eye.y, this.eye.z, target.pos.x, target.pos.y, target.pos.z)) return false;
     return !smokeBlocks(this.eye, target.pos);
   }

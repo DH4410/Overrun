@@ -704,8 +704,12 @@ kbd {
 .dmg-num.head { color: #ff7a4a; font-size: 25px; }
 .dmg-num.limb { color: rgba(255, 224, 106, .62); font-size: 16px; }
 /* Armour soaked part of this hit. Without a distinct colour a centre-mass shot that landed
-   for single digits reads as a weak weapon rather than as a target wearing plates. */
-.dmg-num.armored { color: var(--ov-ap); }
+   for single digits reads as a weak weapon rather than as a target wearing plates.
+   :not(.head) matters — .armored is declared after .head at equal specificity, so without it
+   an armoured headshot loses the headshot colour entirely and reads as a body hit, which is
+   the one case the player most needs to read correctly. Headshots keep their colour and the
+   plate glyph below still marks them as armoured. */
+.dmg-num.armored:not(.head) { color: var(--ov-ap); }
 .dmg-num.armored::after {
   content: '';
   display: inline-block;

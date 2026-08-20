@@ -2531,10 +2531,12 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
   if (target.invulnTimer > 0) return;
 
   let dmg = amount;
+  let soaked = 0;
   if (target.armor > 0) {
     const soak = Math.min(target.armor, dmg * CONFIG.ARMOR_ABSORB);
     target.armor -= soak;
     dmg -= soak;
+    soaked = soak;
   }
   target.health -= dmg;
 
@@ -2546,7 +2548,10 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
     if (source === player) {
       showHitMarker(false);
       Audio.hit();
-      showDamageNumber(hitPos || target.pos, dmg, headshot);
+      // zone was being dropped here, so every number rendered with the plain body style and a
+      // headshot looked exactly like a graze. soaked tells the player *why* a centre-mass hit
+      // landed for single digits — armour ate the rest — instead of it reading as a weak gun.
+      showDamageNumber(hitPos || target.pos, dmg, headshot, zone, soaked > 0.5);
     }
     target.lastHurtBy = source;
     target.lastHurtAt = match.time;
@@ -4808,13 +4813,15 @@ function applyCrosshairStyle() {
 const _dmgProj = new THREE.Vector3();
 
 /** Float the damage dealt above the point of impact, projected to screen space. */
-function showDamageNumber(worldPos, amount, headshot, zone = 'body') {
+function showDamageNumber(worldPos, amount, headshot, zone = 'body', armored = false) {
   if (!el.dmgNums || amount <= 0 || !settings.showDamageNumbers) return;
   _dmgProj.copy(worldPos).project(camera);
   if (_dmgProj.z > 1) return;                       // behind the camera
   const d = document.createElement('div');
-  d.className = `dmg-num ${zone}`;
-  d.textContent = Math.round(amount);
+  d.className = `dmg-num ${headshot ? 'head' : zone}${armored ? ' armored' : ''}`;
+  // Round up, never down: a hit that landed must never print as 0, and printing 8 for 8.6
+  // made weapons feel weaker than they are.
+  d.textContent = Math.max(1, Math.ceil(amount));
   // A little horizontal jitter so a shotgun's pellets do not stack into one unreadable blob.
   d.style.left = `${(_dmgProj.x * 0.5 + 0.5) * innerWidth + rand(-14, 14)}px`;
   d.style.top = `${(-_dmgProj.y * 0.5 + 0.5) * innerHeight}px`;

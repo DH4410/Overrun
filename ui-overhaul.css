@@ -702,6 +702,20 @@ kbd {
   text-shadow: 0 2px 4px #000, 0 0 10px rgba(0, 0, 0, .8);
 }
 .dmg-num.head { color: #ff7a4a; font-size: 25px; }
+.dmg-num.limb { color: rgba(255, 224, 106, .62); font-size: 16px; }
+/* Armour soaked part of this hit. Without a distinct colour a centre-mass shot that landed
+   for single digits reads as a weak weapon rather than as a target wearing plates. */
+.dmg-num.armored { color: var(--ov-ap); }
+.dmg-num.armored::after {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 8px;
+  margin-left: 3px;
+  vertical-align: 1px;
+  border-radius: 1px 1px 2px 2px;
+  background: currentColor;
+  opacity: .75;
+}
 
 /* ── Transient centre text ── */
 #toast {

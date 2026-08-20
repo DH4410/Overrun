@@ -95,6 +95,19 @@ const CONFIG = {
 const DUNGEON_TILE = 4;
 const DUNGEON_CEIL = 4.15;
 
+/**
+ * Height the ground-finding raycasts in spawnAmmoChests / spawnConsumables start from.
+ *
+ * These cast straight down with raycastClosest and place the item on the first thing they
+ * hit. That only finds the floor if the ray starts *below* the map's roof. The dungeon has a
+ * full-map lid collider spanning y=4.15..5.15 (see buildDungeonMap), so a ray starting at the
+ * warehouse's CONFIG.CEIL-0.5 = 9.5 hit the lid instead and every chest and consumable was
+ * placed on top of the roof — visible from inside the level whenever you jumped.
+ *
+ * buildMap() sets this per level from MAPS[id].ceilY.
+ */
+let spawnCastY = CONFIG.CEIL - 0.5;
+
 /* ================================================================== *
  * === SETTINGS ===
  * ================================================================== */
@@ -141,7 +154,10 @@ const DEFAULT_SETTINGS = {
   // Laptop/trackpad friendly toggles. Holding a modifier while dragging a trackpad is
   // genuinely painful, so every hold-to-act binding can be made a press-to-toggle instead.
   toggleAim: false,
-  toggleCrouch: false,
+  // Toggle by default. Hold-to-crouch means holding a key through every angle-hold and every
+  // peek, which is what the crouch mechanic is mostly used for; the hold binding is still
+  // available in Settings for anyone who prefers it.
+  toggleCrouch: true,
   toggleSprint: false,
   arrowKeys: false,          // arrows as a second movement set for laptops without WASD comfort
 };
@@ -2959,6 +2975,11 @@ const ST = {
 
 // The bot mesh is scaled 1.2x and its feet sit 0.04 m above the compound body's centre-of-
 // rest, which puts the chest 0.45 m and the head/eye 0.95 m above that centre.
+// Planar speed (m/s) each locomotion clip in soldier.glb was authored for. Used to drive
+// action.timeScale so playback rate tracks how fast the bot is actually travelling.
+const WALK_CLIP_SPEED = 1.6;
+const RUN_CLIP_SPEED = 4.4;
+
 const BOT_MESH_SCALE = 1.2;
 const BOT_MESH_Y = 0.04;
 const BOT_CHEST = 0.50;
@@ -3583,6 +3604,12 @@ class Bot {
       if (clips.Idle) clips.Idle.weight = lerp(clips.Idle.weight, wIdle, k);
       if (clips.Walk) clips.Walk.weight = lerp(clips.Walk.weight, wWalk, k);
       if (clips.Run) clips.Run.weight = lerp(clips.Run.weight, wRun, k);
+      // Foot-sliding fix: the clips were playing at their authored rate no matter how fast
+      // the bot was actually moving, so the feet skated whenever the two disagreed. Drive
+      // playback rate from real planar speed against the speed each clip was authored for.
+      // Clamped because a bot shoved by an explosion should not windmill its legs.
+      if (clips.Walk) clips.Walk.timeScale = clamp(speed / WALK_CLIP_SPEED, 0.6, 1.8);
+      if (clips.Run) clips.Run.timeScale = clamp(speed / RUN_CLIP_SPEED, 0.6, 1.8);
       mixer.update(dt);
     } else {
       const t = performance.now() * 0.001;
@@ -3688,6 +3715,7 @@ const MAPS = {
     background: 0x0a0e14,
     fog: { color: 0x0a0e14, near: 55, far: 190 },
     mapView: 46,
+    ceilY: CONFIG.CEIL,
     nav: { extent: 46, step: 8.5, pad: 1.1, coverPad: 3.6 },
     layerExtent: A,
     plates: { ground: 0x141a21, solid: 0x5c6b7a },
@@ -3719,6 +3747,7 @@ const MAPS = {
     background: 0x1a1410,
     fog: { color: 0x140d07, near: 8, far: 60 },
     mapView: 44,
+    ceilY: DUNGEON_CEIL,
     nav: { extent: 40, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
     layerExtent: 44,
     // High-contrast plan: on the warehouse palette the dungeon minimap was near-black on
@@ -3741,6 +3770,8 @@ let currentMapId = 'warehouse';
 function buildMap(id) {
   const m = MAPS[id];
   currentMapId = id;
+  // Must be set before m.build() runs — the spawners below it cast down from here.
+  spawnCastY = (m.ceilY ?? CONFIG.CEIL) - 0.5;
 
   scene.background = new THREE.Color(m.background);
   scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
@@ -4394,7 +4425,7 @@ function spawnAmmoChests(positions, max = 6) {
   for (const [x, z] of positions) {
     if (ammoChests.length >= max) break;
     if (inBlocker(x, z, 1.2)) continue;              // never bury a chest inside a crate
-    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spFrom.set(x, spawnCastY, z);
     _spTo.set(x, -1, z);
     _spRes.reset();
     world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
@@ -4544,7 +4575,7 @@ function spawnConsumables(entries, max = 8) {
   for (const [kind, x, z] of entries) {
     if (consumables.length >= max) break;
     if (inBlocker(x, z, 1.2)) continue;
-    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spFrom.set(x, spawnCastY, z);
     _spTo.set(x, -1, z);
     _spRes.reset();
     world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);

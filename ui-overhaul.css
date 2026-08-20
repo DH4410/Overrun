@@ -806,7 +806,38 @@ kbd {
 .set-hint { font-family: var(--f-body); font-size: 11px; font-weight: 500; color: rgba(255, 255, 255, .35); }
 .set-ctl b { font-family: var(--f-display); font-size: 11px; font-weight: 600; color: var(--ov-accent); }
 .set-ctl input[type=range] { accent-color: var(--ov-accent); }
-.set-ctl input[type=checkbox] { accent-color: var(--ov-accent); }
+/* The native unchecked box is a bright white square — far too loud on a dark
+   card. Drawn by hand instead; game.js only ever reads/writes `.checked`, which
+   appearance:none does not affect. */
+.set-ctl input[type=checkbox] {
+  appearance: none; -webkit-appearance: none;
+  position: relative;
+  width: 18px; height: 18px;
+  margin: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .2);
+  transition: background .12s, border-color .12s;
+}
+.set-ctl input[type=checkbox]:hover { border-color: rgba(0, 200, 240, .5); }
+.set-ctl input[type=checkbox]:checked { background: var(--ov-accent); border-color: var(--ov-accent); }
+.set-ctl input[type=checkbox]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px; top: 1px;
+  width: 5px; height: 10px;
+  border: solid var(--ov-bg-deep);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.set-ctl input[type=color] {
+  width: 44px; height: 26px;
+  padding: 2px;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 4px;
+  cursor: pointer;
+}
 .set-actions button {
   font-family: var(--f-display);
   font-size: 9px;
@@ -949,9 +980,31 @@ kbd {
   .pause-btns, #pause .cta { width: min(300px, 82vw); }
 }
 
-@media (max-height: 720px) {
-  #menu-sidebar { padding-top: 24px; }
+/* Sidebar height budget — measured, not guessed. The full-fat sidebar is
+   ~896px tall, which overflows every common laptop viewport (a 1440x900
+   display gives ~790px after browser chrome; 1366x768 gives ~672px). When it
+   overflows, `#player-card{margin-top:auto}` stops pinning and the card drops
+   below the fold. These tiers keep it in view:
+     tier 1 (compaction)        → needs ~854px
+     tier 2 (+ #keyhelp hidden) → needs ~720px
+     tier 3 (+ smaller logo)    → needs ~664px */
+@media (max-height: 890px) {
+  #menu-sidebar { padding-top: 24px; padding-bottom: 20px; }
   .title-wrap { margin-bottom: 18px; }
   #menu .grp { margin-bottom: 12px; }
+  #keyhelp { margin-top: 10px; padding-top: 10px; line-height: 1.6; }
+}
+@media (max-height: 850px) {
+  /* The keybind list is the one block here that is reference material rather
+     than state, so it is what gives way first. */
   #keyhelp { display: none; }
+}
+@media (max-height: 730px) {
+  #menu h1 { font-size: 28px; letter-spacing: 3px; }
+  #menu-sidebar { padding-top: 20px; padding-bottom: 16px; }
+  .title-wrap { margin-bottom: 14px; }
+  #menu .grp { margin-bottom: 9px; }
+  .mode-btn { padding-top: 9px; padding-bottom: 9px; }
+  #play { padding: 13px 10px; }
+  #player-card { padding-top: 16px; }
 }

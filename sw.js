@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v2';
+const CACHE = 'overrun-v3';
 const PRECACHE = ['./', './index.html', './game.js'];
 
 const ASSET_RE = /\.(glb|gltf|bin|jpg|jpeg|png|webp|ktx2|hdr)(\?|$)/i;

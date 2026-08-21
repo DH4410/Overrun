@@ -27,11 +27,12 @@ Baseline browser coverage currently verifies:
 - boot reaches `DEPLOY` without page or console errors;
 - Warehouse and Dungeon create finite spawn points and navigation nodes;
 - Warehouse Deathmatch starts and supports movement, firing, reload, and weapon switching;
-- a dead Deathmatch bot respawns;
+- a dead Deathmatch bot respawns through the split `simStep()` / `renderStep()` API;
+- Deathmatch HUD and time-limit results agree on the canonical `dmLeader()` outcome;
 - Survival advances from wave one to wave two.
 
-`tests/e2e/known-regressions.spec.mjs` also executes the current P0 regressions as Playwright
-expected failures:
+`tests/e2e/known-regressions.spec.mjs` executes the integrated P0 regressions as ordinary,
+permanent assertions:
 
 - CORE-01: pointer-lock pause freezes match time;
 - CORE-01: in-match settings freeze match time;
@@ -39,26 +40,24 @@ expected failures:
 - CORE-03: a TDM frag damages the enemy but not an allied bot, and awards only the enemy score;
 - CORE-04: standing remains blocked under a low ceiling.
 
-An expected failure counts as a passing test while the known bug is present. If the assertion
-starts passing after the Claude correctness branch is integrated, Playwright reports
-`Expected to fail, but passed`; remove the corresponding `test.fail(...)` annotation and keep the
-assertion as the permanent regression test.
+The pause and settings cases observe the public UI behavior of the module-private
+`APP_STATE`/`appState` pair. The harness has no `test.fail(...)` markers; a regression fails the
+suite directly.
 
 ## Render-rate verification
 
 `tests/support/render-rate.mjs` provides deterministic frame schedules and mirrors the current
-fixed-step accumulator. It separates render-frame callbacks from fixed-physics callbacks and
-reports simulated, dropped, and remainder time. After CORE-02 integration, use the same 10-second
-120/60/30 Hz schedules to compare at least:
+four-substep fixed-step accumulator. It separates render-frame callbacks from fixed-physics
+callbacks and reports simulated, dropped, and remainder time. The 10-second 120/60/30 Hz
+schedules can compare at least:
 
 - player travel distance;
 - bot cooldown elapsed;
 - projectile distance;
 - match time.
 
-The unit test intentionally records the current three-substep baseline: a 10-second 30 Hz
-schedule advances only about 7.5 seconds of fixed physics. That measurement validates the helper;
-the live expected-failure spec defines the desired cross-rate behavior.
+The unit test requires a 10-second 30 Hz schedule to advance all 1,200 fixed-physics steps. The
+browser regression also requires player travel at 30 and 60 render Hz to remain within 5%.
 
 ## Manual checks still required
 

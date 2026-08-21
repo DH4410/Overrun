@@ -37,7 +37,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 const CONFIG = {
   GRAVITY: -9.82,
   PHYSICS_HZ: 120,
-  MAX_SUBSTEPS: 3,
+  MAX_SUBSTEPS: 4,  // 4 * 8.33 ms = 33.3 ms covers 30 fps without accumulator drift
   MAX_FRAME_DT: 0.25,
 
   // Arena (metres). Outer shell is ARENA half-extent; the inner ring sits at RING.
@@ -181,6 +181,10 @@ function saveSettings() {
 const SPAWN_INVULN = 3.0;
 
 const FIXED_DT = 1 / CONFIG.PHYSICS_HZ;
+// FOV constants. Hip is the neutral camera FOV; ADS narrows it for precision.
+// Not user-adjustable per READMEFORUI §6 — these values set how enemies read on screen.
+const HIP_FOV = 78;
+const ADS_FOV = 68;
 /** cannon applies damping as v *= (1-d)^dt. We overwrite horizontal velocity every tick,
  *  so damping only ever touches Y — and there it would give a 3 m/s terminal velocity and
  *  a floaty jump. We divide it back out post-step. */
@@ -855,6 +859,7 @@ function placeProp(key, x, z, yaw = 0) {
   const spec = PROP_FILES[key];
   const cached = propCache[key];
   let hx, hy, hz;
+  let isRound = false;
 
   if (cached) {
     const inst = cached.clone(true);
@@ -862,27 +867,37 @@ function placeProp(key, x, z, yaw = 0) {
     inst.rotation.y = yaw;
     mapGroup.add(inst);
     const s = cached.userData.size;
-    // Yaw is a multiple of 90 deg for props, so swapping X/Z on the odd quarters is exact.
-    const swap = Math.abs(Math.round(yaw / (Math.PI / 2))) % 2 === 1;
-    hx = (swap ? s.z : s.x) / 2; hz = (swap ? s.x : s.z) / 2; hy = s.y / 2;
+    // Use true model half-extents; rotation is handled by the body quaternion below.
+    hx = s.x / 2; hz = s.z / 2; hy = s.y / 2;
   } else {
     const sz = spec.size;
-    const round = key === 'barrel' || key === 'piston';
-    const geo = round
+    isRound = key === 'barrel' || key === 'piston';
+    const geo = isRound
       ? new THREE.CylinderGeometry(sz * 0.36, sz * 0.4, sz, 14)
       : new THREE.BoxGeometry(sz, sz * 0.92, sz);
-    const mat = round ? MATS.metal : MATS.wall;
+    const mat = isRound ? MATS.metal : MATS.wall;
     const m = new THREE.Mesh(geo, mat);
-    hy = (round ? sz : sz * 0.92) / 2;
+    hy = (isRound ? sz : sz * 0.92) / 2;
     m.position.set(x, hy, z);
     m.rotation.y = yaw;
     m.castShadow = true; m.receiveShadow = true;
     mapGroup.add(m);
-    hx = hz = round ? sz * 0.4 : sz / 2;
+    hx = hz = isRound ? sz * 0.4 : sz / 2;
   }
 
-  addStaticBox(hx, hy, hz, { x, y: hy, z });
-  addBlocker(x, z, hx, hz);
+  // Rotate the physics body to match the visual mesh yaw.
+  const quat = yaw ? new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw) : null;
+  addStaticBox(hx, hy, hz, { x, y: hy, z }, quat);
+
+  // Nav blocker: axis-aligned bounding box of the rotated rectangle (cylindrical props are
+  // symmetric so their AABB does not change with yaw).
+  if (isRound || !yaw) {
+    addBlocker(x, z, hx, hz);
+  } else {
+    const cosA = Math.abs(Math.cos(yaw));
+    const sinA = Math.abs(Math.sin(yaw));
+    addBlocker(x, z, hx * cosA + hz * sinA, hx * sinA + hz * cosA);
+  }
 }
 
 /* ------------------------- arena assembly ------------------------- */
@@ -1863,6 +1878,8 @@ function segmentCylinderY(o, d, len, cx, cy, cz, r, halfH) {
  * Offsets are relative to `pos`, which is the chest.
  */
 const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78 };
+// Crouching profile: PLAYER_CHEST_CROUCH lowers pos so head sits near eye level (1.35 m).
+const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.38, headR: 0.27, headY: 0.45 };
 // Scaled in lockstep with BOT_TARGET_HEIGHT. If these drift apart, bots either soak shots
 // that visually connected or die to shots that visually missed.
 const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
@@ -2401,23 +2418,6 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
   return g;
 }
 
-function updateGrenades(dt) {
-  for (let i = grenades.length - 1; i >= 0; i--) {
-    const g = grenades[i];
-    g.bounceCd = Math.max(0, g.bounceCd - dt);
-    g.mesh.position.copy(g.body.position);
-    g.mesh.quaternion.copy(g.body.quaternion);
-    g.fuse -= dt;
-    if (g.fuse <= 0) {
-      if (g.kind === 'smoke') spawnSmoke(g.mesh.position, g.owner);
-      else explode(g.mesh.position, g.owner);
-      world.removeBody(g.body);
-      scene.remove(g.mesh);
-      grenades.splice(i, 1);
-    }
-  }
-}
-
 function clearGrenades() {
   for (const g of grenades) { world.removeBody(g.body); scene.remove(g.mesh); }
   grenades.length = 0;
@@ -2430,6 +2430,8 @@ function explode(pos, owner) {
 
   for (const c of combatants) {
     if (!c.alive) continue;
+    // Skip teammates (but allow self-damage). Bullet code uses the same pattern.
+    if (owner && c !== owner && owner.team !== TEAM.SOLO && c.team === owner.team) continue;
     _v1.set(c.pos.x, c.pos.y, c.pos.z);
     const d = _v1.distanceTo(pos);
     if (d > CONFIG.FRAG_RADIUS) continue;
@@ -2491,6 +2493,7 @@ const player = {
 combatants.push(player);
 
 const PLAYER_CHEST = 0.75;
+const PLAYER_CHEST_CROUCH = 0.52;  // lowers bots' aim point to match crouching camera height
 const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
 
 function createPlayerBody() {
@@ -2582,9 +2585,25 @@ function playerGroundCheck() {
   }
 }
 
+const _crouchFrom = new CANNON.Vec3();
+const _crouchTo = new CANNON.Vec3();
+const _crouchRes = new CANNON.RaycastResult();
+
 function setCrouch(on) {
   if (player.crouching === on) return;
+
+  if (!on) {
+    // Overhead clearance: reject standup if there is geometry within the radius delta above us.
+    const clearNeeded = CONFIG.PLAYER_RADIUS - CONFIG.CROUCH_RADIUS;  // 0.12 m
+    _crouchFrom.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS, player.body.position.z);
+    _crouchTo.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS + clearNeeded + 0.05, player.body.position.z);
+    _crouchRes.reset();
+    world.raycastClosest(_crouchFrom, _crouchTo, RAY_OPTS, _crouchRes);
+    if (_crouchRes.hasHit) return;  // not enough clearance — stay crouched
+  }
+
   player.crouching = on;
+  player.hb = on ? HB_PLAYER_CROUCH : HB_PLAYER;
   const shape = player.body.shapes[0];
   const from = shape.radius;
   const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
@@ -2684,7 +2703,7 @@ function stepPlayer(dt) {
   }
 
   player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
-  player.pos.set(b.position.x, b.position.y + PLAYER_CHEST, b.position.z);
+  player.pos.set(b.position.x, b.position.y + (player.crouching ? PLAYER_CHEST_CROUCH : PLAYER_CHEST), b.position.z);
   player.eye.set(b.position.x, b.position.y + PLAYER_EYE_OFF - (player.crouching ? 0.55 : 0), b.position.z);
 
   // Fall out of the world guard.
@@ -2736,6 +2755,7 @@ function switchWeapon(id) {
 
 function tryFire() {
   if (!player.alive || !match.running || player.cooldown > 0 || player.reloading > 0) return;
+  player.invulnTimer = 0;  // firing cancels spawn protection
   const w = currentWeapon();
   if (w.thrown) return;                       // grenades are thrown with G, not LMB
 
@@ -2795,6 +2815,7 @@ function releaseCook(exploded = false) {
     if (kind === 'frag') explode(player.eye, player);
     else spawnSmoke(player.eye, player);
   } else {
+    player.invulnTimer = 0;  // throwing cancels spawn protection
     playerAimDirection(_aimDir);
     const origin = player.eye.clone().addScaledVector(_aimDir, 0.7);
     throwGrenade(player, origin, _aimDir, 17, kind, Math.max(0.35, player.cookTime));
@@ -2865,8 +2886,11 @@ function bindInput() {
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
     firing = false; aiming = false;
-    if (!pointerLocked && match.running) showPause(true);
-    else showPause(false);
+    if (pointerLocked && match.running) {
+      resumePlay();
+    } else if (!pointerLocked && appState === APP_STATE.PLAYING) {
+      showPause(true);
+    }
   });
 
   document.getElementById('pause').addEventListener('click', requestLock);
@@ -2917,23 +2941,30 @@ function pollGamepad(dt) {
   keys.GpForward = moveY < -0.1; keys.GpBack = moveY > 0.1;
   keys.GpLeft = moveX < -0.1; keys.GpRight = moveX > 0.1;
 
-  // Look. Cubed for fine control, and scaled by dt so it is frame-rate independent.
-  const lookRate = 3.4 * settings.sensitivity * dt;
+  const down = (i) => !!(btn[i] && btn[i].pressed);
+  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
+
+  // Look. Cubed for fine control, scaled by dt and by the same ADS multiplier as the mouse.
+  const gpAdsMult = aiming && currentWeapon().zoom
+    ? settings.adsSensitivity * (0.4 / 0.75)
+    : (aiming ? settings.adsSensitivity : 1);
+  const lookRate = 3.4 * settings.sensitivity * gpAdsMult * dt;
   player.yaw -= (lookX ** 3) * lookRate;
   player.pitch -= (lookY ** 3) * lookRate * (settings.invertY ? -1 : 1);
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
-  const down = (i) => !!(btn[i] && btn[i].pressed);
-  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
+  // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off.
+  if (settings.toggleAim) { if (pressed(6)) aiming = !aiming; }
+  else { aiming = down(6); }
 
-  aiming = down(6) || (settings.toggleAim && aiming);      // LT
-  if (down(7)) { if (!firing) { firing = true; tryFire(); } }   // RT
+  // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
+  if (down(7)) { if (!firing) { firing = true; tryFire(); } }
   else firing = false;
-  if (down(7) && currentWeapon().auto) tryFire();
 
   keys.Space = down(0);                                     // A
-  if (pressed(1)) crouchLatch = !crouchLatch;               // B toggles crouch
-  keys.KeyC = down(1);
+  // B: gate on toggleCrouch so only one of crouchLatch or KeyC is driven at a time.
+  if (settings.toggleCrouch) { if (pressed(1)) crouchLatch = !crouchLatch; }
+  else { keys.KeyC = down(1); }
   keys.ShiftLeft = down(11);                                // right stick click sprints
   if (pressed(4)) startCook('frag');                        // LB
   if (!down(4) && player.cooking === 'frag') releaseCook();
@@ -2943,11 +2974,18 @@ function pollGamepad(dt) {
   if (pressed(13)) switchWeapon('ar');
   if (pressed(14)) switchWeapon('shotgun');
   if (pressed(15)) switchWeapon('sniper');
-  if (pressed(9)) showPause(true);                          // start
+  if (pressed(9)) {                                          // start: pause or resume
+    if (appState === APP_STATE.PLAYING) showPause(true);
+    else if (appState === APP_STATE.PAUSED) requestLock();
+  }
 }
 
 function applyLook(dt) {
-  const adsMult = aiming && currentWeapon().zoom ? 0.4 : (aiming ? settings.adsSensitivity : 1);
+  // Scope multiplier scales with adsSensitivity so the slider is predictable at all settings.
+  // At the default (0.75) this equals the previous hardcoded 0.4.
+  const adsMult = aiming && currentWeapon().zoom
+    ? settings.adsSensitivity * (0.4 / 0.75)
+    : (aiming ? settings.adsSensitivity : 1);
   const sens = CONFIG.SENS * settings.sensitivity * adsMult;
   player.yaw -= mouseDX * sens;
   player.pitch -= mouseDY * sens * (settings.invertY ? -1 : 1);
@@ -3403,20 +3441,16 @@ class Bot {
 
   /* --------------------------- state machine --------------------------- */
 
-  update(dt) {
-    this.updateTransforms();
-
-    // Fall-out guard. The player has had one of these forever; bots did not, so a bot that
-    // slipped through the floor (a bad spawn, or getting shoved into a seam by the separation
-    // push) fell for the rest of the match and never came back. A 90 s soak found this on
-    // every map — three of four bots were gone by the end of one run.
+  // Game-logic step — called at fixed physics dt from fixedStep() so all timers are
+  // coherent with the physics simulation.
+  simStep(dt) {
+    // Fall-out guard: teleport any bot that escapes the floor back to a spawn.
     if (this.body.position.y < -20) {
       const sp = pickSpawn(this.team);
       this.body.position.set(sp.x, sp.y + 0.6, sp.z);
       this.body.velocity.set(0, 0, 0);
       this.body.wakeUp();
       this.path = null;
-      this.updateTransforms();
     }
 
     this.fireCd = Math.max(0, this.fireCd - dt);
@@ -3435,7 +3469,8 @@ class Bot {
     }
 
     if (!this.alive) {
-      this.updateDeath(dt);
+      this.deathTimer += dt;
+      this.respawnTimer -= dt;
       return;
     }
 
@@ -3541,7 +3576,26 @@ class Bot {
     }
 
     // Gravity is left to the solver; only X/Z are driven.
-    this.animate(dt);
+  }
+
+  // Visual step — called once per rendered frame with the actual frame delta.
+  renderStep(frameDt) {
+    this.updateTransforms();
+    if (!this.alive) {
+      // Death fall-over and fade animation driven by deathTimer (advanced in simStep).
+      const fall = Math.min(1, this.deathTimer / 0.3);
+      this.mesh.rotation.x = -Math.PI / 2 * fall;
+      this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
+      if (this.deathTimer > 0.6) {
+        const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
+        this.mesh.traverse((o) => {
+          if (o.isMesh) { o.material.transparent = true; o.material.opacity = a; }
+        });
+        if (a <= 0) this.mesh.visible = false;
+      }
+      return;
+    }
+    this.animate(frameDt);
   }
 
   setState(s) { this.state = s; this.stateTime = 0; if (s === ST.COVER) this.findCover(); }
@@ -3670,22 +3724,6 @@ class Bot {
   }
 
   dropWeapon() { spawnPickup(this.body.position, this.weaponId); }
-
-  updateDeath(dt) {
-    this.deathTimer += dt;
-    // Fall over across 0.3 s, then fade out over the next 2 s.
-    const fall = Math.min(1, this.deathTimer / 0.3);
-    this.mesh.rotation.x = -Math.PI / 2 * fall;
-    this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
-    if (this.deathTimer > 0.6) {
-      const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
-      this.mesh.traverse((o) => {
-        if (o.isMesh) { o.material.transparent = true; o.material.opacity = a; }
-      });
-      if (a <= 0) this.mesh.visible = false;
-    }
-    this.respawnTimer -= dt;
-  }
 
   respawn(at) {
     this.alive = true;
@@ -3898,11 +3936,10 @@ function applySettings() {
   activeLightBudget = q.lights;
   CONFIG.MAX_DECALS = q.decals;
 
-  camera.fov = settings.fov;
+  camera.fov = HIP_FOV;         // updateCamera() overrides this every frame; set for first render
   camera.updateProjectionMatrix();
-  // The viewmodel camera keeps its own, narrower FOV: it framed the gun at 72 against the
-  // world's 78, so it tracks the world FOV by the same ratio rather than matching it.
-  vmCamera.fov = clamp(settings.fov * (72 / 78), 40, 100);
+  // The viewmodel camera keeps a narrower FOV: originally framed the gun at 72 against HIP 78.
+  vmCamera.fov = 72;
   vmCamera.updateProjectionMatrix();
 
   Audio.setVolume?.(settings.masterVolume);
@@ -5002,12 +5039,21 @@ function feedClass(c) {
   return 'en';
 }
 
+function kfSpan(c, label) {
+  const sp = document.createElement('span');
+  sp.className = feedClass(c);
+  sp.textContent = label;
+  return sp;
+}
+
 function addKillFeed(source, target, headshot) {
   const row = document.createElement('div');
   row.className = 'kf';
-  const s = source ? `<span class="${feedClass(source)}">${source === player ? 'YOU' : source.name}</span>` : '<span>WORLD</span>';
-  const t = `<span class="${feedClass(target)}">${target === player ? 'YOU' : target.name}</span>`;
-  row.innerHTML = `${s}<span class="arrow">${headshot ? '✦' : '›'}</span>${t}`;
+  const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
+    : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
+  const arrow = Object.assign(document.createElement('span'), { className: 'arrow', textContent: headshot ? '✦' : '›' });
+  const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
+  row.append(sSpan, arrow, tSpan);
   el.feed.appendChild(row);
   while (el.feed.children.length > 5) el.feed.firstChild.remove();
   setTimeout(() => { row.style.opacity = '0'; }, 4200);
@@ -5027,8 +5073,15 @@ function refreshBoard() {
     if (c === player) tr.className = 'self';
     const color = `#${TEAM_COLOR[c.team].toString(16).padStart(6, '0')}`;
     const kd = c.deaths === 0 ? c.kills.toFixed(2) : (c.kills / c.deaths).toFixed(2);
-    tr.innerHTML = `<td><span class="tag" style="background:${color}"></span>${c === player ? player.name : c.name}</td>` +
-      `<td class="num">${c.kills}</td><td class="num">${c.deaths}</td><td class="num">${kd}</td>`;
+    // Use DOM construction so player names never execute as HTML.
+    const tag = Object.assign(document.createElement('span'), { className: 'tag' });
+    tag.style.background = color;
+    const tdName = document.createElement('td');
+    tdName.append(tag, c === player ? player.name : c.name);
+    const tdK = Object.assign(document.createElement('td'), { className: 'num', textContent: c.kills });
+    const tdD = Object.assign(document.createElement('td'), { className: 'num', textContent: c.deaths });
+    const tdKD = Object.assign(document.createElement('td'), { className: 'num', textContent: kd });
+    tr.append(tdName, tdK, tdD, tdKD);
     el.bBody.appendChild(tr);
   }
   el.bSub.textContent = match.mode === 'sv'
@@ -5038,7 +5091,7 @@ function refreshBoard() {
 
 function showPause(on) {
   el.pause.classList.toggle('on', !!on && match.running);
-  if (on) { el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = ''; }
+  if (on && match.running) { appState = APP_STATE.PAUSED; el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = ''; }
 }
 
 /* ================================================================== *
@@ -5058,6 +5111,9 @@ const match = {
   wave: 1,
   waveBreak: 0,
 };
+
+const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
+let appState = APP_STATE.MENU;
 
 let nameSeed = 0;
 function nextBotName() { return BOT_NAMES[(nameSeed++) % BOT_NAMES.length]; }
@@ -5091,6 +5147,7 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
   match.mode = mode;
   match.diff = DIFFICULTY[diffKey];
   match.running = true;
+  appState = APP_STATE.PLAYING;
   match.time = 0;
   match.timeLeft = CONFIG.MATCH_SECONDS;
   match.scoreA = 0; match.scoreB = 0;
@@ -5142,6 +5199,7 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
 
 function endMatch(title, sub) {
   match.running = false;
+  appState = APP_STATE.MENU;
   showBoard(false);
   showPause(false);
   document.exitPointerLock?.();
@@ -5181,10 +5239,16 @@ function killCombatant(target, source, headshot) {
   if (source && source !== target) {
     source.kills++;
     if (match.mode === 'tdm') {
-      if (source.team === TEAM.BLUE) match.scoreA++;
-      else if (source.team === TEAM.RED) match.scoreB++;
+      // Teamkills do not award score — FF is now blocked in explode() but bullet damage
+      // has no team filter, so this guard stays as the authoritative scoring check.
+      const teamkill = source.team !== TEAM.SOLO && source.team === target.team;
+      if (!teamkill) {
+        if (source.team === TEAM.BLUE) match.scoreA++;
+        else if (source.team === TEAM.RED) match.scoreB++;
+      }
     } else if (match.mode === 'dm') {
-      if (source === player) match.scoreA++; else match.scoreB = Math.max(match.scoreB, source.kills);
+      if (source === player) match.scoreA++;
+      // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
     } else if (source === player) {
       match.kills++;
     }
@@ -5203,6 +5267,11 @@ function killCombatant(target, source, headshot) {
   }
   refreshBoard();
   checkWinConditions();
+}
+
+/** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
+function dmLeader() {
+  return bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
 }
 
 function checkWinConditions() {
@@ -5246,12 +5315,14 @@ function updateMatch(dt) {
     if (match.timeLeft <= 0) {
       match.timeLeft = 0;
       if (match.mode === 'dm') {
-        const top = bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
-        endMatch(player.kills >= top.kills ? 'TIME — YOU WIN' : 'TIME — YOU LOSE',
-                 `${player.kills} kills`);
+        const top = dmLeader();
+        if (player.kills > top.kills) endMatch('TIME — VICTORY', `${player.kills} kills`);
+        else if (player.kills < top.kills) endMatch('TIME — DEFEAT', `${top.kills} kills`);
+        else endMatch('TIME — DRAW', `Tied at ${player.kills} kills`);
       } else {
-        endMatch(match.scoreA >= match.scoreB ? 'TIME — BLUE WINS' : 'TIME — RED WINS',
-                 `${match.scoreA} – ${match.scoreB}`);
+        if (match.scoreA > match.scoreB) endMatch('TIME — BLUE WINS', `${match.scoreA} – ${match.scoreB}`);
+        else if (match.scoreB > match.scoreA) endMatch('TIME — RED WINS', `${match.scoreB} – ${match.scoreA}`);
+        else endMatch('TIME — DRAW', `${match.scoreA} – ${match.scoreB}`);
       }
       return;
     }
@@ -5286,7 +5357,7 @@ function updateMatch(dt) {
     el.tbB.textContent = match.scoreB;
     el.tbTime.textContent = formatTime(match.timeLeft);
   } else {
-    const top = bots.reduce((a, b) => (b.kills > (a ? a.kills : -1) ? b : a), null);
+    const top = bots.length ? dmLeader() : null;
     el.tbA.textContent = player.kills;
     el.tbB.textContent = top ? top.kills : 0;
     el.tbTime.textContent = formatTime(match.timeLeft);
@@ -5305,13 +5376,34 @@ function formatTime(s) {
 let vmRecoil = 0;
 let accumulator = 0;
 let lastTime = performance.now() / 1000;
+
+function resumePlay() {
+  appState = APP_STATE.PLAYING;
+  lastTime = performance.now() / 1000;  // prevent dt spike on resume
+  accumulator = 0;
+}
 const _camPos = new THREE.Vector3();
 const _vmTarget = new THREE.Vector3();
 
 function fixedStep(dt) {
+  // Bots set their body velocity here — must precede world.step so the solver sees it.
+  for (const b of bots) b.simStep(dt);
   stepPlayer(dt);
   world.step(dt);
   stepBullets(dt);
+  // Grenade fuse countdown on the same clock as physics (deterministic detonation).
+  for (let i = grenades.length - 1; i >= 0; i--) {
+    const g = grenades[i];
+    g.bounceCd = Math.max(0, g.bounceCd - dt);
+    g.fuse -= dt;
+    if (g.fuse <= 0) {
+      if (g.kind === 'smoke') spawnSmoke(g.body.position, g.owner);
+      else explode(g.body.position, g.owner);
+      world.removeBody(g.body);
+      scene.remove(g.mesh);
+      grenades.splice(i, 1);
+    }
+  }
 }
 
 function updateViewModel(dt) {
@@ -5326,7 +5418,7 @@ function updateViewModel(dt) {
   _vmTarget.x += player.sway.x * 0.02;
   _vmTarget.y += player.sway.y * 0.02;
   const planar = Math.hypot(player.body.velocity.x, player.body.velocity.z);
-  const bob = Math.min(planar / CONFIG.WALK_SPEED, 1.6);
+  const bob = settings.viewBob ? Math.min(planar / CONFIG.WALK_SPEED, 1.6) : 0;
   const t = performance.now() * 0.001;
   _vmTarget.x += Math.sin(t * 7) * 0.012 * bob;
   _vmTarget.y += Math.abs(Math.cos(t * 7)) * 0.010 * bob;
@@ -5375,7 +5467,7 @@ function updateCamera(dt) {
 
   const w = currentWeapon();
   const scoped = aiming && w.zoom;
-  const wantFov = scoped ? w.zoomFov : (aiming ? 68 : 78);
+  const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV);
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
   camera.updateProjectionMatrix();
 
@@ -5412,7 +5504,7 @@ function frame() {
   let dt = Math.min(now - lastTime, CONFIG.MAX_FRAME_DT);
   lastTime = now;
 
-  if (match.running) {
+  if (appState === APP_STATE.PLAYING) {
     pollGamepad(dt);
     applyLook(dt);
 
@@ -5440,8 +5532,9 @@ function frame() {
     }
     if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
 
-    for (const b of bots) b.update(dt);
-    updateGrenades(dt);
+    for (const b of bots) b.renderStep(dt);
+    // Sync grenade mesh transforms (fuse/physics handled in fixedStep).
+    for (const g of grenades) { g.mesh.position.copy(g.body.position); g.mesh.quaternion.copy(g.body.quaternion); }
     updateBursts(dt);
     updateExplosionFx(dt);
     updateSmoke(dt);
@@ -5623,7 +5716,10 @@ function buildSettingsPanel() {
 function showSettings(on) {
   const panel = $('settings');
   if (!panel) return;
-  if (on) buildSettingsPanel();
+  if (on) {
+    buildSettingsPanel();
+    if (match.running) appState = APP_STATE.SETTINGS;
+  }
   panel.classList.toggle('hidden', !on);
   if (on) document.exitPointerLock?.();
 }

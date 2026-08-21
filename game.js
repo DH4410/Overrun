@@ -181,6 +181,10 @@ function saveSettings() {
 const SPAWN_INVULN = 3.0;
 
 const FIXED_DT = 1 / CONFIG.PHYSICS_HZ;
+// FOV constants. Hip is the neutral camera FOV; ADS narrows it for precision.
+// Not user-adjustable per READMEFORUI §6 — these values set how enemies read on screen.
+const HIP_FOV = 78;
+const ADS_FOV = 68;
 /** cannon applies damping as v *= (1-d)^dt. We overwrite horizontal velocity every tick,
  *  so damping only ever touches Y — and there it would give a 3 m/s terminal velocity and
  *  a floaty jump. We divide it back out post-step. */
@@ -2935,23 +2939,30 @@ function pollGamepad(dt) {
   keys.GpForward = moveY < -0.1; keys.GpBack = moveY > 0.1;
   keys.GpLeft = moveX < -0.1; keys.GpRight = moveX > 0.1;
 
-  // Look. Cubed for fine control, and scaled by dt so it is frame-rate independent.
-  const lookRate = 3.4 * settings.sensitivity * dt;
+  const down = (i) => !!(btn[i] && btn[i].pressed);
+  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
+
+  // Look. Cubed for fine control, scaled by dt and by the same ADS multiplier as the mouse.
+  const gpAdsMult = aiming && currentWeapon().zoom
+    ? settings.adsSensitivity * (0.4 / 0.75)
+    : (aiming ? settings.adsSensitivity : 1);
+  const lookRate = 3.4 * settings.sensitivity * gpAdsMult * dt;
   player.yaw -= (lookX ** 3) * lookRate;
   player.pitch -= (lookY ** 3) * lookRate * (settings.invertY ? -1 : 1);
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
-  const down = (i) => !!(btn[i] && btn[i].pressed);
-  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
+  // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off.
+  if (settings.toggleAim) { if (pressed(6)) aiming = !aiming; }
+  else { aiming = down(6); }
 
-  aiming = down(6) || (settings.toggleAim && aiming);      // LT
-  if (down(7)) { if (!firing) { firing = true; tryFire(); } }   // RT
+  // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
+  if (down(7)) { if (!firing) { firing = true; tryFire(); } }
   else firing = false;
-  if (down(7) && currentWeapon().auto) tryFire();
 
   keys.Space = down(0);                                     // A
-  if (pressed(1)) crouchLatch = !crouchLatch;               // B toggles crouch
-  keys.KeyC = down(1);
+  // B: gate on toggleCrouch so only one of crouchLatch or KeyC is driven at a time.
+  if (settings.toggleCrouch) { if (pressed(1)) crouchLatch = !crouchLatch; }
+  else { keys.KeyC = down(1); }
   keys.ShiftLeft = down(11);                                // right stick click sprints
   if (pressed(4)) startCook('frag');                        // LB
   if (!down(4) && player.cooking === 'frag') releaseCook();
@@ -2968,7 +2979,11 @@ function pollGamepad(dt) {
 }
 
 function applyLook(dt) {
-  const adsMult = aiming && currentWeapon().zoom ? 0.4 : (aiming ? settings.adsSensitivity : 1);
+  // Scope multiplier scales with adsSensitivity so the slider is predictable at all settings.
+  // At the default (0.75) this equals the previous hardcoded 0.4.
+  const adsMult = aiming && currentWeapon().zoom
+    ? settings.adsSensitivity * (0.4 / 0.75)
+    : (aiming ? settings.adsSensitivity : 1);
   const sens = CONFIG.SENS * settings.sensitivity * adsMult;
   player.yaw -= mouseDX * sens;
   player.pitch -= mouseDY * sens * (settings.invertY ? -1 : 1);
@@ -3919,11 +3934,10 @@ function applySettings() {
   activeLightBudget = q.lights;
   CONFIG.MAX_DECALS = q.decals;
 
-  camera.fov = settings.fov;
+  camera.fov = HIP_FOV;         // updateCamera() overrides this every frame; set for first render
   camera.updateProjectionMatrix();
-  // The viewmodel camera keeps its own, narrower FOV: it framed the gun at 72 against the
-  // world's 78, so it tracks the world FOV by the same ratio rather than matching it.
-  vmCamera.fov = clamp(settings.fov * (72 / 78), 40, 100);
+  // The viewmodel camera keeps a narrower FOV: originally framed the gun at 72 against HIP 78.
+  vmCamera.fov = 72;
   vmCamera.updateProjectionMatrix();
 
   Audio.setVolume?.(settings.masterVolume);
@@ -5378,7 +5392,7 @@ function updateViewModel(dt) {
   _vmTarget.x += player.sway.x * 0.02;
   _vmTarget.y += player.sway.y * 0.02;
   const planar = Math.hypot(player.body.velocity.x, player.body.velocity.z);
-  const bob = Math.min(planar / CONFIG.WALK_SPEED, 1.6);
+  const bob = settings.viewBob ? Math.min(planar / CONFIG.WALK_SPEED, 1.6) : 0;
   const t = performance.now() * 0.001;
   _vmTarget.x += Math.sin(t * 7) * 0.012 * bob;
   _vmTarget.y += Math.abs(Math.cos(t * 7)) * 0.010 * bob;
@@ -5427,7 +5441,7 @@ function updateCamera(dt) {
 
   const w = currentWeapon();
   const scoped = aiming && w.zoom;
-  const wantFov = scoped ? w.zoomFov : (aiming ? 68 : 78);
+  const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV);
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
   camera.updateProjectionMatrix();
 

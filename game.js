@@ -1863,6 +1863,8 @@ function segmentCylinderY(o, d, len, cx, cy, cz, r, halfH) {
  * Offsets are relative to `pos`, which is the chest.
  */
 const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78 };
+// Crouching profile: PLAYER_CHEST_CROUCH lowers pos so head sits near eye level (1.35 m).
+const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.38, headR: 0.27, headY: 0.45 };
 // Scaled in lockstep with BOT_TARGET_HEIGHT. If these drift apart, bots either soak shots
 // that visually connected or die to shots that visually missed.
 const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
@@ -2476,6 +2478,7 @@ const player = {
 combatants.push(player);
 
 const PLAYER_CHEST = 0.75;
+const PLAYER_CHEST_CROUCH = 0.52;  // lowers bots' aim point to match crouching camera height
 const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
 
 function createPlayerBody() {
@@ -2567,9 +2570,25 @@ function playerGroundCheck() {
   }
 }
 
+const _crouchFrom = new CANNON.Vec3();
+const _crouchTo = new CANNON.Vec3();
+const _crouchRes = new CANNON.RaycastResult();
+
 function setCrouch(on) {
   if (player.crouching === on) return;
+
+  if (!on) {
+    // Overhead clearance: reject standup if there is geometry within the radius delta above us.
+    const clearNeeded = CONFIG.PLAYER_RADIUS - CONFIG.CROUCH_RADIUS;  // 0.12 m
+    _crouchFrom.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS, player.body.position.z);
+    _crouchTo.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS + clearNeeded + 0.05, player.body.position.z);
+    _crouchRes.reset();
+    world.raycastClosest(_crouchFrom, _crouchTo, RAY_OPTS, _crouchRes);
+    if (_crouchRes.hasHit) return;  // not enough clearance — stay crouched
+  }
+
   player.crouching = on;
+  player.hb = on ? HB_PLAYER_CROUCH : HB_PLAYER;
   const shape = player.body.shapes[0];
   const from = shape.radius;
   const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
@@ -2669,7 +2688,7 @@ function stepPlayer(dt) {
   }
 
   player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
-  player.pos.set(b.position.x, b.position.y + PLAYER_CHEST, b.position.z);
+  player.pos.set(b.position.x, b.position.y + (player.crouching ? PLAYER_CHEST_CROUCH : PLAYER_CHEST), b.position.z);
   player.eye.set(b.position.x, b.position.y + PLAYER_EYE_OFF - (player.crouching ? 0.55 : 0), b.position.z);
 
   // Fall out of the world guard.

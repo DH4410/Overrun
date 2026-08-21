@@ -37,7 +37,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 const CONFIG = {
   GRAVITY: -9.82,
   PHYSICS_HZ: 120,
-  MAX_SUBSTEPS: 3,
+  MAX_SUBSTEPS: 4,  // 4 * 8.33 ms = 33.3 ms covers 30 fps without accumulator drift
   MAX_FRAME_DT: 0.25,
 
   // Arena (metres). Outer shell is ARENA half-extent; the inner ring sits at RING.
@@ -2401,23 +2401,6 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
   return g;
 }
 
-function updateGrenades(dt) {
-  for (let i = grenades.length - 1; i >= 0; i--) {
-    const g = grenades[i];
-    g.bounceCd = Math.max(0, g.bounceCd - dt);
-    g.mesh.position.copy(g.body.position);
-    g.mesh.quaternion.copy(g.body.quaternion);
-    g.fuse -= dt;
-    if (g.fuse <= 0) {
-      if (g.kind === 'smoke') spawnSmoke(g.mesh.position, g.owner);
-      else explode(g.mesh.position, g.owner);
-      world.removeBody(g.body);
-      scene.remove(g.mesh);
-      grenades.splice(i, 1);
-    }
-  }
-}
-
 function clearGrenades() {
   for (const g of grenades) { world.removeBody(g.body); scene.remove(g.mesh); }
   grenades.length = 0;
@@ -3409,20 +3392,16 @@ class Bot {
 
   /* --------------------------- state machine --------------------------- */
 
-  update(dt) {
-    this.updateTransforms();
-
-    // Fall-out guard. The player has had one of these forever; bots did not, so a bot that
-    // slipped through the floor (a bad spawn, or getting shoved into a seam by the separation
-    // push) fell for the rest of the match and never came back. A 90 s soak found this on
-    // every map — three of four bots were gone by the end of one run.
+  // Game-logic step — called at fixed physics dt from fixedStep() so all timers are
+  // coherent with the physics simulation.
+  simStep(dt) {
+    // Fall-out guard: teleport any bot that escapes the floor back to a spawn.
     if (this.body.position.y < -20) {
       const sp = pickSpawn(this.team);
       this.body.position.set(sp.x, sp.y + 0.6, sp.z);
       this.body.velocity.set(0, 0, 0);
       this.body.wakeUp();
       this.path = null;
-      this.updateTransforms();
     }
 
     this.fireCd = Math.max(0, this.fireCd - dt);
@@ -3441,7 +3420,8 @@ class Bot {
     }
 
     if (!this.alive) {
-      this.updateDeath(dt);
+      this.deathTimer += dt;
+      this.respawnTimer -= dt;
       return;
     }
 
@@ -3547,7 +3527,26 @@ class Bot {
     }
 
     // Gravity is left to the solver; only X/Z are driven.
-    this.animate(dt);
+  }
+
+  // Visual step — called once per rendered frame with the actual frame delta.
+  renderStep(frameDt) {
+    this.updateTransforms();
+    if (!this.alive) {
+      // Death fall-over and fade animation driven by deathTimer (advanced in simStep).
+      const fall = Math.min(1, this.deathTimer / 0.3);
+      this.mesh.rotation.x = -Math.PI / 2 * fall;
+      this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
+      if (this.deathTimer > 0.6) {
+        const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
+        this.mesh.traverse((o) => {
+          if (o.isMesh) { o.material.transparent = true; o.material.opacity = a; }
+        });
+        if (a <= 0) this.mesh.visible = false;
+      }
+      return;
+    }
+    this.animate(frameDt);
   }
 
   setState(s) { this.state = s; this.stateTime = 0; if (s === ST.COVER) this.findCover(); }
@@ -3676,22 +3675,6 @@ class Bot {
   }
 
   dropWeapon() { spawnPickup(this.body.position, this.weaponId); }
-
-  updateDeath(dt) {
-    this.deathTimer += dt;
-    // Fall over across 0.3 s, then fade out over the next 2 s.
-    const fall = Math.min(1, this.deathTimer / 0.3);
-    this.mesh.rotation.x = -Math.PI / 2 * fall;
-    this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
-    if (this.deathTimer > 0.6) {
-      const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
-      this.mesh.traverse((o) => {
-        if (o.isMesh) { o.material.transparent = true; o.material.opacity = a; }
-      });
-      if (a <= 0) this.mesh.visible = false;
-    }
-    this.respawnTimer -= dt;
-  }
 
   respawn(at) {
     this.alive = true;
@@ -5326,9 +5309,24 @@ const _camPos = new THREE.Vector3();
 const _vmTarget = new THREE.Vector3();
 
 function fixedStep(dt) {
+  // Bots set their body velocity here — must precede world.step so the solver sees it.
+  for (const b of bots) b.simStep(dt);
   stepPlayer(dt);
   world.step(dt);
   stepBullets(dt);
+  // Grenade fuse countdown on the same clock as physics (deterministic detonation).
+  for (let i = grenades.length - 1; i >= 0; i--) {
+    const g = grenades[i];
+    g.bounceCd = Math.max(0, g.bounceCd - dt);
+    g.fuse -= dt;
+    if (g.fuse <= 0) {
+      if (g.kind === 'smoke') spawnSmoke(g.body.position, g.owner);
+      else explode(g.body.position, g.owner);
+      world.removeBody(g.body);
+      scene.remove(g.mesh);
+      grenades.splice(i, 1);
+    }
+  }
 }
 
 function updateViewModel(dt) {
@@ -5457,8 +5455,9 @@ function frame() {
     }
     if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
 
-    for (const b of bots) b.update(dt);
-    updateGrenades(dt);
+    for (const b of bots) b.renderStep(dt);
+    // Sync grenade mesh transforms (fuse/physics handled in fixedStep).
+    for (const g of grenades) { g.mesh.position.copy(g.body.position); g.mesh.quaternion.copy(g.body.quaternion); }
     updateBursts(dt);
     updateExplosionFx(dt);
     updateSmoke(dt);

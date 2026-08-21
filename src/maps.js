@@ -1186,6 +1186,7 @@ return {
   waypoints,
   mapLights,
   clearMap,
+  losClear,
   nearestWaypoint,
   findPath,
   buildArena,

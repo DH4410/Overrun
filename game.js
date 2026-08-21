@@ -66,6 +66,9 @@ import {
 import { clamp, lerp, pick, rand, randInt } from './src/utils.js';
 import { BOT_GUN_IDS, WEAPON_BY_ID, WEAPONS } from './src/weapons.js';
 
+// Character and viewmodel assets use their own loader; map props are owned by src/maps.js.
+const modelLoader = new GLTFLoader();
+
 /* ================================================================== *
  * === CONFIG ===
  * ================================================================== */
@@ -310,6 +313,7 @@ const {
   waypoints,
   mapLights,
   clearMap,
+  losClear,
   findPath,
   buildArena,
   placeArenaProps,
@@ -744,7 +748,7 @@ async function loadBlasterViewModels() {
   loaded.push('pistol(custom)');
   await Promise.all(Object.entries(BLASTER_FILES).map(async ([id, spec]) => {
     try {
-      const gltf = await gltfLoader.loadAsync(`./assets/models/blaster/${spec.file}.glb`);
+      const gltf = await modelLoader.loadAsync(`./assets/models/blaster/${spec.file}.glb`);
       const fitted = fitBlaster(gltf.scene, spec);
       fitted.visible = false;
       vmRig.remove(vmModels[id]);
@@ -1597,7 +1601,7 @@ const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MES
 
 async function loadSoldier() {
   try {
-    soldierGltf = await gltfLoader.loadAsync('./assets/bots/soldier.glb');
+    soldierGltf = await modelLoader.loadAsync('./assets/bots/soldier.glb');
     return true;
   } catch {
     soldierGltf = null;         // fall back to the blocky humanoid

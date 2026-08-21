@@ -382,6 +382,11 @@ function updateBrass(dt) {
   }
 }
 
+function clearBrass() {
+  for (const b of brass) vmScene.remove(b.mesh);
+  brass.length = 0;
+}
+
 function triggerMuzzleFlash(muzzleLocal, worldPosition) {
   flashTimer = 0.05;
   flashSprite.position.copy(muzzleLocal);
@@ -412,6 +417,7 @@ return {
   loadBlasterViewModels,
   ejectBrass,
   updateBrass,
+  clearBrass,
   triggerMuzzleFlash,
   updateMuzzleFlash,
 };

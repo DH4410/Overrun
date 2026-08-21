@@ -15,11 +15,22 @@ export function createEffects({
   addLightEmitter,
   removeLightEmitter,
   markShared,
-  segmentSphere,
 }) {
 const _fwdZ = new THREE.Vector3(0, 0, 1);
 const _v1 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+
+function segmentSphere(o, d, len, center, radius) {
+  _v1.subVectors(o, center);
+  const b = _v1.dot(d);
+  const c = _v1.dot(_v1) - radius * radius;
+  if (c > 0 && b > 0) return -1;
+  const disc = b * b - c;
+  if (disc < 0) return -1;
+  let t = -b - Math.sqrt(disc);
+  if (t < 0) t = 0;
+  return t <= len ? t : -1;
+}
 
 /* ------------------------------ particles ------------------------------ */
 
@@ -398,6 +409,17 @@ function clearSmoke() {
   smokeClouds.length = 0;
 }
 
+function clearEffectPools() {
+  particlesAdd.clear();
+  particlesNorm.clear();
+  for (const s of shocks) { s.slot.mesh.visible = false; s.slot.busy = false; }
+  shocks.length = 0;
+  for (const b of blastLights) removeLightEmitter(b.emitter);
+  blastLights.length = 0;
+  clearSmoke();
+  clearDecals();
+}
+
 /* ---------------------------- screen shake ---------------------------- */
 
 let shakeAmp = 0;
@@ -424,6 +446,7 @@ return {
   updateSmoke,
   smokeBlocks,
   clearSmoke,
+  clearEffectPools,
   addShake,
   updateShake,
   shakeOffset: _shakeOff,

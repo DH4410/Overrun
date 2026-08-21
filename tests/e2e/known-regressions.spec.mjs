@@ -46,6 +46,24 @@ test('CORE-01: settings opened during a match freeze gameplay', async ({ page })
   expect(after).toBeCloseTo(before, 2);
 });
 
+test('CORE-01: leaving a paused match does not reacquire pointer lock', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page);
+  await page.evaluate(() => document.exitPointerLock());
+  await expect(page.locator('#pause')).toHaveClass(/\bon\b/);
+  expect(await observedAppState(page)).toBe(APP_STATE.PAUSED);
+
+  await page.locator('#quit-match').click();
+  await expect(page.locator('#menu')).not.toHaveClass(/\bhidden\b/);
+  await page.waitForTimeout(100);
+
+  expect(await page.evaluate(() => ({
+    matchRunning: globalThis.__game.match.running,
+    pointerReleased: document.pointerLockElement === null,
+  }))).toEqual({ matchRunning: false, pointerReleased: true });
+  expect(await observedAppState(page)).toBe(APP_STATE.MENU);
+});
+
 test('CORE-02: player travel remains consistent at 60 and 30 render Hz', async ({ page }) => {
   await bootGame(page);
   await startMatch(page);

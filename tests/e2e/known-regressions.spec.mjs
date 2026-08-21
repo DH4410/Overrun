@@ -33,6 +33,10 @@ test('CORE-01: settings opened during a match freeze gameplay', async ({ page })
   expect(await observedAppState(page)).toBe(APP_STATE.PAUSED);
   await page.locator('#settings-open-pause').click();
   await expect(page.locator('#settings')).not.toHaveClass(/\bhidden\b/);
+  // Let the asynchronous pointer-lock change settle. A settings click must not bubble through
+  // the pause overlay and reacquire the pointer behind the visible panel.
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => document.pointerLockElement === null)).toBe(true);
   expect(await observedAppState(page)).toBe(APP_STATE.SETTINGS);
 
   const before = await page.evaluate(() => globalThis.__game.match.timeLeft);

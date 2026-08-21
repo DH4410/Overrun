@@ -5039,12 +5039,21 @@ function feedClass(c) {
   return 'en';
 }
 
+function kfSpan(c, label) {
+  const sp = document.createElement('span');
+  sp.className = feedClass(c);
+  sp.textContent = label;
+  return sp;
+}
+
 function addKillFeed(source, target, headshot) {
   const row = document.createElement('div');
   row.className = 'kf';
-  const s = source ? `<span class="${feedClass(source)}">${source === player ? 'YOU' : source.name}</span>` : '<span>WORLD</span>';
-  const t = `<span class="${feedClass(target)}">${target === player ? 'YOU' : target.name}</span>`;
-  row.innerHTML = `${s}<span class="arrow">${headshot ? '✦' : '›'}</span>${t}`;
+  const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
+    : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
+  const arrow = Object.assign(document.createElement('span'), { className: 'arrow', textContent: headshot ? '✦' : '›' });
+  const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
+  row.append(sSpan, arrow, tSpan);
   el.feed.appendChild(row);
   while (el.feed.children.length > 5) el.feed.firstChild.remove();
   setTimeout(() => { row.style.opacity = '0'; }, 4200);
@@ -5064,8 +5073,15 @@ function refreshBoard() {
     if (c === player) tr.className = 'self';
     const color = `#${TEAM_COLOR[c.team].toString(16).padStart(6, '0')}`;
     const kd = c.deaths === 0 ? c.kills.toFixed(2) : (c.kills / c.deaths).toFixed(2);
-    tr.innerHTML = `<td><span class="tag" style="background:${color}"></span>${c === player ? player.name : c.name}</td>` +
-      `<td class="num">${c.kills}</td><td class="num">${c.deaths}</td><td class="num">${kd}</td>`;
+    // Use DOM construction so player names never execute as HTML.
+    const tag = Object.assign(document.createElement('span'), { className: 'tag' });
+    tag.style.background = color;
+    const tdName = document.createElement('td');
+    tdName.append(tag, c === player ? player.name : c.name);
+    const tdK = Object.assign(document.createElement('td'), { className: 'num', textContent: c.kills });
+    const tdD = Object.assign(document.createElement('td'), { className: 'num', textContent: c.deaths });
+    const tdKD = Object.assign(document.createElement('td'), { className: 'num', textContent: kd });
+    tr.append(tdName, tdK, tdD, tdKD);
     el.bBody.appendChild(tr);
   }
   el.bSub.textContent = match.mode === 'sv'

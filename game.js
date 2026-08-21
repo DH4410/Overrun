@@ -29,71 +29,31 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Skinned meshes cannot be deep-copied with Object3D.clone(): every clone would share one
 // skeleton and they would all animate as a single puppet. SkeletonUtils rebinds the bones.
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+import {
+  ADS_FOV,
+  CONFIG,
+  DAMP_PER_STEP,
+  DUNGEON_CEIL,
+  DUNGEON_TILE,
+  FIXED_DT,
+  HIP_FOV,
+  PLAYER_DAMPING,
+  SPAWN_INVULN,
+  TEAM,
+  TEAM_COLOR,
+} from './src/config.js';
+import {
+  DEFAULT_SETTINGS,
+  QUALITY,
+  loadSettings,
+  saveSettings,
+  settings,
+} from './src/settings.js';
+import { clamp, lerp, pick, rand, randInt } from './src/utils.js';
 
 /* ================================================================== *
  * === CONFIG ===
  * ================================================================== */
-
-const CONFIG = {
-  GRAVITY: -9.82,
-  PHYSICS_HZ: 120,
-  MAX_SUBSTEPS: 4,  // 4 * 8.33 ms = 33.3 ms covers 30 fps without accumulator drift
-  MAX_FRAME_DT: 0.25,
-
-  // Arena (metres). Outer shell is ARENA half-extent; the inner ring sits at RING.
-  ARENA: 50,          // outer wall at +/- 50  => 100 x 100 floor
-  RING: 34,           // inner ring wall at +/- 34 => ~68 x 68 plaza
-  GAP: 9,             // half-width of the doorway in the middle of each ring wall
-  CEIL: 10,
-
-  // Player
-  EYE_HEIGHT: 1.6,
-  CROUCH_HEIGHT: 0.95,
-  PLAYER_RADIUS: 0.5,
-  CROUCH_RADIUS: 0.38,
-  PLAYER_MASS: 80,
-  WALK_SPEED: 5.0,
-  SPRINT_MULT: 1.6,
-  CROUCH_MULT: 0.5,
-  MOVE_ACCEL: 60,
-  // v^2 / 2g is the apex: 6.4 m/s put it at 2.09 m, which is why jumping read as floaty and
-  // unreal. 4.7 gives 1.12 m — still a game jump, but one a person could plausibly make.
-  JUMP_SPEED: 4.7,
-  MAX_HEALTH: 100,
-  MAX_ARMOR: 100,
-  START_ARMOR: 50,
-  ARMOR_ABSORB: 0.55,     // fraction of incoming damage soaked by armor
-
-  // Bullets
-  MAX_RANGE: 400,
-  TRACER_RADIUS: 0.022,
-  TRACER_MAX_LEN: 10,
-
-  // Grenades
-  FRAG_FUSE: 3.0,
-  FRAG_DAMAGE: 80,
-  FRAG_RADIUS: 8,
-  FRAG_IMPULSE: 900,
-  SMOKE_FUSE: 2.0,
-  SMOKE_LIFE: 8.0,
-  SMOKE_RADIUS: 4.0,
-
-  // Match rules
-  DM_TARGET: 20,
-  TDM_TARGET: 25,
-  MATCH_SECONDS: 300,
-  RESPAWN_DELAY: 4.0,
-  PLAYER_RESPAWN: 3.0,
-
-  MAX_DECALS: 90,
-  SENS: 0.0022,
-};
-
-/** Dungeon grid pitch and ceiling, measured from the Kenney Modular Dungeon Kit: every
- *  corridor piece is a 4 x 4 m footprint 4.15 m tall. Declared up here because PROP_FILES
- *  refers to the pitch, and that is evaluated at module load. */
-const DUNGEON_TILE = 4;
-const DUNGEON_CEIL = 4.15;
 
 /**
  * Height the ground-finding raycasts in spawnAmmoChests / spawnConsumables start from.
@@ -107,98 +67,6 @@ const DUNGEON_CEIL = 4.15;
  * buildMap() sets this per level from MAPS[id].ceilY.
  */
 let spawnCastY = CONFIG.CEIL - 0.5;
-
-/* ================================================================== *
- * === SETTINGS ===
- * ================================================================== */
-
-/**
- * Graphics presets, built from measurement rather than taste. Timing one frame at 400x300
- * with each knob isolated: baseline 33.8 ms, shadows off 1.9 ms, half resolution 3.4 ms.
- * Shadow rendering is ~95% of the frame, so that is the first thing every step down removes;
- * resolution scale is second, and the active point-light budget third.
- */
-const QUALITY = {
-  low: {
-    label: 'PERFORMANCE',
-    shadows: false, shadowMap: 512, maxPixelRatio: 1, renderScale: 0.75,
-    lights: 4, particles: 0.35, aniso: 1, antialias: false, decals: 30,
-  },
-  medium: {
-    label: 'BALANCED',
-    shadows: true, shadowMap: 1024, maxPixelRatio: 1, renderScale: 1.0,
-    lights: 8, particles: 0.7, aniso: 4, antialias: true, decals: 60,
-  },
-  high: {
-    label: 'QUALITY',
-    shadows: true, shadowMap: 2048, maxPixelRatio: 2, renderScale: 1.0,
-    lights: 12, particles: 1.0, aniso: 16, antialias: true, decals: 90,
-  },
-};
-
-const DEFAULT_SETTINGS = {
-  quality: 'medium',
-  sensitivity: 1.0,         // multiplier on CONFIG.SENS
-  adsSensitivity: 0.75,     // extra multiplier while aiming
-  // Fixed, not a user control. FOV changes how large every character reads on screen, so
-  // letting it drift re-opens the "bots look small" problem and makes the crosshair
-  // convergence and viewmodel framing inconsistent between players.
-  fov: 68,
-  invertY: false,
-  crosshairColor: '#00ff87',
-  crosshairGap: 8,
-  showDamageNumbers: true,
-  showEnemyHealth: false,   // enemies show a callsign only; damage numbers convey the rest
-  masterVolume: 0.8,
-  viewBob: true,
-  // Laptop/trackpad friendly toggles. Holding a modifier while dragging a trackpad is
-  // genuinely painful, so every hold-to-act binding can be made a press-to-toggle instead.
-  toggleAim: false,
-  // Toggle by default. Hold-to-crouch means holding a key through every angle-hold and every
-  // peek, which is what the crouch mechanic is mostly used for; the hold binding is still
-  // available in Settings for anyone who prefers it.
-  toggleCrouch: true,
-  toggleSprint: false,
-  arrowKeys: false,          // arrows as a second movement set for laptops without WASD comfort
-};
-
-const settings = { ...DEFAULT_SETTINGS };
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem('overrun.settings');
-    if (raw) Object.assign(settings, JSON.parse(raw));
-  } catch { /* corrupt or unavailable storage just means defaults */ }
-  // Never trust persisted data to name a preset that still exists.
-  if (!QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
-}
-
-function saveSettings() {
-  try { localStorage.setItem('overrun.settings', JSON.stringify(settings)); } catch { /* ignore */ }
-}
-
-/** Seconds of spawn protection. Bots would otherwise have LOS on you before you can move. */
-const SPAWN_INVULN = 3.0;
-
-const FIXED_DT = 1 / CONFIG.PHYSICS_HZ;
-// FOV constants. Hip is the neutral camera FOV; ADS narrows it for precision.
-// Not user-adjustable per READMEFORUI §6 — these values set how enemies read on screen.
-const HIP_FOV = 78;
-const ADS_FOV = 68;
-/** cannon applies damping as v *= (1-d)^dt. We overwrite horizontal velocity every tick,
- *  so damping only ever touches Y — and there it would give a 3 m/s terminal velocity and
- *  a floaty jump. We divide it back out post-step. */
-const PLAYER_DAMPING = 0.95;
-const DAMP_PER_STEP = Math.pow(1 - PLAYER_DAMPING, FIXED_DT);
-
-const TEAM = { SOLO: 0, BLUE: 1, RED: 2 };
-const TEAM_COLOR = { 0: 0x52e08a, 1: 0x4d9dff, 2: 0xff4d4d };
-
-const rand = (a, b) => a + Math.random() * (b - a);
-const randInt = (a, b) => Math.floor(rand(a, b + 1));
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const lerp = (a, b, t) => a + (b - a) * t;
-const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
 /* ---------------------------- weapons ---------------------------- */
 

@@ -855,6 +855,7 @@ function placeProp(key, x, z, yaw = 0) {
   const spec = PROP_FILES[key];
   const cached = propCache[key];
   let hx, hy, hz;
+  let isRound = false;
 
   if (cached) {
     const inst = cached.clone(true);
@@ -862,27 +863,37 @@ function placeProp(key, x, z, yaw = 0) {
     inst.rotation.y = yaw;
     mapGroup.add(inst);
     const s = cached.userData.size;
-    // Yaw is a multiple of 90 deg for props, so swapping X/Z on the odd quarters is exact.
-    const swap = Math.abs(Math.round(yaw / (Math.PI / 2))) % 2 === 1;
-    hx = (swap ? s.z : s.x) / 2; hz = (swap ? s.x : s.z) / 2; hy = s.y / 2;
+    // Use true model half-extents; rotation is handled by the body quaternion below.
+    hx = s.x / 2; hz = s.z / 2; hy = s.y / 2;
   } else {
     const sz = spec.size;
-    const round = key === 'barrel' || key === 'piston';
-    const geo = round
+    isRound = key === 'barrel' || key === 'piston';
+    const geo = isRound
       ? new THREE.CylinderGeometry(sz * 0.36, sz * 0.4, sz, 14)
       : new THREE.BoxGeometry(sz, sz * 0.92, sz);
-    const mat = round ? MATS.metal : MATS.wall;
+    const mat = isRound ? MATS.metal : MATS.wall;
     const m = new THREE.Mesh(geo, mat);
-    hy = (round ? sz : sz * 0.92) / 2;
+    hy = (isRound ? sz : sz * 0.92) / 2;
     m.position.set(x, hy, z);
     m.rotation.y = yaw;
     m.castShadow = true; m.receiveShadow = true;
     mapGroup.add(m);
-    hx = hz = round ? sz * 0.4 : sz / 2;
+    hx = hz = isRound ? sz * 0.4 : sz / 2;
   }
 
-  addStaticBox(hx, hy, hz, { x, y: hy, z });
-  addBlocker(x, z, hx, hz);
+  // Rotate the physics body to match the visual mesh yaw.
+  const quat = yaw ? new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw) : null;
+  addStaticBox(hx, hy, hz, { x, y: hy, z }, quat);
+
+  // Nav blocker: axis-aligned bounding box of the rotated rectangle (cylindrical props are
+  // symmetric so their AABB does not change with yaw).
+  if (isRound || !yaw) {
+    addBlocker(x, z, hx, hz);
+  } else {
+    const cosA = Math.abs(Math.cos(yaw));
+    const sinA = Math.abs(Math.sin(yaw));
+    addBlocker(x, z, hx * cosA + hz * sinA, hx * sinA + hz * cosA);
+  }
 }
 
 /* ------------------------- arena assembly ------------------------- */

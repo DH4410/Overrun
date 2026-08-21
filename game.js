@@ -2865,8 +2865,11 @@ function bindInput() {
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
     firing = false; aiming = false;
-    if (!pointerLocked && match.running) showPause(true);
-    else showPause(false);
+    if (pointerLocked && match.running) {
+      resumePlay();
+    } else if (!pointerLocked && appState === APP_STATE.PLAYING) {
+      showPause(true);
+    }
   });
 
   document.getElementById('pause').addEventListener('click', requestLock);
@@ -2943,7 +2946,10 @@ function pollGamepad(dt) {
   if (pressed(13)) switchWeapon('ar');
   if (pressed(14)) switchWeapon('shotgun');
   if (pressed(15)) switchWeapon('sniper');
-  if (pressed(9)) showPause(true);                          // start
+  if (pressed(9)) {                                          // start: pause or resume
+    if (appState === APP_STATE.PLAYING) showPause(true);
+    else if (appState === APP_STATE.PAUSED) requestLock();
+  }
 }
 
 function applyLook(dt) {
@@ -5038,7 +5044,7 @@ function refreshBoard() {
 
 function showPause(on) {
   el.pause.classList.toggle('on', !!on && match.running);
-  if (on) { el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = ''; }
+  if (on && match.running) { appState = APP_STATE.PAUSED; el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = ''; }
 }
 
 /* ================================================================== *
@@ -5058,6 +5064,9 @@ const match = {
   wave: 1,
   waveBreak: 0,
 };
+
+const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
+let appState = APP_STATE.MENU;
 
 let nameSeed = 0;
 function nextBotName() { return BOT_NAMES[(nameSeed++) % BOT_NAMES.length]; }
@@ -5091,6 +5100,7 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
   match.mode = mode;
   match.diff = DIFFICULTY[diffKey];
   match.running = true;
+  appState = APP_STATE.PLAYING;
   match.time = 0;
   match.timeLeft = CONFIG.MATCH_SECONDS;
   match.scoreA = 0; match.scoreB = 0;
@@ -5142,6 +5152,7 @@ function startMatch(mode, diffKey, name, mapId = currentMapId) {
 
 function endMatch(title, sub) {
   match.running = false;
+  appState = APP_STATE.MENU;
   showBoard(false);
   showPause(false);
   document.exitPointerLock?.();
@@ -5305,6 +5316,12 @@ function formatTime(s) {
 let vmRecoil = 0;
 let accumulator = 0;
 let lastTime = performance.now() / 1000;
+
+function resumePlay() {
+  appState = APP_STATE.PLAYING;
+  lastTime = performance.now() / 1000;  // prevent dt spike on resume
+  accumulator = 0;
+}
 const _camPos = new THREE.Vector3();
 const _vmTarget = new THREE.Vector3();
 
@@ -5412,7 +5429,7 @@ function frame() {
   let dt = Math.min(now - lastTime, CONFIG.MAX_FRAME_DT);
   lastTime = now;
 
-  if (match.running) {
+  if (appState === APP_STATE.PLAYING) {
     pollGamepad(dt);
     applyLook(dt);
 
@@ -5623,7 +5640,10 @@ function buildSettingsPanel() {
 function showSettings(on) {
   const panel = $('settings');
   if (!panel) return;
-  if (on) buildSettingsPanel();
+  if (on) {
+    buildSettingsPanel();
+    if (match.running) appState = APP_STATE.SETTINGS;
+  }
   panel.classList.toggle('hidden', !on);
   if (on) document.exitPointerLock?.();
 }

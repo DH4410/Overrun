@@ -2893,7 +2893,9 @@ function bindInput() {
     }
   });
 
-  document.getElementById('pause').addEventListener('click', requestLock);
+  document.getElementById('pause').addEventListener('click', () => {
+    if (appState === APP_STATE.PAUSED) requestLock();
+  });
 }
 
 function requestLock() {

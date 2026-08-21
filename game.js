@@ -26,15 +26,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createAudio } from './src/audio.js';
-import {
-  BOT_NAMES,
-  BOT_RANGE_BAND,
-  DIFFICULTY,
-  createBotRuntime,
-} from './src/bots.js';
+import { BOT_RANGE_BAND, createBotRuntime } from './src/bots.js';
 import { createEffects } from './src/effects.js';
 import { createHud } from './src/hud.js';
 import { createMapController, createMapRuntime } from './src/maps.js';
+import {
+  APP_STATE,
+  MODE_LABEL,
+  createMatchRuntime,
+  createMatchState,
+} from './src/match.js';
 import {
   mapBodies,
   world,
@@ -52,9 +53,7 @@ import {
   CONFIG,
   FIXED_DT,
   HIP_FOV,
-  SPAWN_INVULN,
   TEAM,
-  TEAM_COLOR,
 } from './src/config.js';
 import {
   QUALITY,
@@ -688,21 +687,7 @@ function renderMinimap() {
  * === GAME MODES ===
  * ================================================================== */
 
-const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL' };
-
-const match = {
-  mode: 'dm',
-  diff: DIFFICULTY.medium,
-  running: false,
-  time: 0,
-  timeLeft: CONFIG.MATCH_SECONDS,
-  scoreA: 0, scoreB: 0,
-  kills: 0,
-  wave: 1,
-  waveBreak: 0,
-};
-
-const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
+const match = createMatchState();
 let appState = APP_STATE.MENU;
 
 const {
@@ -790,259 +775,49 @@ const {
   throwGrenade,
 });
 
-let nameSeed = 0;
-function nextBotName() { return BOT_NAMES[(nameSeed++) % BOT_NAMES.length]; }
 
-function addBot(team) {
-  const b = new Bot(nextBotName(), team, match.diff);
-  const sp = pickSpawn(team);
-  b.body.position.set(sp.x, sp.y + 0.5, sp.z);
-  b.updateTransforms();
-  bots.push(b);
-  combatants.push(b);
-  return b;
-}
-
-function clearBots() {
-  for (const [, m] of allyMarks) m.root.remove();
-  allyMarks.clear();
-  for (const b of bots) {
-    b.dispose();
-    const i = combatants.indexOf(b);
-    if (i >= 0) combatants.splice(i, 1);
-  }
-  bots.length = 0;
-}
-
-function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
-  // Rebuilding the level has to happen before any bot is spawned or the player is placed:
-  // both read spawnPoints, and switchMap() empties it.
-  switchMap(mapId);
-
-  match.mode = mode;
-  match.diff = DIFFICULTY[diffKey];
-  match.running = true;
-  appState = APP_STATE.PLAYING;
-  match.time = 0;
-  match.timeLeft = CONFIG.MATCH_SECONDS;
-  match.scoreA = 0; match.scoreB = 0;
-  match.kills = 0; match.wave = 1; match.waveBreak = 0;
-  nameSeed = 0;
-
-  player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
-  player.kills = 0; player.deaths = 0;
-  player.team = mode === 'tdm' ? TEAM.BLUE : TEAM.SOLO;
-  player.current = 'pistol';
-  player.cooking = null;
-  player.cooldown = 0; player.reloading = 0;
-  player.recoilPitch = 0; player.recoilYaw = 0;
-  resetPlayerAmmo();
-
-  clearBots();
-  clearEffects();
-  resetAmmoChests();
-  resetConsumables();
-  el.feed.innerHTML = '';
-
-  if (mode === 'tdm') {
-    for (let i = 0; i < 2; i++) addBot(TEAM.BLUE);
-    for (let i = 0; i < 3; i++) addBot(TEAM.RED);
-  } else if (mode === 'dm') {
-    for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO);
-  } else {
-    for (let i = 0; i < 4; i++) addBot(TEAM.RED);
-  }
-
-  const playerBlipColor = TEAM_COLOR[player.team];
-  playerBlip.traverse((o) => { if (o.material) o.material.color.setHex(playerBlipColor); });
-
-  respawnPlayer(true);
-  el.vname.textContent = player.name;
-  el.tbMode.textContent = MODE_LABEL[mode];
-  el.menu.classList.add('hidden');
-  el.hud.classList.remove('hidden');
-  updateAmmoHud();
-  updateVitals();
-
-  // Bots and their cloned materials only exist now, so compile once more before play starts.
-  warmUpShaders();
-
-  Audio.init();
-  Audio.startAmbient();
-  requestLock();
-}
-
-function endMatch(title, sub) {
-  match.running = false;
-  appState = APP_STATE.MENU;
-  showBoard(false);
-  showPause(false);
-  document.exitPointerLock?.();
-  el.hud.classList.add('hidden');
-  el.menu.classList.remove('hidden');
-  el.menuResult.textContent = `${title} — ${sub}`;
-  clearEffects();
-}
-
-function respawnPlayer(immediate = false) {
-  const sp = pickSpawn(player.team);
-  player.body.position.set(sp.x, sp.y + 0.6, sp.z);
-  player.body.velocity.set(0, 0, 0);
-  player.body.wakeUp();
-  player.alive = true;
-  player.health = CONFIG.MAX_HEALTH;
-  player.armor = CONFIG.START_ARMOR;
-  player.respawnTimer = 0;
-  player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
-  clearAlertsOn(player);               // and drop any lock they already had
-  player.cooking = null;
-  player.reloading = 0;
-  player.cooldown = 0.4;
-  resetPlayerAmmo();                  // includes the one-smoke-per-life reset
-  player.current = 'pistol';
-  player.pitch = 0;
-  // Face the middle of the arena, never the wall you happened to spawn against. Forward is
-  // (-sin yaw, -cos yaw), so aiming it at the origin from (x, z) gives yaw = atan2(x, z).
-  player.yaw = Math.atan2(sp.x, sp.z);
-  if (!immediate) showPause(false);
-  updateAmmoHud();
-  updateVitals();
-}
-
-/** The single place a death is booked, for the player and for bots alike. */
-function killCombatant(target, source, headshot) {
-  if (source && source !== target) {
-    source.kills++;
-    if (match.mode === 'tdm') {
-      // Teamkills do not award score — FF is now blocked in explode() but bullet damage
-      // has no team filter, so this guard stays as the authoritative scoring check.
-      const teamkill = source.team !== TEAM.SOLO && source.team === target.team;
-      if (!teamkill) {
-        if (source.team === TEAM.BLUE) match.scoreA++;
-        else if (source.team === TEAM.RED) match.scoreB++;
-      }
-    } else if (match.mode === 'dm') {
-      if (source === player) match.scoreA++;
-      // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
-    } else if (source === player) {
-      match.kills++;
-    }
-  }
-  target.deaths++;
-  addKillFeed(source, target, headshot);
-
-  if (target === player) {
-    player.alive = false;
-    player.respawnTimer = CONFIG.PLAYER_RESPAWN;
-    if (player.cooking) player.cooking = null;
-    stopFiring();
-  } else {
-    target.die();
-    target.respawnTimer = CONFIG.RESPAWN_DELAY;
-  }
-  refreshBoard();
-  checkWinConditions();
-}
-
-/** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
-function dmLeader() {
-  return bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
-}
-
-function checkWinConditions() {
-  if (!match.running) return;
-  if (match.mode === 'dm') {
-    if (player.kills >= CONFIG.DM_TARGET) return endMatch('VICTORY', `${player.kills} kills`);
-    for (const b of bots) {
-      if (b.kills >= CONFIG.DM_TARGET) return endMatch('DEFEAT', `${b.name} reached ${CONFIG.DM_TARGET}`);
-    }
-  } else if (match.mode === 'tdm') {
-    if (match.scoreA >= CONFIG.TDM_TARGET) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
-    if (match.scoreB >= CONFIG.TDM_TARGET) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
-  }
-}
-
-function updateMatch(dt) {
-  if (!match.running) return;
-  match.time += dt;
-
-  if (match.mode === 'sv') {
-    // Endless waves: 4 -> 6 -> 8 ... with a short breather between them.
-    const anyAlive = bots.some((b) => b.alive);
-    if (!anyAlive) {
-      if (match.waveBreak <= 0) {
-        match.waveBreak = 3.0;
-        showToast(`WAVE ${match.wave} CLEARED`);
-      } else {
-        match.waveBreak -= dt;
-        if (match.waveBreak <= 0) {
-          match.wave++;
-          clearBots();
-          const n = 2 + match.wave * 2;
-          for (let i = 0; i < n; i++) addBot(TEAM.RED);
-          showToast(`WAVE ${match.wave} — ${n} HOSTILES`);
-          match.waveBreak = 0;
-        }
-      }
-    }
-  } else {
-    match.timeLeft -= dt;
-    if (match.timeLeft <= 0) {
-      match.timeLeft = 0;
-      if (match.mode === 'dm') {
-        const top = dmLeader();
-        if (player.kills > top.kills) endMatch('TIME — VICTORY', `${player.kills} kills`);
-        else if (player.kills < top.kills) endMatch('TIME — DEFEAT', `${top.kills} kills`);
-        else endMatch('TIME — DRAW', `Tied at ${player.kills} kills`);
-      } else {
-        if (match.scoreA > match.scoreB) endMatch('TIME — BLUE WINS', `${match.scoreA} – ${match.scoreB}`);
-        else if (match.scoreB > match.scoreA) endMatch('TIME — RED WINS', `${match.scoreB} – ${match.scoreA}`);
-        else endMatch('TIME — DRAW', `${match.scoreA} – ${match.scoreB}`);
-      }
-      return;
-    }
-  }
-
-  // Respawns.
-  if (!player.alive) {
-    player.respawnTimer -= dt;
-    el.pause.classList.add('on');
-    el.pBig.textContent = 'ELIMINATED';
-    el.pSm.textContent = `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
-    // The death screen is not a pause — the resume prompt would just be confusing here.
-    el.pCta.style.display = isPointerLocked() ? 'none' : '';
-    if (player.respawnTimer <= 0) {
-      respawnPlayer();
-      el.pCta.style.display = '';
-      if (isPointerLocked()) el.pause.classList.remove('on');
-    }
-  }
-  for (const b of bots) {
-    if (b.alive || match.mode === 'sv') continue;
-    if (b.respawnTimer <= 0) b.respawn(pickSpawn(b.team));
-  }
-
-  // Top bar.
-  if (match.mode === 'sv') {
-    el.tbA.textContent = match.kills;
-    el.tbB.textContent = `W${match.wave}`;
-    el.tbTime.textContent = formatTime(match.time);
-  } else if (match.mode === 'tdm') {
-    el.tbA.textContent = match.scoreA;
-    el.tbB.textContent = match.scoreB;
-    el.tbTime.textContent = formatTime(match.timeLeft);
-  } else {
-    const top = bots.length ? dmLeader() : null;
-    el.tbA.textContent = player.kills;
-    el.tbB.textContent = top ? top.kills : 0;
-    el.tbTime.textContent = formatTime(match.timeLeft);
-  }
-}
-
-function formatTime(s) {
-  const m = Math.floor(s / 60);
-  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-}
+const {
+  addBot,
+  clearBots,
+  startMatch,
+  endMatch,
+  respawnPlayer,
+  killCombatant,
+  dmLeader,
+  checkWinConditions,
+  updateMatch,
+  formatTime,
+} = createMatchRuntime({
+  match,
+  player,
+  bots,
+  Bot,
+  combatants,
+  allyMarks,
+  pickSpawn,
+  switchMap,
+  getCurrentMapId,
+  setAppState: (state) => { appState = state; },
+  resetPlayerAmmo,
+  clearEffects,
+  resetAmmoChests,
+  resetConsumables,
+  playerBlip,
+  warmUpShaders,
+  Audio,
+  requestLock,
+  showBoard,
+  showPause,
+  showToast,
+  updateAmmoHud,
+  updateVitals,
+  addKillFeed,
+  refreshBoard,
+  clearAlertsOn,
+  stopFiring,
+  isPointerLocked,
+  elements: el,
+});
 
 /* ================================================================== *
  * === MAIN LOOP ===

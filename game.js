@@ -2413,6 +2413,8 @@ function explode(pos, owner) {
 
   for (const c of combatants) {
     if (!c.alive) continue;
+    // Skip teammates (but allow self-damage). Bullet code uses the same pattern.
+    if (owner && c !== owner && owner.team !== TEAM.SOLO && c.team === owner.team) continue;
     _v1.set(c.pos.x, c.pos.y, c.pos.z);
     const d = _v1.distanceTo(pos);
     if (d > CONFIG.FRAG_RADIUS) continue;
@@ -5175,8 +5177,13 @@ function killCombatant(target, source, headshot) {
   if (source && source !== target) {
     source.kills++;
     if (match.mode === 'tdm') {
-      if (source.team === TEAM.BLUE) match.scoreA++;
-      else if (source.team === TEAM.RED) match.scoreB++;
+      // Teamkills do not award score — FF is now blocked in explode() but bullet damage
+      // has no team filter, so this guard stays as the authoritative scoring check.
+      const teamkill = source.team !== TEAM.SOLO && source.team === target.team;
+      if (!teamkill) {
+        if (source.team === TEAM.BLUE) match.scoreA++;
+        else if (source.team === TEAM.RED) match.scoreB++;
+      }
     } else if (match.mode === 'dm') {
       if (source === player) match.scoreA++; else match.scoreB = Math.max(match.scoreB, source.kills);
     } else if (source === player) {

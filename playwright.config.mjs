@@ -16,7 +16,7 @@ export default defineConfig({
     serviceWorkers: 'block',
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',
-    video: 'retain-on-failure',
+    video: process.env.CI ? 'off' : 'retain-on-failure',
   },
   webServer: {
     command: 'node scripts/serve-tests.mjs',

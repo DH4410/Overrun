@@ -33,13 +33,11 @@ test('Warehouse DM supports movement, weapon switching, automatic fire, and relo
   });
   expect(Math.hypot(afterMove.x - beforeMove.x, afterMove.z - beforeMove.z)).toBeGreaterThan(0.25);
 
-  const beforeFire = await page.evaluate(() => ({ ...globalThis.__game.player.ammo.pistol }));
+  const beforeFire = await page.evaluate(() => {
+    globalThis.__game.player.cooldown = 0;
+    return { ...globalThis.__game.player.ammo.pistol };
+  });
   await tapGamepadButton(page, 7);
-  await page.waitForFunction(
-    (startingMag) => globalThis.__game.player.ammo.pistol.mag < startingMag,
-    beforeFire.mag,
-  );
-  await page.waitForTimeout(100);
   const afterFire = await page.evaluate(() => ({ ...globalThis.__game.player.ammo.pistol }));
   const roundsFired = beforeFire.mag - afterFire.mag;
 
@@ -47,14 +45,14 @@ test('Warehouse DM supports movement, weapon switching, automatic fire, and relo
   expect(roundsFired).toBe(1);
 
   await pulseGamepadButton(page, 2);
-  await page.waitForFunction(() => globalThis.__game.player.reloading > 0);
+  expect(await page.evaluate(() => globalThis.__game.player.reloading)).toBeGreaterThan(0);
   await page.evaluate(() => { globalThis.__game.player.reloading = 0.001; });
-  await page.waitForFunction(() => globalThis.__game.player.reloading === 0);
+  await page.evaluate(() => globalThis.__testClock.pump(1));
 
   const afterReload = await page.evaluate(() => ({ ...globalThis.__game.player.ammo.pistol }));
   expect(afterReload.mag).toBe(15);
   expect(afterReload.reserve).toBe(beforeFire.reserve - roundsFired);
 
   await pulseGamepadButton(page, 13);
-  await page.waitForFunction(() => globalThis.__game.player.current === 'ar');
+  expect(await page.evaluate(() => globalThis.__game.player.current)).toBe('ar');
 });

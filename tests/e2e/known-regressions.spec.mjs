@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { relativeDifference, runFixedStepSchedule } from '../support/render-rate.mjs';
-import { bootGame, startMatch } from './helpers/game.mjs';
+import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
 
 test('CORE-01: releasing pointer lock freezes the match clock', async ({ page }) => {
   await bootGame(page);
@@ -11,7 +11,7 @@ test('CORE-01: releasing pointer lock freezes the match clock', async ({ page })
   await expect(page.locator('#pause')).toHaveClass(/\bon\b/);
 
   const before = await page.evaluate(() => globalThis.__game.match.timeLeft);
-  await page.waitForTimeout(300);
+  await pumpFrames(page, 20);
   const after = await page.evaluate(() => globalThis.__game.match.timeLeft);
 
   test.fail(true, 'Expected failure until Claude CORE-01 app-state changes are integrated.');
@@ -25,7 +25,7 @@ test('CORE-01: settings opened during a match freeze gameplay', async ({ page })
   await expect(page.locator('#settings')).not.toHaveClass(/\bhidden\b/);
 
   const before = await page.evaluate(() => globalThis.__game.match.timeLeft);
-  await page.waitForTimeout(300);
+  await pumpFrames(page, 20);
   const after = await page.evaluate(() => globalThis.__game.match.timeLeft);
 
   test.fail(true, 'Expected failure until Claude CORE-01 settings-state changes are integrated.');
@@ -111,9 +111,11 @@ test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', 
   });
   expect(cooking).toBe('frag');
   await page.evaluate(() => { globalThis.__game.player.cookTime = 0; });
-  await page.waitForFunction(() => (
-    globalThis.__game.player.cooking === null && globalThis.__game.player.fragCount === 2
-  ));
+  await pumpFrames(page);
+  expect(await page.evaluate(() => ({
+    cooking: globalThis.__game.player.cooking,
+    fragCount: globalThis.__game.player.fragCount,
+  }))).toEqual({ cooking: null, fragCount: 2 });
   await page.evaluate(() => globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyG' })));
 
   const result = await page.evaluate(() => {
@@ -144,7 +146,8 @@ test('CORE-04: standing remains blocked underneath a low ceiling', async ({ page
   await startMatch(page);
 
   await page.keyboard.press('c');
-  await page.waitForFunction(() => globalThis.__game.player.crouching);
+  await pumpFrames(page);
+  expect(await page.evaluate(() => globalThis.__game.player.crouching)).toBe(true);
   await page.evaluate(() => {
     const game = globalThis.__game;
     const playerBody = game.player.body;
@@ -158,7 +161,7 @@ test('CORE-04: standing remains blocked underneath a low ceiling', async ({ page
   });
 
   await page.keyboard.press('c');
-  await page.waitForTimeout(100);
+  await pumpFrames(page, 2);
   const crouching = await page.evaluate(() => globalThis.__game.player.crouching);
 
   test.fail(true, 'Expected failure until Claude CORE-04 stand-clearance changes are integrated.');

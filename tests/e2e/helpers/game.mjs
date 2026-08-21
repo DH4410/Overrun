@@ -40,6 +40,32 @@ async function installDeterministicSettingsAndGamepad(page) {
   await page.addInitScript(() => {
     localStorage.setItem('overrun.settings', JSON.stringify({ quality: 'low', masterVolume: 0 }));
 
+    let clockMs = 0;
+    let nextFrameId = 1;
+    let frameQueue = [];
+    const cancelledFrames = new Set();
+    Object.defineProperty(performance, 'now', { configurable: true, value: () => clockMs });
+    globalThis.requestAnimationFrame = (callback) => {
+      const id = nextFrameId;
+      nextFrameId += 1;
+      frameQueue.push({ callback, id });
+      return id;
+    };
+    globalThis.cancelAnimationFrame = (id) => cancelledFrames.add(id);
+    globalThis.__testClock = {
+      pump(frames = 1, dtMs = 1000 / 60) {
+        for (let frame = 0; frame < frames; frame += 1) {
+          clockMs += dtMs;
+          const callbacks = frameQueue;
+          frameQueue = [];
+          for (const { callback, id } of callbacks) {
+            if (cancelledFrames.delete(id)) continue;
+            callback(clockMs);
+          }
+        }
+      },
+    };
+
     const buttons = Array.from({ length: 18 }, () => ({ pressed: false, touched: false, value: 0 }));
     const onePollButtons = new Set();
     const gamepad = {
@@ -99,6 +125,15 @@ export async function bootGame(page) {
   await expect(page.locator('#play')).toBeEnabled({ timeout: 45_000 });
   await expect(page.locator('#play')).toHaveText('DEPLOY');
   await page.waitForFunction(() => Boolean(globalThis.__game));
+  await page.evaluate(() => {
+    // Boot has already compiled and drawn the real scene once. Subsequent smoke assertions are
+    // state-focused, so keep software-rendered CI responsive while explicitly pumped frames run.
+    const { renderer } = globalThis.__game;
+    renderer.compile = () => {};
+    renderer.render = () => {};
+    renderer.clear = () => {};
+    renderer.clearDepth = () => {};
+  });
 }
 
 export async function startMatch(page, { mode = 'dm', map = 'warehouse', diff = 'medium' } = {}) {
@@ -123,6 +158,13 @@ export async function startMatch(page, { mode = 'dm', map = 'warehouse', diff = 
   });
 }
 
+export async function pumpFrames(page, frames = 1, dtMs = 1000 / 60) {
+  await page.evaluate(
+    ({ frameCount, frameDuration }) => globalThis.__testClock.pump(frameCount, frameDuration),
+    { frameCount: frames, frameDuration: dtMs },
+  );
+}
+
 export async function setGamepadButton(page, index, down) {
   await page.evaluate(
     ({ buttonIndex, isDown }) => globalThis.__testGamepad.setButton(buttonIndex, isDown),
@@ -130,13 +172,14 @@ export async function setGamepadButton(page, index, down) {
   );
 }
 
-export async function pulseGamepadButton(page, index, durationMs = 50) {
+export async function pulseGamepadButton(page, index) {
   await setGamepadButton(page, index, true);
-  await page.waitForTimeout(durationMs);
+  await pumpFrames(page);
   await setGamepadButton(page, index, false);
-  await page.waitForTimeout(durationMs);
+  await pumpFrames(page);
 }
 
 export async function tapGamepadButton(page, index) {
   await page.evaluate((buttonIndex) => globalThis.__testGamepad.tapButton(buttonIndex), index);
+  await pumpFrames(page);
 }

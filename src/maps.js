@@ -1196,3 +1196,133 @@ return {
   buildMapLayer,
 };
 }
+/** Map selection, shared lighting configuration, and level lifecycle. */
+export function createMapController({
+  scene,
+  mapCamera,
+  rigAmbient,
+  rigHemi,
+  rigSun,
+  arenaExtent: A,
+  buildArena,
+  placeArenaProps,
+  buildSpawnPoints,
+  buildDungeonMap,
+  buildWaypoints,
+  buildMapLayer,
+  clearMap,
+  spawnAmmoChests,
+  spawnConsumables,
+  setSpawnCastY,
+}) {
+  /**
+   * The two playable levels. Each entry owns everything that differs between them: how the
+   * geometry is built, the sky/fog treatment, and the nav-graph and minimap tuning (the dungeon
+   * is a 4 m corridor grid, so it needs a much finer graph than the open warehouse).
+   */
+  const MAPS = {
+    warehouse: {
+      name: 'WAREHOUSE',
+      blurb: 'Open industrial plaza, long sight lines, four ramps to the hub.',
+      background: 0x0a0e14,
+      fog: { color: 0x0a0e14, near: 55, far: 190 },
+      mapView: 46,
+      ceilY: CONFIG.CEIL,
+      nav: { extent: 46, step: 8.5, pad: 1.1, coverPad: 3.6 },
+      layerExtent: A,
+      plates: { ground: 0x141a21, solid: 0x5c6b7a },
+      lighting: {
+        ambient: { color: 0x8ea6c0, intensity: 0.4 },
+        hemi: { sky: 0x7f9bb8, ground: 0x232830, intensity: 0.75 },
+        sun: { color: 0xfff1dc, intensity: 1.7, pos: [38, 62, 26], extent: A * 1.05, far: 170 },
+      },
+      build() {
+        buildArena();
+        placeArenaProps();
+        buildSpawnPoints();
+        spawnAmmoChests([
+          [0, 38], [0, -38], [38, 0], [-38, 0],
+          [22, 22], [-22, -22], [22, -22], [-22, 22],
+          [12, 12], [-12, -12], [12, -12], [-12, 12],
+          [30, 12], [-30, 12], [12, 30], [-12, 30],
+        ]);
+        // Health and shield sit away from the ammo, so topping up costs a separate trip.
+        spawnConsumables([
+          ['health', 0, 20], ['health', 0, -20], ['health', -34, -34], ['health', 34, 34],
+          ['shield', 20, 0], ['shield', -20, 0], ['shield', 34, -34], ['shield', -34, 34],
+        ]);
+      },
+    },
+    dungeon: {
+      name: 'DUNGEON',
+      blurb: 'Tight stone corridors, torchlight, choke points everywhere.',
+      background: 0x1a1410,
+      fog: { color: 0x140d07, near: 8, far: 60 },
+      mapView: 44,
+      ceilY: DUNGEON_CEIL,
+      nav: { extent: 40, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
+      layerExtent: 44,
+      // High-contrast plan: on the warehouse palette the dungeon minimap was near-black on
+      // near-black and unreadable.
+      plates: { ground: 0x120d08, solid: 0xb08a52 },
+      lighting: {
+        // Deliberately much brighter than a "realistic" dungeon. Two passes of this map were
+        // reported as unplayably black; atmosphere is worth nothing if you cannot see a target.
+        ambient: { color: 0x9c8a72, intensity: 1.15 },
+        hemi: { sky: 0xa08d70, ground: 0x3a2c20, intensity: 0.95 },
+        sun: { color: 0xffd9ad, intensity: 0.95, pos: [20, 50, 14], extent: 46, far: 130 },
+      },
+      build() { buildDungeonMap(); },
+    },
+  };
+
+  let currentMapId = 'warehouse';
+
+  /** Build a level from scratch. Assumes clearMap() has already run if one was loaded. */
+  function buildMap(id) {
+    const m = MAPS[id];
+    currentMapId = id;
+    // Must be set before m.build() runs — the spawners below it cast down from here.
+    setSpawnCastY((m.ceilY ?? CONFIG.CEIL) - 0.5);
+
+    scene.background = new THREE.Color(m.background);
+    scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
+
+    mapCamera.left = -m.mapView / 2; mapCamera.right = m.mapView / 2;
+    mapCamera.top = m.mapView / 2; mapCamera.bottom = -m.mapView / 2;
+    mapCamera.updateProjectionMatrix();
+
+    // Re-tint the shared rig rather than swapping lights in and out — see MAX_POINT_LIGHTS.
+    const L = m.lighting;
+    rigAmbient.color.setHex(L.ambient.color);
+    rigAmbient.intensity = L.ambient.intensity;
+    rigHemi.color.setHex(L.hemi.sky);
+    rigHemi.groundColor.setHex(L.hemi.ground);
+    rigHemi.intensity = L.hemi.intensity;
+    rigSun.color.setHex(L.sun.color);
+    rigSun.intensity = L.sun.intensity;
+    rigSun.position.set(...L.sun.pos);
+    rigSun.shadow.camera.far = L.sun.far;
+    rigSun.shadow.camera.left = -L.sun.extent; rigSun.shadow.camera.right = L.sun.extent;
+    rigSun.shadow.camera.top = L.sun.extent; rigSun.shadow.camera.bottom = -L.sun.extent;
+    rigSun.shadow.camera.updateProjectionMatrix();
+
+    m.build();
+    buildWaypoints(m.nav);
+    buildMapLayer(m.layerExtent, m.plates);
+  }
+
+  /** Swap levels. No-op when the requested map is already loaded. */
+  function switchMap(id) {
+    if (id === currentMapId || !MAPS[id]) return;
+    clearMap();
+    buildMap(id);
+  }
+
+  return {
+    MAPS,
+    buildMap,
+    switchMap,
+    currentMapId: () => currentMapId,
+  };
+}

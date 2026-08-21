@@ -43,6 +43,7 @@ import {
   mapBodies,
   world,
 } from './src/physics.js';
+import { disposeTree, markShared, matte } from './src/rendering.js';
 import { createUiRuntime } from './src/ui.js';
 import {
   ADS_FOV,
@@ -1409,21 +1410,7 @@ function addMapLight(obj) {
  * hundreds of tiles, so these must survive clearMap() or the second visit to a map renders
  * nothing. Anything not in here is per-mesh and safe to free.
  */
-const SHARED_GEO = new Set();
-
-function markShared(...geos) { for (const g of geos) SHARED_GEO.add(g); }
 markShared(dungeonWallGeo, dungeonTileGeo, MAP_PLATE_GEO);
-
-function disposeTree(root) {
-  root.traverse((o) => {
-    if (o.isMesh && o.geometry && !SHARED_GEO.has(o.geometry)) {
-      o.geometry.dispose();
-      // Materials are frequently shared (MATS.*, DRESS_MATS.*, DUNGEON_MATS.*) — disposing
-      // them here would blank the next map. Geometry is usually per-mesh, so only that is
-      // freed, and only when it is not in SHARED_GEO.
-    }
-  });
-}
 
 /** Tear the current level down completely: colliders, meshes, lights, nav data, pickups. */
 function clearMap() {
@@ -1602,9 +1589,6 @@ function nearestCombatantHit(o, d, len, shooter) {
 
 /* ----------------------- first-person models ----------------------- */
 
-function matte(color, rough = 0.65, metal = 0.35) {
-  return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
-}
 const GUN_DARK = matte(0x33383f, 0.5, 0.55);
 const GUN_GRIP = matte(0x24272c, 0.85, 0.08);
 const GUN_ACC = matte(0x9aa2ab, 0.3, 0.85);

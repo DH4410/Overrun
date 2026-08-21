@@ -2755,6 +2755,7 @@ function switchWeapon(id) {
 
 function tryFire() {
   if (!player.alive || !match.running || player.cooldown > 0 || player.reloading > 0) return;
+  player.invulnTimer = 0;  // firing cancels spawn protection
   const w = currentWeapon();
   if (w.thrown) return;                       // grenades are thrown with G, not LMB
 
@@ -2814,6 +2815,7 @@ function releaseCook(exploded = false) {
     if (kind === 'frag') explode(player.eye, player);
     else spawnSmoke(player.eye, player);
   } else {
+    player.invulnTimer = 0;  // throwing cancels spawn protection
     playerAimDirection(_aimDir);
     const origin = player.eye.clone().addScaledVector(_aimDir, 0.7);
     throwGrenade(player, origin, _aimDir, 17, kind, Math.max(0.35, player.cookTime));
@@ -5229,7 +5231,8 @@ function killCombatant(target, source, headshot) {
         else if (source.team === TEAM.RED) match.scoreB++;
       }
     } else if (match.mode === 'dm') {
-      if (source === player) match.scoreA++; else match.scoreB = Math.max(match.scoreB, source.kills);
+      if (source === player) match.scoreA++;
+      // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
     } else if (source === player) {
       match.kills++;
     }
@@ -5248,6 +5251,11 @@ function killCombatant(target, source, headshot) {
   }
   refreshBoard();
   checkWinConditions();
+}
+
+/** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
+function dmLeader() {
+  return bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
 }
 
 function checkWinConditions() {
@@ -5291,12 +5299,14 @@ function updateMatch(dt) {
     if (match.timeLeft <= 0) {
       match.timeLeft = 0;
       if (match.mode === 'dm') {
-        const top = bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
-        endMatch(player.kills >= top.kills ? 'TIME — YOU WIN' : 'TIME — YOU LOSE',
-                 `${player.kills} kills`);
+        const top = dmLeader();
+        if (player.kills > top.kills) endMatch('TIME — VICTORY', `${player.kills} kills`);
+        else if (player.kills < top.kills) endMatch('TIME — DEFEAT', `${top.kills} kills`);
+        else endMatch('TIME — DRAW', `Tied at ${player.kills} kills`);
       } else {
-        endMatch(match.scoreA >= match.scoreB ? 'TIME — BLUE WINS' : 'TIME — RED WINS',
-                 `${match.scoreA} – ${match.scoreB}`);
+        if (match.scoreA > match.scoreB) endMatch('TIME — BLUE WINS', `${match.scoreA} – ${match.scoreB}`);
+        else if (match.scoreB > match.scoreA) endMatch('TIME — RED WINS', `${match.scoreB} – ${match.scoreA}`);
+        else endMatch('TIME — DRAW', `${match.scoreA} – ${match.scoreB}`);
       }
       return;
     }
@@ -5331,7 +5341,7 @@ function updateMatch(dt) {
     el.tbB.textContent = match.scoreB;
     el.tbTime.textContent = formatTime(match.timeLeft);
   } else {
-    const top = bots.reduce((a, b) => (b.kills > (a ? a.kills : -1) ? b : a), null);
+    const top = bots.length ? dmLeader() : null;
     el.tbA.textContent = player.kills;
     el.tbB.textContent = top ? top.kills : 0;
     el.tbTime.textContent = formatTime(match.timeLeft);

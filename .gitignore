@@ -1,2 +1,5 @@
 assets/*.zip
 assets/*-tmp/
+node_modules/
+playwright-report/
+test-results/

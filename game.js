@@ -24,7 +24,6 @@
  */
 
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createAudio } from './src/audio.js';
 import {
@@ -37,30 +36,22 @@ import { createEffects } from './src/effects.js';
 import { createHud } from './src/hud.js';
 import { createMapController, createMapRuntime } from './src/maps.js';
 import {
-  G_BODY,
-  MAT_BODY,
-  RAY_OPTS,
-  addStaticBox,
-  addStaticCylinder,
   mapBodies,
   world,
 } from './src/physics.js';
-import { disposeTree, markShared, matte } from './src/rendering.js';
+import { markShared } from './src/rendering.js';
 import {
-  HB_PLAYER,
-  HB_PLAYER_CROUCH,
   ZONE_MULT,
   createProjectileRuntime,
 } from './src/projectiles.js';
 import { createPickupRuntime } from './src/pickups.js';
+import { createPlayerRuntime, createPlayerState } from './src/player.js';
 import { createUiRuntime } from './src/ui.js';
 import {
   ADS_FOV,
   CONFIG,
-  DAMP_PER_STEP,
   FIXED_DT,
   HIP_FOV,
-  PLAYER_DAMPING,
   SPAWN_INVULN,
   TEAM,
   TEAM_COLOR,
@@ -71,7 +62,7 @@ import {
   saveSettings,
   settings,
 } from './src/settings.js';
-import { clamp, lerp, pick, rand, randInt } from './src/utils.js';
+import { lerp, rand } from './src/utils.js';
 import {
   WEAPON_BY_ID,
   WEAPONS,
@@ -359,37 +350,8 @@ const {
  * === PLAYER ===
  * ================================================================== */
 
-const keys = Object.create(null);
-let mouseDX = 0, mouseDY = 0;
-let firing = false, aiming = false;
-let pointerLocked = false;
 
-const player = {
-  isPlayer: true,
-  name: 'PLAYER',
-  team: TEAM.SOLO,
-  alive: true,
-  health: CONFIG.MAX_HEALTH,
-  armor: CONFIG.START_ARMOR,
-  kills: 0, deaths: 0,
-  hb: HB_PLAYER,
-  pos: new THREE.Vector3(),          // chest — hitbox centre and what bots aim at
-  eye: new THREE.Vector3(),          // muzzle / line-of-sight origin
-  vel: new THREE.Vector3(),          // world velocity, so bots can lead their shots
-  body: null,
-  yaw: 0, pitch: 0,
-  recoilPitch: 0, recoilYaw: 0,
-  grounded: false, crouching: false, sprinting: false,
-  current: 'pistol',
-  ammo: {},
-  cooldown: 0, reloading: 0, reloadTotal: 0,
-  fragCount: 3, smokeCount: 1,
-  cooking: null, cookTime: 0,
-  respawnTimer: 0,
-  invulnTimer: 0,                    // spawn protection — see SPAWN_INVULN
-  stepTimer: 0,
-  sway: new THREE.Vector2(),
-};
+const player = createPlayerState();
 combatants.push(player);
 
 const {
@@ -418,519 +380,6 @@ const {
   spawnSmoke: (...args) => spawnSmoke(...args),
 });
 
-// Shared gameplay scratch remains local to the orchestrator; projectile simulation owns its
-// own vectors so future player and bot work cannot mutate a bullet step in progress.
-const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-
-const PLAYER_CHEST = 0.75;
-const PLAYER_CHEST_CROUCH = 0.52;  // lowers bots' aim point to match crouching camera height
-const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
-
-function createPlayerBody() {
-  const b = new CANNON.Body({
-    mass: CONFIG.PLAYER_MASS,
-    material: MAT_BODY,
-    shape: new CANNON.Sphere(CONFIG.PLAYER_RADIUS),
-    linearDamping: PLAYER_DAMPING,
-    angularDamping: 1,
-    fixedRotation: true,
-    collisionFilterGroup: G_BODY,
-  });
-  b.updateMassProperties();
-  world.addBody(b);
-  player.body = b;
-}
-
-function resetPlayerAmmo() {
-  player.ammo = {};
-  for (const w of WEAPONS) {
-    if (w.thrown) continue;
-    player.ammo[w.id] = { mag: w.mag, reserve: w.reserve };
-  }
-  player.fragCount = 3;
-  player.smokeCount = 1;                 // one smoke per life — reset here, on every respawn
-}
-
-/* ------------------------- shared damage path ------------------------- */
-
-/**
- * Route damage through armour, then health. Handles kill bookkeeping for whoever fired.
- * Used by bullets and by explosions, for the player and for bots alike.
- */
-function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
-  if (!target.alive || !match.running) return;
-  // Spawn protection. Gated here as well as in Bot.canSee, because bullets already in flight
-  // and grenades already thrown do not go back through target acquisition.
-  if (target.invulnTimer > 0) return;
-
-  let dmg = amount;
-  let soaked = 0;
-  if (target.armor > 0) {
-    const soak = Math.min(target.armor, dmg * CONFIG.ARMOR_ABSORB);
-    target.armor -= soak;
-    dmg -= soak;
-    soaked = soak;
-  }
-  target.health -= dmg;
-
-  if (target === player) {
-    Audio.hurt();
-    if (source && source !== player) showDamageDirection(source.pos);
-    addShake(0.035);
-  } else {
-    if (source === player) {
-      showHitMarker(false);
-      Audio.hit();
-      // zone was being dropped here, so every number rendered with the plain body style and a
-      // headshot looked exactly like a graze. soaked tells the player *why* a centre-mass hit
-      // landed for single digits — armour ate the rest — instead of it reading as a weak gun.
-      showDamageNumber(hitPos || target.pos, dmg, headshot, zone, soaked > 0.5);
-    }
-    target.lastHurtBy = source;
-    target.lastHurtAt = match.time;
-  }
-
-  if (target.health <= 0) {
-    target.health = 0;
-    killCombatant(target, source, headshot);
-    if (source === player) { showHitMarker(true); Audio.kill(); }
-  }
-}
-
-/* ----------------------------- movement ----------------------------- */
-
-const _up = new CANNON.Vec3(0, 1, 0);
-const _cn = new CANNON.Vec3();
-const _wish = new THREE.Vector3();
-let crouchLatch = false, sprintLatch = false;
-
-function playerGroundCheck() {
-  player.grounded = false;
-  const b = player.body;
-  for (const c of world.contacts) {
-    if (c.bi === b) c.ni.negate(_cn);
-    else if (c.bj === b) _cn.copy(c.ni);
-    else continue;
-    if (_cn.dot(_up) > 0.5) { player.grounded = true; return; }
-  }
-}
-
-const _crouchFrom = new CANNON.Vec3();
-const _crouchTo = new CANNON.Vec3();
-const _crouchRes = new CANNON.RaycastResult();
-
-function setCrouch(on) {
-  if (player.crouching === on) return;
-
-  if (!on) {
-    // Overhead clearance: reject standup if there is geometry within the radius delta above us.
-    const clearNeeded = CONFIG.PLAYER_RADIUS - CONFIG.CROUCH_RADIUS;  // 0.12 m
-    _crouchFrom.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS, player.body.position.z);
-    _crouchTo.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS + clearNeeded + 0.05, player.body.position.z);
-    _crouchRes.reset();
-    world.raycastClosest(_crouchFrom, _crouchTo, RAY_OPTS, _crouchRes);
-    if (_crouchRes.hasHit) return;  // not enough clearance — stay crouched
-  }
-
-  player.crouching = on;
-  player.hb = on ? HB_PLAYER_CROUCH : HB_PLAYER;
-  const shape = player.body.shapes[0];
-  const from = shape.radius;
-  const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
-  shape.radius = to;
-  shape.updateBoundingSphereRadius();
-  player.body.updateBoundingRadius();
-  // The sphere grows about its centre, so standing up buries the lower half in the floor and
-  // the solver answers by launching the body ~0.8 m into the air. Shift the centre by the
-  // radius delta instead, which keeps the feet exactly where they were.
-  player.body.position.y += to - from;
-}
-
-/* Ledge step-up (see call site in stepPlayer). */
-const STEP_AHEAD = 0.55;      // how far along the move direction to probe
-const STEP_MAX = 0.45;        // tallest lip we will climb
-const _stepFrom = new CANNON.Vec3();
-const _stepTo = new CANNON.Vec3();
-const _stepRes = new CANNON.RaycastResult();
-
-function stepOver(b) {
-  const len = Math.hypot(_wish.x, _wish.z);
-  if (len < 0.001) return;
-  const ax = b.position.x + (_wish.x / len) * STEP_AHEAD;
-  const az = b.position.z + (_wish.z / len) * STEP_AHEAD;
-  const foot = b.position.y - CONFIG.PLAYER_RADIUS;
-
-  // Straight down, from just above the tallest step we allow to just below the current foot.
-  _stepFrom.set(ax, foot + STEP_MAX + 0.05, az);
-  _stepTo.set(ax, foot - 0.10, az);
-  _stepRes.reset();
-  world.raycastClosest(_stepFrom, _stepTo, RAY_OPTS, _stepRes);
-  if (!_stepRes.hasHit) return;
-
-  const rise = _stepRes.hitPointWorld.y - foot;
-  if (rise <= 0.04 || rise > STEP_MAX) return;   // flat ground, or too tall to climb
-
-  b.position.y += rise + 0.02;
-  if (b.velocity.y < 0) b.velocity.y = 0;        // don't fight gravity back down the step
-}
-
-function stepPlayer(dt) {
-  const b = player.body;
-  b.wakeUp();                     // belt-and-braces alongside world.allowSleep = false
-  if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
-
-  playerGroundCheck();
-  // Crouch and sprint read from a latch when the player has chosen toggle-style bindings
-  // (see settings.toggleCrouch / toggleSprint), otherwise straight from the held key.
-  setCrouch(settings.toggleCrouch ? crouchLatch : !!keys.KeyC);
-  const wantSprint = settings.toggleSprint ? sprintLatch : !!keys.ShiftLeft;
-  player.sprinting = wantSprint && !player.crouching && !aiming;
-
-  // Movement basis is camera yaw with the pitch stripped out.
-  const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
-  let fx = -sy, fz = -cy;        // forward
-  let rx = cy, rz = -sy;         // right
-  let ix = 0, iz = 0;
-  if (keys.KeyW || keys.GpForward || (settings.arrowKeys && keys.ArrowUp)) iz += 1;
-  if (keys.KeyS || keys.GpBack || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
-  if (keys.KeyD || keys.GpRight || (settings.arrowKeys && keys.ArrowRight)) ix += 1;
-  if (keys.KeyA || keys.GpLeft || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
-
-  let speed = CONFIG.WALK_SPEED;
-  if (player.sprinting) speed *= CONFIG.SPRINT_MULT;
-  if (player.crouching) speed *= CONFIG.CROUCH_MULT;
-  if (aiming) speed *= 0.55;
-
-  _wish.set(fx * iz + rx * ix, 0, fz * iz + rz * ix);
-  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(speed);
-
-  // Air control is deliberately weak so jumps commit.
-  const accel = CONFIG.MOVE_ACCEL * (player.grounded ? 1 : 0.22);
-  const k = Math.min(1, accel * dt);
-  b.velocity.x = lerp(b.velocity.x, _wish.x, k);
-  b.velocity.z = lerp(b.velocity.z, _wish.z, k);
-
-  // Ledge step-up. A sphere collider catches on the lip of a crate: the contact normal points
-  // back at you and the velocity controller just grinds against it. Probe a short way along
-  // the direction we WANT to go, and if there is walkable ground within STEP_MAX above the
-  // current foot, lift the body onto it. Cheap (one ray, only while actually walking).
-  if (player.grounded && _wish.lengthSq() > 0) stepOver(b);
-
-  if (keys.Space && player.grounded) {
-    b.velocity.y = CONFIG.JUMP_SPEED;
-    player.grounded = false;
-  }
-  // Cancel the vertical component of linearDamping (see DAMP_PER_STEP).
-  b.velocity.y /= DAMP_PER_STEP;
-
-  // Footsteps.
-  const planar = Math.hypot(b.velocity.x, b.velocity.z);
-  if (player.grounded && planar > 1.2) {
-    player.stepTimer -= dt * (player.sprinting ? 1.5 : 1);
-    if (player.stepTimer <= 0) { Audio.step(); player.stepTimer = 0.4; }
-  } else {
-    player.stepTimer = 0;
-  }
-
-  player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
-  player.pos.set(b.position.x, b.position.y + (player.crouching ? PLAYER_CHEST_CROUCH : PLAYER_CHEST), b.position.z);
-  player.eye.set(b.position.x, b.position.y + PLAYER_EYE_OFF - (player.crouching ? 0.55 : 0), b.position.z);
-
-  // Fall out of the world guard.
-  if (b.position.y < -20) respawnPlayer();
-}
-
-/* ------------------------- aiming and firing ------------------------- */
-
-const _camQ = new THREE.Quaternion();
-const _camE = new THREE.Euler(0, 0, 0, 'YXZ');
-const _aimDir = new THREE.Vector3();
-
-function playerAimDirection(out) {
-  _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');
-  _camQ.setFromEuler(_camE);
-  return out.set(0, 0, -1).applyQuaternion(_camQ);
-}
-
-function currentWeapon() { return WEAPON_BY_ID[player.current]; }
-
-function startReload() {
-  const w = currentWeapon();
-  if (w.thrown || player.reloading > 0) return;
-  const a = player.ammo[w.id];
-  if (a.mag >= w.mag || a.reserve <= 0) return;
-  player.reloading = w.reload;
-  player.reloadTotal = w.reload;
-  Audio.reloadClick();
-}
-
-function finishReload() {
-  const w = currentWeapon();
-  const a = player.ammo[w.id];
-  const need = w.mag - a.mag;
-  const take = Math.min(need, a.reserve);
-  a.mag += take; a.reserve -= take;
-  Audio.reloadClick();
-}
-
-function switchWeapon(id) {
-  if (player.current === id || !WEAPON_BY_ID[id]) return;
-  if (id === 'frag' && player.fragCount <= 0) return;
-  player.current = id;
-  player.reloading = 0;
-  player.cooldown = Math.max(player.cooldown, 0.25);
-  aiming = false; crouchLatch = false; sprintLatch = false;
-  updateAmmoHud();
-}
-
-function tryFire() {
-  if (!player.alive || !match.running || player.cooldown > 0 || player.reloading > 0) return;
-  player.invulnTimer = 0;  // firing cancels spawn protection
-  const w = currentWeapon();
-  if (w.thrown) return;                       // grenades are thrown with G, not LMB
-
-  const a = player.ammo[w.id];
-  if (a.mag <= 0) { startReload(); return; }
-
-  a.mag--;
-  player.cooldown = w.cooldown;
-
-  playerAimDirection(_aimDir);
-  const spreadMult = aiming ? 0.35 : (player.sprinting ? 1.9 : 1) * (player.grounded ? 1 : 1.6);
-
-  // Fire from the muzzle marker so tracers leave the barrel, not the eyeball. The viewmodel
-  // lives in its own scene whose camera sits at the origin, so its world position is already
-  // camera-local: rotate by the aim quaternion and offset by the eye to reach world space.
-  const mz = vmModels[w.id].userData.muzzle;
-  const mzLocal = mz.getWorldPosition(new THREE.Vector3());
-  _v3.copy(mzLocal).applyQuaternion(_camQ).add(camera.position);
-  // Guard against the muzzle ending up inside geometry (up against a wall).
-  if (!losClear(player.eye.x, player.eye.y, player.eye.z, _v3.x, _v3.y, _v3.z)) _v3.copy(player.eye);
-
-  fireWeapon(player, w, _v3, _aimDir, spreadMult);
-
-  player.recoilPitch += w.recoil;
-  player.recoilYaw += rand(-w.recoil * 0.4, w.recoil * 0.4);
-  vmRecoil += w.kick;
-  triggerMuzzleFlash(mzLocal, _v3);
-  ejectBrass(mzLocal.clone().add(new THREE.Vector3(0.05, 0.02, 0.12)));
-  if (a.mag === 0) startReload();
-  updateAmmoHud();
-}
-
-/* --------------------------- thrown ordnance --------------------------- */
-
-function startCook(kind) {
-  if (!player.alive || player.cooking) return;
-  if (kind === 'frag' && player.fragCount <= 0) return;
-  if (kind === 'smoke' && player.smokeCount <= 0) return;
-  player.cooking = kind;
-  player.cookTime = kind === 'frag' ? CONFIG.FRAG_FUSE : CONFIG.SMOKE_FUSE;
-  Audio.pinPull();
-}
-
-function releaseCook(exploded = false) {
-  const kind = player.cooking;
-  if (!kind) return;
-  player.cooking = null;
-
-  if (kind === 'frag') player.fragCount--;
-  else player.smokeCount--;
-
-  if (exploded) {
-    // Cooked it too long — it goes off in your hand.
-    if (kind === 'frag') explode(player.eye, player);
-    else spawnSmoke(player.eye, player);
-  } else {
-    player.invulnTimer = 0;  // throwing cancels spawn protection
-    playerAimDirection(_aimDir);
-    const origin = player.eye.clone().addScaledVector(_aimDir, 0.7);
-    throwGrenade(player, origin, _aimDir, 17, kind, Math.max(0.35, player.cookTime));
-  }
-  if (player.current === 'frag' && player.fragCount <= 0) switchWeapon('pistol');
-  updateAmmoHud();
-}
-
-/* ------------------------------ input ------------------------------ */
-
-function bindInput() {
-  const canvas = renderer.domElement;
-
-  canvas.addEventListener('mousedown', (e) => {
-    if (!pointerLocked) { requestLock(); return; }
-    // With the frag selected, LMB cooks and releases exactly like G does.
-    if (e.button === 0) {
-      if (currentWeapon().thrown) startCook('frag');
-      else { firing = true; tryFire(); }
-    }
-    if (e.button === 2) aiming = settings.toggleAim ? !aiming : true;
-  });
-  addEventListener('mouseup', (e) => {
-    if (e.button === 0) {
-      firing = false;
-      if (player.cooking === 'frag' && !keys.KeyG) releaseCook();
-    }
-    if (e.button === 2 && !settings.toggleAim) aiming = false;
-  });
-  // Without this the browser context menu eats every right-click ADS.
-  addEventListener('contextmenu', (e) => e.preventDefault());
-
-  addEventListener('mousemove', (e) => {
-    if (!pointerLocked) return;
-    mouseDX += e.movementX;
-    mouseDY += e.movementY;
-  });
-
-  addEventListener('keydown', (e) => {
-    if (e.code === 'Tab') e.preventDefault();
-    if (keys[e.code]) return;                    // ignore auto-repeat
-    keys[e.code] = true;
-
-    // Toggle latches for the trackpad-friendly bindings.
-    if (e.code === 'KeyC' && settings.toggleCrouch) crouchLatch = !crouchLatch;
-    if (e.code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
-
-    switch (e.code) {
-      case 'Digit1': switchWeapon('pistol'); break;
-      case 'Digit2': switchWeapon('ar'); break;
-      case 'Digit3': switchWeapon('shotgun'); break;
-      case 'Digit4': switchWeapon('sniper'); break;
-      case 'Digit5': switchWeapon('frag'); break;
-      case 'KeyR': startReload(); break;
-      case 'KeyG': startCook('frag'); break;
-      case 'KeyF': startCook('smoke'); break;
-      case 'Tab': showBoard(true); break;
-    }
-  });
-
-  addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-    if (e.code === 'KeyG' && player.cooking === 'frag') releaseCook();
-    if (e.code === 'KeyF' && player.cooking === 'smoke') releaseCook();
-    if (e.code === 'Tab') showBoard(false);
-  });
-
-  document.addEventListener('pointerlockchange', () => {
-    pointerLocked = document.pointerLockElement === canvas;
-    firing = false; aiming = false;
-    if (pointerLocked && match.running) {
-      resumePlay();
-    } else if (!pointerLocked && appState === APP_STATE.PLAYING) {
-      showPause(true);
-    }
-  });
-
-  document.getElementById('pause').addEventListener('click', () => {
-    if (appState === APP_STATE.PAUSED) requestLock();
-  });
-}
-
-function requestLock() {
-  if (!match.running) return;
-  renderer.domElement.requestPointerLock();
-  Audio.init();
-}
-
-/** Consume the accumulated mouse delta once per rendered frame. */
-/* ---------------------------- gamepad ---------------------------- */
-
-/**
- * Controller support, polled rather than event-driven because the Gamepad API has no events
- * for axis movement. Standard mapping: left stick moves, right stick looks, RT fires, LT aims,
- * A jumps, B crouches, LB throws a frag, right stick click sprints, D-pad swaps weapons.
- *
- * Sticks get a radial dead zone and the look axes are cubed — a linear stick makes fine aim
- * impossible, and squaring loses the sign.
- */
-const GP_DEADZONE = 0.18;
-const gpPrev = [];
-let gamepadActive = false;
-
-function gpAxis(v) {
-  const a = Math.abs(v);
-  if (a < GP_DEADZONE) return 0;
-  const scaled = (a - GP_DEADZONE) / (1 - GP_DEADZONE);
-  return Math.sign(v) * scaled;
-}
-
-function pollGamepad(dt) {
-  const pads = navigator.getGamepads?.();
-  if (!pads) return;
-  let pad = null;
-  for (const p of pads) if (p && p.connected) { pad = p; break; }
-  if (!pad) { gamepadActive = false; return; }
-
-  const ax = pad.axes, btn = pad.buttons;
-  const moveX = gpAxis(ax[0] ?? 0), moveY = gpAxis(ax[1] ?? 0);
-  const lookX = gpAxis(ax[2] ?? 0), lookY = gpAxis(ax[3] ?? 0);
-  if (moveX || moveY || lookX || lookY) gamepadActive = true;
-
-  // Movement is fed through the same key flags the keyboard sets, so nothing downstream
-  // needs to know where the input came from.
-  keys.GpForward = moveY < -0.1; keys.GpBack = moveY > 0.1;
-  keys.GpLeft = moveX < -0.1; keys.GpRight = moveX > 0.1;
-
-  const down = (i) => !!(btn[i] && btn[i].pressed);
-  const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
-
-  // Look. Cubed for fine control, scaled by dt and by the same ADS multiplier as the mouse.
-  const gpAdsMult = aiming && currentWeapon().zoom
-    ? settings.adsSensitivity * (0.4 / 0.75)
-    : (aiming ? settings.adsSensitivity : 1);
-  const lookRate = 3.4 * settings.sensitivity * gpAdsMult * dt;
-  player.yaw -= (lookX ** 3) * lookRate;
-  player.pitch -= (lookY ** 3) * lookRate * (settings.invertY ? -1 : 1);
-  player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
-
-  // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off.
-  if (settings.toggleAim) { if (pressed(6)) aiming = !aiming; }
-  else { aiming = down(6); }
-
-  // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
-  if (down(7)) { if (!firing) { firing = true; tryFire(); } }
-  else firing = false;
-
-  keys.Space = down(0);                                     // A
-  // B: gate on toggleCrouch so only one of crouchLatch or KeyC is driven at a time.
-  if (settings.toggleCrouch) { if (pressed(1)) crouchLatch = !crouchLatch; }
-  else { keys.KeyC = down(1); }
-  keys.ShiftLeft = down(11);                                // right stick click sprints
-  if (pressed(4)) startCook('frag');                        // LB
-  if (!down(4) && player.cooking === 'frag') releaseCook();
-  if (pressed(2)) startReload();                            // X
-  if (pressed(3)) switchWeapon('frag');                     // Y
-  if (pressed(12)) switchWeapon('pistol');
-  if (pressed(13)) switchWeapon('ar');
-  if (pressed(14)) switchWeapon('shotgun');
-  if (pressed(15)) switchWeapon('sniper');
-  if (pressed(9)) {                                          // start: pause or resume
-    if (appState === APP_STATE.PLAYING) showPause(true);
-    else if (appState === APP_STATE.PAUSED) requestLock();
-  }
-}
-
-function applyLook(dt) {
-  // Scope multiplier scales with adsSensitivity so the slider is predictable at all settings.
-  // At the default (0.75) this equals the previous hardcoded 0.4.
-  const adsMult = aiming && currentWeapon().zoom
-    ? settings.adsSensitivity * (0.4 / 0.75)
-    : (aiming ? settings.adsSensitivity : 1);
-  const sens = CONFIG.SENS * settings.sensitivity * adsMult;
-  player.yaw -= mouseDX * sens;
-  player.pitch -= mouseDY * sens * (settings.invertY ? -1 : 1);
-  player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
-
-  // Weapon sway trails the mouse and settles back.
-  player.sway.x = clamp(lerp(player.sway.x, -mouseDX * 0.0016, 0.35), -1, 1);
-  player.sway.y = clamp(lerp(player.sway.y, -mouseDY * 0.0016, 0.35), -1, 1);
-  player.sway.multiplyScalar(Math.pow(0.02, dt));
-
-  mouseDX = 0; mouseDY = 0;
-
-  const rec = Math.pow(0.0009, dt);      // exponential recovery toward the original aim
-  player.recoilPitch *= rec;
-  player.recoilYaw *= rec;
-}
 
 
 const {
@@ -1133,7 +582,7 @@ const {
   player,
   Audio,
   buildBotGun: (...args) => buildBotGun(...args),
-  currentWeapon,
+  currentWeapon: (...args) => currentWeapon(...args),
   inBlocker,
   getSpawnCastY: () => spawnCastY,
   addLightEmitter,
@@ -1281,11 +730,64 @@ const {
   camera,
   match,
   weapons: WEAPONS,
-  currentWeapon,
+  currentWeapon: (...args) => currentWeapon(...args),
   losClear,
   modeLabels: MODE_LABEL,
   setAppState: (state) => { appState = state; },
   pausedState: APP_STATE.PAUSED,
+});
+
+const {
+  keys,
+  createPlayerBody,
+  resetPlayerAmmo,
+  applyDamage,
+  stepPlayer,
+  currentWeapon,
+  startReload,
+  finishReload,
+  switchWeapon,
+  tryFire,
+  startCook,
+  releaseCook,
+  bindInput,
+  requestLock,
+  pollGamepad,
+  applyLook,
+  cameraEuler: _camE,
+  isAiming,
+  isFiring,
+  isPointerLocked,
+  isGamepadActive,
+  stopFiring,
+} = createPlayerRuntime({
+  player,
+  renderer,
+  camera,
+  Audio,
+  getMatch: () => match,
+  getAppState: () => appState,
+  playingState: APP_STATE.PLAYING,
+  pausedState: APP_STATE.PAUSED,
+  resumePlay: (...args) => resumePlay(...args),
+  respawnPlayer: (...args) => respawnPlayer(...args),
+  killCombatant: (...args) => killCombatant(...args),
+  showDamageDirection,
+  addShake,
+  showHitMarker,
+  showDamageNumber,
+  updateAmmoHud,
+  showBoard,
+  showPause,
+  vmModels,
+  fireWeapon,
+  triggerMuzzleFlash,
+  ejectBrass,
+  addViewModelRecoil: (amount) => { vmRecoil += amount; },
+  losClear,
+  explode,
+  spawnSmoke,
+  throwGrenade,
 });
 
 let nameSeed = 0;
@@ -1433,7 +935,7 @@ function killCombatant(target, source, headshot) {
     player.alive = false;
     player.respawnTimer = CONFIG.PLAYER_RESPAWN;
     if (player.cooking) player.cooking = null;
-    firing = false;
+    stopFiring();
   } else {
     target.die();
     target.respawnTimer = CONFIG.RESPAWN_DELAY;
@@ -1508,11 +1010,11 @@ function updateMatch(dt) {
     el.pBig.textContent = 'ELIMINATED';
     el.pSm.textContent = `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
     // The death screen is not a pause — the resume prompt would just be confusing here.
-    el.pCta.style.display = pointerLocked ? 'none' : '';
+    el.pCta.style.display = isPointerLocked() ? 'none' : '';
     if (player.respawnTimer <= 0) {
       respawnPlayer();
       el.pCta.style.display = '';
-      if (pointerLocked) el.pause.classList.remove('on');
+      if (isPointerLocked()) el.pause.classList.remove('on');
     }
   }
   for (const b of bots) {
@@ -1571,6 +1073,7 @@ function updateViewModel(dt) {
   const w = currentWeapon();
   for (const id in vmModels) vmModels[id].visible = (id === w.id) && player.alive;
 
+  const aiming = isAiming();
   const scoped = aiming && w.zoom;
   const home = aiming && !scoped ? VM_ADS : VM_HOME;
 
@@ -1617,6 +1120,7 @@ function updateCamera(dt) {
   camera.position.copy(_camPos).add(_v1);
 
   const w = currentWeapon();
+  const aiming = isAiming();
   const scoped = aiming && w.zoom;
   const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV);
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
@@ -1649,7 +1153,7 @@ function frame() {
       player.cookTime -= dt;
       if (player.cookTime <= 0) releaseCook(true);
     }
-    if (firing && currentWeapon().auto) tryFire();
+    if (isFiring() && currentWeapon().auto) tryFire();
 
     // Fixed-step physics, capped so a stall cannot spiral the accumulator.
     accumulator += dt;

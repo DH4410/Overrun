@@ -14,7 +14,7 @@ export function runFixedStepSchedule({
   renderHz,
   seconds,
   fixedHz = 120,
-  maxSubsteps = 3,
+  maxSubsteps = 4,
   maxFrameDt = 0.25,
   onFixedStep = () => {},
   onFrame = () => {},

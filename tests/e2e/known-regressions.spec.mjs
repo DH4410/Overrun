@@ -1,34 +1,44 @@
 import { expect, test } from '@playwright/test';
 
 import { relativeDifference, runFixedStepSchedule } from '../support/render-rate.mjs';
-import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
+import {
+  APP_STATE,
+  bootGame,
+  observedAppState,
+  pumpFrames,
+  startMatch,
+} from './helpers/game.mjs';
 
 test('CORE-01: releasing pointer lock freezes the match clock', async ({ page }) => {
   await bootGame(page);
   await startMatch(page);
+  expect(await observedAppState(page)).toBe(APP_STATE.PLAYING);
   expect(await page.evaluate(() => Boolean(document.pointerLockElement))).toBe(true);
   await page.evaluate(() => document.exitPointerLock());
   await expect(page.locator('#pause')).toHaveClass(/\bon\b/);
+  expect(await observedAppState(page)).toBe(APP_STATE.PAUSED);
 
   const before = await page.evaluate(() => globalThis.__game.match.timeLeft);
   await pumpFrames(page, 20);
   const after = await page.evaluate(() => globalThis.__game.match.timeLeft);
 
-  test.fail(true, 'Expected failure until Claude CORE-01 app-state changes are integrated.');
   expect(after).toBeCloseTo(before, 2);
 });
 
 test('CORE-01: settings opened during a match freeze gameplay', async ({ page }) => {
   await bootGame(page);
   await startMatch(page);
-  await page.evaluate(() => document.querySelector('#settings-open-pause').click());
+  await page.evaluate(() => document.exitPointerLock());
+  await expect(page.locator('#pause')).toHaveClass(/\bon\b/);
+  expect(await observedAppState(page)).toBe(APP_STATE.PAUSED);
+  await page.locator('#settings-open-pause').click();
   await expect(page.locator('#settings')).not.toHaveClass(/\bhidden\b/);
+  expect(await observedAppState(page)).toBe(APP_STATE.SETTINGS);
 
   const before = await page.evaluate(() => globalThis.__game.match.timeLeft);
   await pumpFrames(page, 20);
   const after = await page.evaluate(() => globalThis.__game.match.timeLeft);
 
-  test.fail(true, 'Expected failure until Claude CORE-01 settings-state changes are integrated.');
   expect(after).toBeCloseTo(before, 2);
 });
 
@@ -63,20 +73,21 @@ test('CORE-02: player travel remains consistent at 60 and 30 render Hz', async (
 
   expect(at60).toBeGreaterThan(40);
   expect(at30).toBeGreaterThan(25);
-  test.fail(true, 'Expected failure until Claude CORE-02 simulation-clock changes are integrated.');
   expect(relativeDifference(at60, at30)).toBeLessThanOrEqual(0.05);
 });
 
 test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'tdm' });
+  expect(await observedAppState(page)).toBe(APP_STATE.PLAYING);
 
-  await page.evaluate(() => {
+  const setup = await page.evaluate(() => {
     const game = globalThis.__game;
     const ally = game.bots.find((bot) => bot.team === game.player.team);
     const enemy = game.bots.find((bot) => bot.team !== game.player.team);
     for (const bot of game.bots) {
-      bot.update = () => {};
+      bot.simStep = () => {};
+      bot.renderStep = () => {};
       bot.body.position.set(30, 1, 30);
       bot.updateTransforms();
     }
@@ -103,9 +114,23 @@ test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', 
       game.player.eye.x, game.player.eye.y, game.player.eye.z,
       ally.pos.x, ally.pos.y, ally.pos.z,
     )) throw new Error('CORE-03 setup requires an unobstructed blast ray');
+    if (!game.losClear(
+      game.player.eye.x, game.player.eye.y, game.player.eye.z,
+      enemy.pos.x, enemy.pos.y, enemy.pos.z,
+    )) throw new Error('CORE-03 setup requires an unobstructed enemy blast ray');
+    return {
+      distance: enemy.pos.distanceTo(game.player.eye),
+      enemyInCombatGraph: ally.enemyList().includes(enemy),
+      particles: game.particlesAdd.active,
+    };
   });
+  expect(setup.distance).toBeLessThan(1);
+  expect(setup.enemyInCombatGraph).toBe(true);
   const cooking = await page.evaluate(() => {
     globalThis.__game.keys.KeyG = false;
+    // The deterministic gamepad is connected for input coverage. Keep its grenade button
+    // held while the keyboard cook is active so pollGamepad() does not release the frag.
+    globalThis.__testGamepad.setButton(4, true);
     globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG' }));
     return globalThis.__game.player.cooking;
   });
@@ -116,7 +141,11 @@ test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', 
     cooking: globalThis.__game.player.cooking,
     fragCount: globalThis.__game.player.fragCount,
   }))).toEqual({ cooking: null, fragCount: 2 });
-  await page.evaluate(() => globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyG' })));
+  expect(await page.evaluate(() => globalThis.__game.particlesAdd.active)).toBeGreaterThan(setup.particles);
+  await page.evaluate(() => {
+    globalThis.__testGamepad.setButton(4, false);
+    globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyG' }));
+  });
 
   const result = await page.evaluate(() => {
     const game = globalThis.__game;
@@ -131,7 +160,6 @@ test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', 
     };
   });
 
-  test.fail(true, 'Expected failure until Claude CORE-03 friendly-fire rules are integrated.');
   expect(result).toEqual({
     allyAlive: true,
     allyHealth: 10,
@@ -148,22 +176,45 @@ test('CORE-04: standing remains blocked underneath a low ceiling', async ({ page
   await page.keyboard.press('c');
   await pumpFrames(page);
   expect(await page.evaluate(() => globalThis.__game.player.crouching)).toBe(true);
-  await page.evaluate(() => {
+  const clearanceRay = await page.evaluate(async () => {
     const game = globalThis.__game;
+    const CANNON = await import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm');
     const playerBody = game.player.body;
-    const boxShape = game.mapBodies.find((body) => body.shapes[0]?.halfExtents)?.shapes[0];
-    const Body = playerBody.constructor;
-    const Box = boxShape.constructor;
-    const Vec3 = boxShape.halfExtents.constructor;
-    const ceiling = new Body({ mass: 0, shape: new Box(new Vec3(0.75, 0.1, 0.75)) });
-    ceiling.position.set(playerBody.position.x, 0.92, playerBody.position.z);
-    game.world.addBody(ceiling);
+    // Reuse an indexed world body: SAPBroadphase does not mark its axis list dirty when a
+    // body is added after the map has settled, which would make a synthetic body invisible
+    // to the same world ray used by setCrouch().
+    const ceiling = game.mapBodies.find((body) => {
+      const half = body.shapes[0]?.halfExtents;
+      return half && half.x >= 0.75 && half.y <= 0.2 && half.z >= 0.75 && body.position.y > 0.3;
+    });
+    if (!ceiling) throw new Error('CORE-04 setup requires a thin indexed map body');
+    const ceilingHalfHeight = ceiling.shapes[0].halfExtents.y;
+    ceiling.position.set(
+      playerBody.position.x,
+      playerBody.position.y + game.CONFIG.CROUCH_RADIUS + 0.06 + ceilingHalfHeight,
+      playerBody.position.z,
+    );
+    ceiling.aabbNeedsUpdate = true;
+    game.world.broadphase.dirty = true;
+    const from = new CANNON.Vec3(
+      playerBody.position.x,
+      playerBody.position.y + game.CONFIG.CROUCH_RADIUS,
+      playerBody.position.z,
+    );
+    const to = new CANNON.Vec3(from.x, from.y + 0.17, from.z);
+    const result = new CANNON.RaycastResult();
+    game.world.raycastClosest(from, to, {
+      skipBackfaces: true,
+      collisionFilterGroup: -1,
+      collisionFilterMask: 1,
+    }, result);
+    return result.hasHit;
   });
+  expect(clearanceRay).toBe(true);
 
   await page.keyboard.press('c');
   await pumpFrames(page, 2);
   const crouching = await page.evaluate(() => globalThis.__game.player.crouching);
 
-  test.fail(true, 'Expected failure until Claude CORE-04 stand-clearance changes are integrated.');
   expect(crouching).toBe(true);
 });

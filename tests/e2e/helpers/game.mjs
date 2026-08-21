@@ -8,6 +8,13 @@ const tinyPng = Buffer.from(
   'base64',
 );
 
+export const APP_STATE = Object.freeze({
+  MENU: 'menu',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  SETTINGS: 'settings',
+});
+
 async function installDependencyRoutes(page) {
   await page.route('https://unpkg.com/three@0.169.0/**', async (route) => {
     const marker = '/three@0.169.0/';
@@ -155,6 +162,18 @@ export async function startMatch(page, { mode = 'dm', map = 'warehouse', diff = 
       bot.fireCd = Number.POSITIVE_INFINITY;
       bot.nadeCd = Number.POSITIVE_INFINITY;
     }
+  });
+}
+
+/** Observe the public UI contract of the module-private APP_STATE/appState pair. */
+export async function observedAppState(page) {
+  return page.evaluate(() => {
+    if (!globalThis.__game.match.running || !document.querySelector('#menu').classList.contains('hidden')) {
+      return 'menu';
+    }
+    if (!document.querySelector('#settings').classList.contains('hidden')) return 'settings';
+    if (document.querySelector('#pause').classList.contains('on')) return 'paused';
+    return 'playing';
   });
 }
 

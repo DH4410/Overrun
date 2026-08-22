@@ -834,6 +834,7 @@ function resumePlay() {
 }
 const _camPos = new THREE.Vector3();
 const _vmTarget = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
 
 function fixedStep(dt) {
   // Bots set their body velocity here — must precede world.step so the solver sees it.

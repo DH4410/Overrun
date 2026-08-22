@@ -1005,6 +1005,9 @@ function buildDungeonMap() {
  * camped perch is contested, not safe.
  */
 const waypoints = [];       // { pos: Vector3, links: number[], cover: boolean }
+const _rayFrom   = new CANNON.Vec3();
+const _rayTo     = new CANNON.Vec3();
+const _rayResult = new CANNON.RaycastResult();
 
 function losClear(ax, ay, az, bx, by, bz) {
   _rayFrom.set(ax, ay, az);

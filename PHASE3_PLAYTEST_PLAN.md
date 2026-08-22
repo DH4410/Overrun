@@ -117,12 +117,13 @@ Authored after Phase 2 validation was completed. Phase 2 is stable:
 **Tests:** Unit: spawnExplosion with damage≥30 adds damage toast to DOM within 1 frame.
 
 ### PHASE3-08 — Grenade trajectory preview [Codex] [P9]
-**Module:** `src/projectiles.js`, `src/hud.js`
+**Module:** `src/projectiles.js` (math), `src/main.js` (scene integration)
 **Behavior:**
 - While cooking a grenade (G held), render a dotted arc using `parabolicArcPoints(origin, dir, power, steps=12)`.
 - Arc drawn as THREE.Points in the scene (no UI overlay needed) — auto-removed on release.
 - Arc reflects current throw power (cook time) and gravity.
 **Interfaces:** `getArcPoints(origin, euler, power)` exported from projectiles.js, consumed by main.js on cook tick.
+**Note:** `src/hud.js` is Claude territory — do NOT write HUD elements for the arc. Scene-only approach keeps this task within Codex scope.
 **Tests:** Unit: `getArcPoints` returns array of Vector3s whose y-values follow parabola. E2E: while cooking, arc geometry is visible in scene.
 
 ### PHASE3-09 — Pickup/loot rebalance [Codex] [P10, P11]
@@ -150,20 +151,24 @@ Authored after Phase 2 validation was completed. Phase 2 is stable:
 ## Parallelism & Sequencing
 
 ```
-Wave 1 (independent, run in parallel):
-  Claude:  PHASE3-01 sprint — player.js only, no HUD
-  Codex:   PHASE3-08 grenade arc — projectiles.js only
-  Codex:   PHASE3-09 pickup rebalance — pickups.js/config.js
-  Codex:   PHASE3-10 movement feel — player.js only
+Wave 1 (Codex runs in parallel; Claude has no Wave 1 tasks):
+  Codex:   PHASE3-01 sprint — player.js, config.js
+           [NOTE: P1 and P10 both touch player.js — Codex must sequence them,
+            not run them as true parallel PRs]
+  Codex:   PHASE3-08 grenade arc — projectiles.js, scene hook in main.js
+           [Do NOT touch src/hud.js — arc is scene-only, hud.js is Claude territory]
+  Codex:   PHASE3-09 pickup rebalance — pickups.js, match.js, config.js
+  Codex:   PHASE3-10 movement feel — player.js
+           [Sequence after PHASE3-01 since both edit player.js]
 
-Wave 2 (after Wave 1 merges):
+Wave 2 (after Wave 1 merges; Claude runs in parallel):
   Claude:  PHASE3-05 bot AI — bots.js only
   Claude:  PHASE3-06 smoke — effects.js + bots.js (after bots.js stabilizes)
 
-Wave 3 (after Wave 2):
+Wave 3 (after Wave 2; Claude runs in parallel with sequencing noted):
   Claude:  PHASE3-02 damage feedback — hud.js
-  Claude:  PHASE3-03 kill confirm + scoreboard z — hud.js, ui.js  [after P2]
-  Claude:  PHASE3-04 UI contrast — ui.js, CSS only               [after P3]
+  Claude:  PHASE3-03 kill confirm + scoreboard z — hud.js, ui.js  [after PHASE3-02]
+  Claude:  PHASE3-04 UI contrast — ui.js, CSS only               [after PHASE3-03]
   Claude:  PHASE3-07 grenade VFX — effects.js, audio.js
 ```
 
@@ -171,13 +176,14 @@ Wave 3 (after Wave 2):
 
 | File | Wave 1 owner | Wave 2 owner | Wave 3 owner |
 |------|-------------|-------------|-------------|
-| `src/player.js` | Codex (P10) | — | — |
+| `src/player.js` | Codex (P1, P10) — sequenced | — | — |
 | `src/bots.js` | — | Claude (P5, P6) | — |
 | `src/effects.js` | — | Claude (P6) | Claude (P7) |
-| `src/hud.js` | — | — | Claude (P2→P3) |
+| `src/hud.js` | — (Codex must NOT touch) | — | Claude (P2→P3) |
 | `src/ui.js` | — | — | Claude (P3→P4) |
 | `src/projectiles.js` | Codex (P8) | — | — |
 | `src/pickups.js` | Codex (P9) | — | — |
+| `src/match.js` | Codex (P9) | — | — |
 | `src/config.js` | Codex (P1, P9) | — | — |
 
 ---
@@ -202,6 +208,11 @@ Each task must ship with:
 - `src/bots.js` AI behavior
 - `src/effects.js` smoke and explosion VFX
 - `ui-overhaul.css` contrast and layout
+
+## Deferred / Unscheduled Findings
+- **P13 (viewmodel hand):** `src/weapons.js` is Codex territory. No task has been
+  scoped for this yet. Low priority — schedule as a Codex Wave 1 add-on or Wave 2
+  task if capacity allows. Do not overlap with any other weapons.js change.
 
 ---
 

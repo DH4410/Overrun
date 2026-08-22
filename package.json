@@ -5,11 +5,14 @@
   "scripts": {
     "test": "node --test tests/unit/**/*.test.mjs",
     "test:e2e": "playwright test",
-    "test:ci": "npm test && npm run test:e2e"
+    "lint": "eslint src/**/*.js game.js tests/**/*.mjs scripts/**/*.mjs",
+    "test:ci": "npm run lint && npm test && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "cannon-es": "0.20.0",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
     "three": "0.169.0"
   }
 }

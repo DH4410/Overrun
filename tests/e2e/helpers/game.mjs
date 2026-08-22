@@ -128,8 +128,33 @@ export function watchRuntimeErrors(page) {
 export async function bootGame(page) {
   await installDependencyRoutes(page);
   await installDeterministicSettingsAndGamepad(page);
+
+  // Fail immediately on any JS exception or unhandled promise rejection during boot.
+  // Without this, a crash before 'DEPLOY' is set would only surface as a 45-second timeout,
+  // obscuring the actual error. Any pageerror rejects the waitForFunction below.
+  const pageErrorPromise = new Promise((_, reject) => {
+    page.once('pageerror', (err) => reject(new Error(`Page error during boot: ${err.message}`)));
+  });
+
   await page.goto('/');
-  await expect(page.locator('#play')).toBeEnabled({ timeout: 45_000 });
+
+  // Verify that the modular entry point is being served, not the old monolithic game.js.
+  // A stale server (e.g. reuseExistingServer with a server from a different branch) would
+  // serve the monolithic file which lacks the module check below, causing a false green.
+  const gameJsContent = await page.evaluate(async () => {
+    const r = await fetch('/game.js');
+    return r.text();
+  });
+  if (!gameJsContent.includes('src/main.js')) {
+    throw new Error(
+      'game.js does not import src/main.js — test server is serving stale or monolithic code'
+    );
+  }
+
+  await Promise.race([
+    expect(page.locator('#play')).toBeEnabled({ timeout: 45_000 }),
+    pageErrorPromise,
+  ]);
   await expect(page.locator('#play')).toHaveText('DEPLOY');
   await page.waitForFunction(() => Boolean(globalThis.__game));
   await page.evaluate(() => {

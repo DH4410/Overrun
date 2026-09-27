@@ -72,6 +72,8 @@ import {
   WEAPON_BY_ID,
   WEAPONS,
   createWeaponPresentation,
+  playerSpread,
+  recoilStep,
 } from './weapons.js';
 
 // Character and viewmodel assets use their own loader; map props are owned by src/maps.js.
@@ -724,6 +726,7 @@ const {
   weapons: WEAPONS,
   currentWeapon: (...args) => currentWeapon(...args),
   losClear,
+  isAiming: (...args) => isAiming(...args),
   modeLabels: MODE_LABEL,
   setAppState: (state) => { appState = state; },
   pausedState: APP_STATE.PAUSED,
@@ -1061,6 +1064,8 @@ async function boot() {
     settings, applySettings, QUALITY, vmCamera,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
+    WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire,
+    forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId,
     forceUpdatePlates: (dt) => updatePlates(dt),
     // Everything that normally runs once per rendered frame, so a headless soak test can

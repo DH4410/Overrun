@@ -16,7 +16,7 @@ import {
 import { HB_PLAYER, HB_PLAYER_CROUCH } from './projectiles.js';
 import { settings } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
-import { WEAPON_BY_ID, WEAPONS } from './weapons.js';
+import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
 
 export function createPlayerState() {
   return {
@@ -38,6 +38,9 @@ export function createPlayerState() {
   current: 'pistol',
   ammo: {},
   cooldown: 0, reloading: 0, reloadTotal: 0,
+  // Spray state: accumulated bloom in radians, how far into the recoil pattern we are, and
+  // how long since the last round left the barrel. See playerSpread / recoilStep.
+  bloom: 0, sprayIndex: 0, sinceShot: 99,
   fragCount: 3, smokeCount: 1,
   cooking: null, cookTime: 0,
   respawnTimer: 0,
@@ -243,6 +246,22 @@ function stepOver(b) {
 function stepPlayer(dt) {
   const b = player.body;
   b.wakeUp();                     // belt-and-braces alongside world.allowSleep = false
+
+  // Spray recovery. Runs on the fixed clock so it is frame-rate independent, and before the
+  // alive check so a respawn never inherits the bloom the previous life ended on.
+  player.sinceShot += dt;
+  const sprayWeapon = WEAPON_BY_ID[player.current];
+  if (player.bloom > 0 && sprayWeapon) {
+    // Recovery only starts once the trigger has been off for a full cooldown, so holding
+    // fire never quietly recovers between rounds.
+    if (player.sinceShot > sprayWeapon.cooldown * 1.35) {
+      player.bloom = Math.max(0, player.bloom - (sprayWeapon.bloomDecay ?? 0.1) * dt);
+      if (player.bloom === 0) player.sprayIndex = 0;
+    }
+  } else if (player.sinceShot > 0.35) {
+    player.sprayIndex = 0;
+  }
+
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
 
   playerGroundCheck();
@@ -362,7 +381,16 @@ function tryFire() {
   player.cooldown = w.cooldown;
 
   playerAimDirection(_aimDir);
-  const spreadMult = aiming ? 0.35 : (player.sprinting ? 1.9 : 1) * (player.grounded ? 1 : 1.6);
+  // Additive accuracy: a settled, standing tap is effectively pinpoint, while movement, air
+  // time and sustained fire each widen the cone on their own terms. See playerSpread.
+  const planarSpeed = Math.hypot(player.body.velocity.x, player.body.velocity.z);
+  const cone = playerSpread(w, {
+    speed: planarSpeed,
+    grounded: player.grounded,
+    aiming,
+    crouching: player.crouching,
+    bloom: player.bloom,
+  });
 
   // Fire from the muzzle marker so tracers leave the barrel, not the eyeball. The viewmodel
   // lives in its own scene whose camera sits at the origin, so its world position is already
@@ -373,10 +401,16 @@ function tryFire() {
   // Guard against the muzzle ending up inside geometry (up against a wall).
   if (!losClear(player.eye.x, player.eye.y, player.eye.z, _v3.x, _v3.y, _v3.z)) _v3.copy(player.eye);
 
-  fireWeapon(player, w, _v3, _aimDir, spreadMult);
+  fireWeapon(player, w, _v3, _aimDir, 1, cone);
 
-  player.recoilPitch += w.recoil;
-  player.recoilYaw += rand(-w.recoil * 0.4, w.recoil * 0.4);
+  // Deterministic spray pattern plus a small random component, so the pattern can be learned
+  // and pulled against but two sprays are never pixel-identical.
+  const [patYaw, patPitch] = recoilStep(w, player.sprayIndex);
+  player.recoilPitch += w.recoil * patPitch;
+  player.recoilYaw += w.recoil * patYaw + rand(-w.recoil * 0.12, w.recoil * 0.12);
+  player.sprayIndex++;
+  player.bloom = Math.min(w.bloomMax ?? 0, (player.bloom ?? 0) + (w.bloomStep ?? 0));
+  player.sinceShot = 0;
   addViewModelRecoil(w.kick);
   triggerMuzzleFlash(mzLocal, _v3);
   ejectBrass(mzLocal.clone().add(new THREE.Vector3(0.05, 0.02, 0.12)));

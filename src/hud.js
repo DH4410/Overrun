@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 
-import { CONFIG, TEAM, TEAM_COLOR } from './config.js';
+import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from './config.js';
 import { settings } from './settings.js';
 import { clamp, rand } from './utils.js';
+import { playerSpread } from './weapons.js';
 
 /** HUD presentation and runtime UI state, isolated from gameplay ownership. */
 export function createHud({
@@ -13,6 +14,7 @@ export function createHud({
   weapons: WEAPONS,
   currentWeapon,
   losClear,
+  isAiming,
   modeLabels: MODE_LABEL,
   setAppState,
   pausedState,
@@ -342,7 +344,34 @@ function updateHudTimers(dt) {
     const a = !w.thrown && player.ammo[w.id];
     el.areload.textContent = (a && a.mag === 0) ? 'PRESS R' : '';
   }
+  updateCrosshairSpread();
   updateVitals();
+}
+
+/**
+ * Open the crosshair to match the live firing cone.
+ *
+ * Without this the accuracy model is invisible: the player is punished for moving, jumping
+ * and spraying with no indication it is happening, which reads as the gun being random
+ * rather than as a rule they can play around. The gap is the settings gap plus the cone
+ * converted to pixels, so the crosshair is a live read-out of where a round can land.
+ */
+function updateCrosshairSpread() {
+  const w = currentWeapon();
+  if (!w || w.thrown || w.rest === undefined) return;
+  const planar = Math.hypot(player.body.velocity.x, player.body.velocity.z);
+  const cone = playerSpread(w, {
+    speed: planar,
+    grounded: player.grounded,
+    aiming: isAiming(),
+    crouching: player.crouching,
+    bloom: player.bloom ?? 0,
+  });
+  // Half the vertical FOV maps to half the viewport height, so radians convert to pixels
+  // through the same projection the world is drawn with.
+  const pxPerRad = (window.innerHeight * 0.5) / Math.tan((HIP_FOV * Math.PI) / 360);
+  const gap = settings.crosshairGap + Math.min(90, cone * pxPerRad);
+  document.documentElement.style.setProperty('--xhair-gap', `${gap.toFixed(1)}px`);
 }
 
 return {

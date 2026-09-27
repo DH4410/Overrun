@@ -204,8 +204,14 @@ function stepBullets(dt) {
  */
 const _fireDir = new THREE.Vector3();
 
-function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1) {
-  const spread = weapon.spread * spreadMult;
+/**
+ * `coneOverride` is an absolute cone in radians and wins over `spreadMult` when supplied.
+ * The player passes one (see playerSpread) because its accuracy is additive — a settled tap
+ * is far tighter than the gun's nominal cone and a sprinting spray far wider, which no
+ * single multiplier on weapon.spread can express. Bots still use spreadMult.
+ */
+function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1, coneOverride = null) {
+  const spread = coneOverride === null ? weapon.spread * spreadMult : coneOverride;
   for (let p = 0; p < weapon.pellets; p++) {
     _fireDir.copy(dirBase);
     if (spread > 0) {

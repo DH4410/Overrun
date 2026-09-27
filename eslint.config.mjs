@@ -44,6 +44,7 @@ const browserGlobals = {
   PointerEvent: 'readonly',
   HTMLElement: 'readonly',
   HTMLCanvasElement: 'readonly',
+  getComputedStyle: 'readonly',
 };
 
 export default [

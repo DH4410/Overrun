@@ -444,8 +444,25 @@ function releaseCook(exploded = false) {
   } else {
     player.invulnTimer = 0;  // throwing cancels spawn protection
     playerAimDirection(_aimDir);
-    const origin = player.eye.clone().addScaledVector(_aimDir, 0.7);
-    throwGrenade(player, origin, _aimDir, 17, kind, Math.max(0.35, player.cookTime));
+
+    /**
+     * Overhand by default, underhand while aiming.
+     *
+     * One throw strength cannot cover both "over that wall" and "just past my feet" — with a
+     * single 17 m/s overhand, anything you wanted to place close had to be bounced off
+     * geometry and hoped for. Holding the aim button lobs it short and soft instead, which
+     * is the throw you actually want for blocking a doorway you are standing in or rolling
+     * a frag around a near corner. Both are the same button, so nothing new to learn.
+     */
+    const underhand = aiming;
+    const power = underhand ? 7.0 : 17.0;
+    // The underhand gets a steeper launch so its shorter throw still clears a crate.
+    const lift = underhand ? 0.30 : 0.0;
+    const dir = _aimDir.clone();
+    dir.y += lift;
+    dir.normalize();
+    const origin = player.eye.clone().addScaledVector(dir, 0.7);
+    throwGrenade(player, origin, dir, power, kind, Math.max(0.35, player.cookTime));
   }
   if (player.current === 'frag' && player.fragCount <= 0) switchWeapon('pistol');
   updateAmmoHud();

@@ -241,16 +241,39 @@ const fragMat = matte(0x39452f, 0.85, 0.2);
 const smokeCanGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.17, 10);
 const smokeCanMat = matte(0xb8c4cf, 0.5, 0.6);
 
+/**
+ * Throw a grenade.
+ *
+ * `power` is the throw itself, in m/s. The thrower's own velocity is ADDED to it rather than
+ * ignored: a grenade released by someone sprinting leaves their hand doing sprint speed plus
+ * the throw, which is why running throws carry further and why a grenade thrown while
+ * backpedalling falls short. Leaving it out made every throw land at the same spot
+ * regardless of how the thrower was moving, which is the single most obviously wrong thing
+ * about thrown ordnance in a shooter.
+ *
+ * A frag masses 0.4 kg and is 6 cm across, which are real numbers for one, so it decelerates
+ * and bounces like an object of that size rather than like a beach ball.
+ */
 function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
   const body = new CANNON.Body({
     mass: 0.4, material: MAT_NADE,
     shape: new CANNON.Sphere(0.06),
-    linearDamping: 0.02, angularDamping: 0.15,
+    // Air drag on a 6 cm steel sphere is negligible over a 3 s fuse; the angular damping is
+    // what stops it spinning forever once it is on the floor.
+    linearDamping: 0.01, angularDamping: 0.22,
     collisionFilterGroup: G_NADE,
   });
   body.position.set(origin.x, origin.y, origin.z);
-  body.velocity.set(dir.x * power, dir.y * power + 1.6, dir.z * power);
-  body.angularVelocity.set(rand(-9, 9), rand(-9, 9), rand(-9, 9));
+  const inherited = owner?.body?.velocity;
+  body.velocity.set(
+    dir.x * power + (inherited ? inherited.x : 0),
+    dir.y * power + 1.6 + (inherited ? Math.max(0, inherited.y) * 0.5 : 0),
+    dir.z * power + (inherited ? inherited.z : 0),
+  );
+  // Spin about the axis perpendicular to the throw, so it tumbles end-over-end along its
+  // flight path instead of buzzing randomly about its own centre.
+  const spin = 11 + power * 0.25;
+  body.angularVelocity.set(-dir.z * spin, rand(-2, 2), dir.x * spin);
   world.addBody(body);
 
   const mesh = new THREE.Mesh(
@@ -308,10 +331,33 @@ function explode(pos, owner) {
   if (camDist < 10) addShake(0.10 * (1 - camDist / 10));
 }
 
+/** Speed below which a grenade is treated as rolling on the floor rather than flying. */
+const NADE_ROLL_SPEED = 2.6;
+
 function stepGrenades(dt) {
   for (let i = grenades.length - 1; i >= 0; i--) {
     const g = grenades[i];
     g.bounceCd = Math.max(0, g.bounceCd - dt);
+
+    /**
+     * Rolling friction.
+     *
+     * The MAT_WORLD/MAT_NADE contact gives restitution 0.45, which is right for the bounce
+     * but says nothing about what happens afterwards: a sphere on a plane has a single
+     * contact point, so cannon's Coulomb friction barely bites and a spent grenade rolls
+     * across the entire arena before the fuse runs out. Real ordnance comes to rest within a
+     * metre or two of where it stops bouncing. Bleeding speed once it is slow and low is a
+     * far cheaper fix than raising contact friction, which would also make it refuse to
+     * bounce off walls properly.
+     */
+    const v = g.body.velocity;
+    const planar = Math.hypot(v.x, v.z);
+    if (planar > 0.02 && Math.abs(v.y) < 1.2 && planar < NADE_ROLL_SPEED) {
+      const decay = Math.pow(0.12, dt);       // ~88% of speed shed per second
+      v.x *= decay; v.z *= decay;
+      g.body.angularVelocity.scale(decay, g.body.angularVelocity);
+    }
+
     g.fuse -= dt;
     if (g.fuse <= 0) {
       if (g.kind === 'smoke') spawnSmoke(g.body.position, g.owner);

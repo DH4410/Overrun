@@ -1064,7 +1064,7 @@ async function boot() {
     settings, applySettings, QUALITY, vmCamera,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
-    WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire,
+    WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, throwGrenade, clearGrenades,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId,
     forceUpdatePlates: (dt) => updatePlates(dt),

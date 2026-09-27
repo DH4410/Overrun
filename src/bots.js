@@ -206,6 +206,9 @@ const CLIP_SPEED = {
 const WALK_CLIP_SPEED = CLIP_SPEED.Walk;
 const RUN_CLIP_SPEED = CLIP_SPEED.Run;
 
+/** Where the weapon sits relative to the right hand bone, in metres. */
+const GUN_IN_HAND = new THREE.Vector3(0.0, 0.04, 0.10);
+
 const BOT_MESH_SCALE = 1.2;
 const BOT_MESH_Y = 0.04;
 const BOT_CHEST = 0.50;
@@ -557,8 +560,7 @@ class Bot {
     this.mesh.scale.setScalar(BOT_MESH_SCALE);
     this.hb = HB_BOT;
     this.gunMesh = buildBotGun(this.weaponId);
-    this.gunMesh.position.copy(this.gunAnchor());
-    this.mesh.add(this.gunMesh);
+    this.attachGun();
     scene.add(this.mesh);
 
     // Minimap blip, on the layer only the map camera renders.
@@ -598,6 +600,37 @@ class Bot {
     return this.mesh.userData.mixer
       ? new THREE.Vector3(0.26, 0.30, -0.26)
       : new THREE.Vector3(0.30, 0.42, -0.18);
+  }
+
+  /**
+   * Put the carried weapon in the bot's right hand, not on its chest.
+   *
+   * The gun used to hang off a fixed offset from the mesh root. That was survivable when
+   * bots only had idle/walk/run, whose arms barely move; it is not survivable now they
+   * strafe, backpedal and crouch, because the body keeps moving while the gun stays pinned
+   * and the two visibly come apart. Parenting to mixamorig:RightHand makes the animation
+   * carry the weapon, which is what the clips were authored assuming.
+   *
+   * The hand bone inherits the model's scale, so the gun is divided back out by it —
+   * otherwise a character fitted to BOT_TARGET_HEIGHT hands its bot a gun scaled by the
+   * same factor. Characters with no hand bone (the blocky fallback) keep the old anchor.
+   */
+  attachGun() {
+    const hand = this.mesh.userData.bones?.RightHand;
+    if (!hand) {
+      this.gunMesh.position.copy(this.gunAnchor());
+      this.mesh.add(this.gunMesh);
+      return;
+    }
+    hand.updateWorldMatrix(true, false);
+    const handScale = new THREE.Vector3();
+    hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), handScale);
+    const inv = 1 / (handScale.x || 1);
+    this.gunMesh.scale.setScalar(inv);
+    // Offsets are in hand-local space: forward along the fingers, and a little into the grip.
+    this.gunMesh.position.set(GUN_IN_HAND.x * inv, GUN_IN_HAND.y * inv, GUN_IN_HAND.z * inv);
+    this.gunMesh.rotation.set(0, Math.PI / 2, Math.PI / 2);
+    hand.add(this.gunMesh);
   }
 
   updateTransforms() {
@@ -1242,9 +1275,10 @@ class Bot {
       pitch = clamp(Math.atan2(dy, dh), -1.1, 1.1);
     }
     this.aimPitch = lerp(this.aimPitch ?? 0, pitch, Math.min(1, 9 * dt));
-    this.gunMesh.rotation.x = this.aimPitch;
-
     const bones = this.mesh.userData.bones;
+    // A hand-parented gun is posed by the animation; only the fallback mesh, whose gun
+    // hangs off the body, still needs its pitch written here.
+    if (!bones?.RightHand) this.gunMesh.rotation.x = this.aimPitch;
     if (bones) {
       // Split the aim down the spine the way a person does: most of it at the chest, the
       // rest at the neck and head. Applied after mixer.update so it layers on top of the
@@ -1310,10 +1344,9 @@ class Bot {
     this.body.position.set(at.x, at.y + 0.5, at.z);
     this.body.wakeUp();
 
-    this.mesh.remove(this.gunMesh);
+    this.gunMesh.removeFromParent();
     this.gunMesh = buildBotGun(this.weaponId);
-    this.gunMesh.position.copy(this.gunAnchor());
-    this.mesh.add(this.gunMesh);
+    this.attachGun();
     this.mesh.rotation.x = 0;
     this.aimPitch = 0;
     const respawnClips = this.mesh.userData.clips;

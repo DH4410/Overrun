@@ -161,6 +161,15 @@ export async function bootGame(page) {
     // Boot has already compiled and drawn the real scene once. Subsequent smoke assertions are
     // state-focused, so keep software-rendered CI responsive while explicitly pumped frames run.
     const { renderer } = globalThis.__game;
+    // Stash the real methods before stubbing. WebGLRenderer assigns these as own
+    // properties, so `delete` removes them outright rather than exposing a prototype
+    // version — a test that wants real pixels (a visual check) needs them back.
+    renderer.__real = {
+      compile: renderer.compile.bind(renderer),
+      render: renderer.render.bind(renderer),
+      clear: renderer.clear.bind(renderer),
+      clearDepth: renderer.clearDepth.bind(renderer),
+    };
     renderer.compile = () => {};
     renderer.render = () => {};
     renderer.clear = () => {};

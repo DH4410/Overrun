@@ -482,8 +482,19 @@ function buildFoundry() {
   addSolid(13, FOUNDRY_MID_H, 13, 0, FOUNDRY_MID_H / 2, 0, MATS.metal, { block: false });
   mirrored((s) => {
     addRamp(s * 2.6, 0, s * 12.5, s * 2.6, FOUNDRY_MID_H, s * 6.0, 5.0, MATS.metal);
-    // A chest-high lip along the platform edge, so holding mid still means taking cover.
-    addSolid(13, 1.0, 0.7, s * 0, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
+
+    /**
+     * A chest-high lip along the platform edge, so holding mid still means taking cover —
+     * but SPLIT, with a gap at the ramp mouth.
+     *
+     * A single 13 m lip spanned z 5.85..6.55 at y 1.5..2.5, and the ramp tops out at
+     * z = 6.0, y = 1.5. That put a one-metre wall exactly across the top of the ramp, so
+     * mid was unreachable: the player would have to jump it and bots, which cannot jump,
+     * could never take the platform at all. The gap below is x 0.0..5.2, which clears the
+     * ramp's own 5 m width centred on x = 2.6.
+     */
+    addSolid(6.5, 1.0, 0.7, s * -3.25, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
+    addSolid(1.3, 1.0, 0.7, s * 5.85, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
   });
 
   /* ---- spawn-side cover: the first thing you can stand behind out of spawn ---- */

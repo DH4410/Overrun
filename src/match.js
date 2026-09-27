@@ -213,12 +213,29 @@ function startDuelRound() {
   }
   if (Math.random() < 0.5) { const t = a; a = b; b = t; }
 
+  // Nothing in flight carries across a round boundary.
+  clearEffects();
+
   respawnPlayer(true, a);
+
+  /**
+   * Strip the player's spawn protection, and match the two sides' armour.
+   *
+   * respawnPlayer grants SPAWN_INVULN, which is right everywhere else and badly wrong here:
+   * Bot.canSee returns false against an invulnerable target, so the elite bot would spend
+   * the first three seconds of every round blind and unable to deal damage while the player
+   * crossed most of the map onto its flank. The player also spawns with START_ARMOR and a
+   * bot with none, which is another 50 effective health of advantage.
+   *
+   * A duel is decided by aim and timing or it is not a duel, so both of those go.
+   */
+  player.invulnTimer = 0;
   const bot = bots[0];
   if (bot) {
     bot.respawn(b);
     bot.invulnTimer = 0;
     bot.respawnTimer = 0;
+    bot.armor = player.armor;
   }
   match.roundTime = CONFIG.DUEL_ROUND_SECONDS;
   match.roundReset = 0;

@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v10';
+const CACHE = 'overrun-v11';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
@@ -26,7 +26,11 @@ const PRECACHE = [
   './assets/bots/crypto.glb', './assets/bots/ely.glb',
 ];
 
-const ASSET_RE = /\.(glb|gltf|bin|jpg|jpeg|png|webp|ktx2|hdr)(\?|$)/i;
+// .fbx is here because the bot animation clips are FBX; without it the fetch handler fell
+// through and never served them from the cache, so an offline load had no animation at all
+// despite them being precached. .json covers the animation manifest, which is data rather
+// than code and must not be network-first.
+const ASSET_RE = /\.(glb|gltf|fbx|bin|jpg|jpeg|png|webp|ktx2|hdr|json)(\?|$)/i;
 const CODE_RE = /\.(js|mjs|css|html)(\?|$)/i;
 
 self.addEventListener('install', (e) => {

@@ -203,8 +203,6 @@ const CLIP_SPEED = {
   StrafeLeft: 1.5,
   StrafeRight: 1.5,
 };
-const WALK_CLIP_SPEED = CLIP_SPEED.Walk;
-const RUN_CLIP_SPEED = CLIP_SPEED.Run;
 
 /** Where the weapon sits relative to the right hand bone, in metres. */
 const GUN_IN_HAND = new THREE.Vector3(0.0, 0.04, 0.10);

@@ -127,6 +127,45 @@ test('Duel ends at DUEL_ROUNDS and returns to the menu', async ({ page }) => {
 });
 
 /**
+ * A duel round must open as a mirror.
+ *
+ * This calls startDuelRound() directly rather than going through the helper, because the
+ * helper parks player.invulnTimer at Infinity to keep other tests deterministic — which is
+ * exactly the field that was wrong here. respawnPlayer grants SPAWN_INVULN, and Bot.canSee
+ * refuses to acquire an invulnerable target, so the elite bot opened every round blind for
+ * three seconds while the player crossed the map. The armour was lopsided too.
+ */
+test('a duel round opens with both sides on equal terms', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'duel', map: 'foundry', diff: 'medium' });
+
+  const opening = await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.startDuelRound();
+    const bot = g.bots[0];
+    return {
+      playerInvuln: g.player.invulnTimer,
+      botInvuln: bot.invulnTimer ?? 0,
+      playerHealth: g.player.health,
+      botHealth: bot.health,
+      playerArmor: g.player.armor,
+      botArmor: bot.armor,
+      // canSee is the thing spawn protection actually gates.
+      botCanSeePlayer: bot.canSee(g.player),
+      separation: bot.pos.distanceTo(g.player.pos),
+    };
+  });
+
+  expect(opening.playerInvuln).toBe(0);
+  expect(opening.botInvuln).toBe(0);
+  expect(opening.playerHealth).toBe(opening.botHealth);
+  expect(opening.playerArmor).toBe(opening.botArmor);
+  // Not asserting it CAN see across the map — only that protection is not what stops it.
+  expect(typeof opening.botCanSeePlayer).toBe('boolean');
+  expect(opening.separation).toBeGreaterThan(20);
+});
+
+/**
  * The AIM comment claims specific hit rates, so measure them rather than trusting the
  * numbers. Fires the bot's own shootAt() at a stationary dummy down a verified-clear lane
  * and counts what actually connects.
@@ -244,7 +283,7 @@ async function measureAim(page, { tier, range, botSpeed = 0, rounds = 60 }) {
       const dealt = hpBefore - dummy.health;
       if (dealt > 0) {
         hits++;
-        if (dealt > 30) heads++;   // AR body damage is 18; the head zone multiplier is 2.4
+        if (dealt > 40) heads++;   // AR body damage is 26; the head zone multiplier is 2.4
       }
     }
     return { fired, hits, heads, lane: laneInfo };

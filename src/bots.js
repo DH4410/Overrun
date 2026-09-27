@@ -17,6 +17,12 @@ import { BOT_GUN_IDS, WEAPON_BY_ID } from './weapons.js';
  *
  * Targets, per bullet at 15 m against a stationary player: easy ~15%, medium ~30%, hard ~50%.
  * Those look low written down, but a burst is many rounds and bots fight in groups.
+ *
+ * These are DEFAULTS. Any tier in DIFFICULTY may override any field via its `aim` block,
+ * because one global floor caps how good the best possible bot can be: floor 0.030 rad is
+ * 45 cm of error at 15 m, wider than a torso, so no `accuracy` value could ever produce a
+ * bot that wins a duel on aim. The elite tier lowers the floor by an order of magnitude
+ * rather than pushing `accuracy` against a wall it cannot get past.
  */
 export const AIM = {
   // A fixed angular error already gets harder to land as range grows, so the range term is
@@ -27,7 +33,30 @@ export const AIM = {
   range: 0.06,       // per unit of (distance / 100), scaled by (1 - skill)
   tracking: 0.020,   // per m/s of target lateral speed
   snap: 0.12,        // penalty immediately after acquiring, decays as aim settles
+
+  // --- fields the tiers below tune; the defaults reproduce the pre-existing behaviour ---
+
+  /** How fast the snap penalty decays, in units of `aimSettle` per second. 1.0 means the
+   *  penalty is gone one second after acquiring. */
+  settle: 1.0,
+  /** Share of the gun's mechanical spread folded into the aim jitter. This is on top of the
+   *  cone fireWeapon() applies, so at 1.0 a bot eats its weapon's spread roughly twice. */
+  weaponFrac: 0.5,
+  /** Multiplier handed to fireWeapon() as spreadMult — the bot's trigger discipline. */
+  weaponSpreadMult: 1.0,
+  /** Extra cone per m/s of the BOT's own planar speed. Zero here keeps existing tiers as
+   *  they were; it is what makes counter-strafing worth doing for the tiers that do it. */
+  moveSpread: 0.0,
+  /** Fraction of shots aimed at the head rather than the chest. */
+  headBias: 0.0,
+  /** Stop moving this many seconds before the shot lands, to clear `moveSpread`. 0 = never. */
+  counterStrafe: 0.0,
 };
+
+/** Resolve a tier's aim profile against the defaults. */
+export function aimProfile(diff) {
+  return { ...AIM, ...(diff?.aim ?? {}) };
+}
 
 /** The range each bot weapon wants to fight at. Inside min it backs off, beyond max it closes. */
 export const BOT_RANGE_BAND = {
@@ -41,6 +70,40 @@ export const DIFFICULTY = {
   easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85 },
   medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10, speed: 1.0 },
   hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18 },
+
+  /**
+   * The 1v1 duel opponent. Not "hard with bigger numbers" — a different shooter.
+   *
+   * Sized against what the head actually subtends, which is the only number that matters for
+   * a bot meant to headshot you. The player's head sphere is HB_PLAYER.headR = 0.27 m, so at
+   * 15 m it covers atan(0.27 / 15) = 0.018 rad. A settled elite shot lands inside roughly
+   * 0.0045 rad there (floor 0.0032, plus 0.02 x base, plus the range term), about a quarter
+   * of the head — so a standing target loses, and that is the point.
+   *
+   * What keeps it a duel rather than an aimbot is that none of that survives movement:
+   *   - `tracking` still charges it for your lateral speed, so strafing degrades its aim;
+   *   - `moveSpread` charges it for its OWN speed, so it has to stop to shoot straight, and
+   *     `counterStrafe` is it doing exactly that — the stop is a real, punishable window;
+   *   - `reaction` 0.18 s is a fast human, not zero. You can still win the peek.
+   * Beat it by never being the one standing still.
+   */
+  elite: {
+    label: 'ELITE', accuracy: 0.98, reaction: 0.18, bots: 1, aggression: 1.0,
+    fireMult: 0.92, speed: 1.22,
+    aim: {
+      floor: 0.0032,
+      base: 0.05,
+      range: 0.02,
+      tracking: 0.034,       // HIGHER than the other tiers: strafing is the counter-play
+      snap: 0.05,
+      settle: 5.5,           // settles in ~0.18 s, matching its reaction time
+      weaponFrac: 0.0,       // does not double-count its own gun's cone
+      weaponSpreadMult: 0.12,
+      moveSpread: 0.055,     // 4.6 m/s of strafe costs it 0.25 rad — it cannot run and shoot
+      headBias: 0.8,
+      counterStrafe: 0.11,
+    },
+  },
 };
 
 export const BOT_NAMES = [
@@ -68,6 +131,7 @@ export function createBotRuntime({
 }) {
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 
 function boxPart(w, h, d, x, y, z, material) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
@@ -90,6 +154,14 @@ const bots = [];
 // Mutual repulsion between bots — see setPlanarVelocity.
 const SEP_RADIUS = 2.5;       // metres at which neighbours start pushing apart
 const SEP_STRENGTH = 3.2;     // m/s of push at zero distance
+// Locomotion rate limits, m/s^2. The player's MOVE_ACCEL is 60, deliberately arcade-snappy;
+// bots spin up slower so their direction changes are readable and punishable. At BOT_ACCEL a
+// bot needs ~0.18 s to reach its 4.6 m/s combat speed from a standstill.
+const BOT_ACCEL = 26;
+const BOT_DECEL = 34;
+// Cover peek rhythm, in seconds: lean out for PEEK_SHOW, tuck back for PEEK_HIDE.
+const PEEK_SHOW = 0.9;
+const PEEK_HIDE = 1.1;
 const ST = {
   SPAWN: 'SPAWN', PATROL: 'PATROL', ALERT: 'ALERT', CHASE: 'CHASE',
   SHOOT: 'SHOOT', COVER: 'TAKE_COVER', NADE: 'THROW_GRENADE', DEAD: 'DEAD',
@@ -241,11 +313,15 @@ function buildBotGun(id) {
 }
 
 class Bot {
-  constructor(name, team, diff) {
+  constructor(name, team, diff, weaponId = null) {
     this.isPlayer = false;
     this.name = name;
     this.team = team;
     this.diff = diff;
+    /** Resolved once per bot rather than per shot — shootAt() runs on every fire tick. */
+    this.aim = aimProfile(diff);
+    /** Non-null pins the loadout across respawns, so a duel stays a mirror match. */
+    this.fixedWeaponId = weaponId;
     this.alive = true;
     this.health = 100;
     this.armor = 0;
@@ -268,7 +344,7 @@ class Bot {
     this.repathTimer = 0;
     this.patrolWp = randInt(0, Math.max(0, waypoints.length - 1));
 
-    this.weaponId = pick(BOT_GUN_IDS);
+    this.weaponId = weaponId ?? pick(BOT_GUN_IDS);
     this.mag = WEAPON_BY_ID[this.weaponId].mag;
     this.reloading = 0;
     this.fireCd = 0;
@@ -282,6 +358,9 @@ class Bot {
     this.strafeTimer = rand(0.5, 1.5);
     this.yaw = rand(-Math.PI, Math.PI);
     this.stepTimer = 0;
+    // Locomotion wish, applied under an acceleration limit in applyLocomotion().
+    this.wishVx = 0; this.wishVz = 0;
+    this.peekTimer = 0;      // COVER: >0 while leaning out, <=0 while tucked back in
 
     const color = TEAM_COLOR[team];
     this.mesh = buildBotMesh(color);
@@ -418,10 +497,39 @@ class Bot {
   }
 
   /** Bots are moved by writing velocity, never by forces — no sliding, no slope drift.
-   *  Separation is folded in here rather than in the path follower so it applies while
-   *  standing still too: without it every bot chasing the same target converges on the
-   *  same point and they end up standing inside one another. */
+   *  This records the wish only; applyLocomotion() puts it on the body once per sim step. */
   setPlanarVelocity(vx, vz) {
+    this.wishVx = vx;
+    this.wishVz = vz;
+  }
+
+  /**
+   * Apply the movement wish under an acceleration limit, then the separation push.
+   *
+   * The wish used to be written straight onto the body, which made every start, stop and
+   * strafe flip instantaneous. That is the biggest single reason bot movement read as
+   * robotic — nothing alive changes direction in one tick. It also made the strafe flip
+   * free, when for a player it is the most expensive thing they can do: the moment of
+   * near-zero speed in the middle of a flip is exactly when they are easy to hit. Limiting
+   * the rate puts that cost back, and it is what gives `moveSpread` and `counterStrafe` in
+   * the aim profile something real to trade against.
+   *
+   * Separation stays here rather than in the path follower so it applies while standing
+   * still too: without it every bot chasing one target converges on a point and they end up
+   * inside one another. It is added AFTER the accel limit, because being shoved out of a
+   * neighbour is a collision response rather than a decision the bot made.
+   */
+  applyLocomotion(dt) {
+    const vx = this.body.velocity.x, vz = this.body.velocity.z;
+    let dvx = this.wishVx - vx, dvz = this.wishVz - vz;
+    const dv = Math.hypot(dvx, dvz);
+    if (dv > 1e-6) {
+      // Slowing down is quicker than speeding up, the way legs actually work.
+      const slowing = Math.hypot(this.wishVx, this.wishVz) < Math.hypot(vx, vz);
+      const maxStep = (slowing ? BOT_DECEL : BOT_ACCEL) * (this.diff.speed ?? 1) * dt;
+      if (dv > maxStep) { dvx *= maxStep / dv; dvz *= maxStep / dv; }
+    }
+
     let sx = 0, sz = 0;
     for (const o of bots) {
       if (o === this || !o.alive) continue;
@@ -435,8 +543,8 @@ class Bot {
       sx += (dx / d) * w;
       sz += (dz / d) * w;
     }
-    this.body.velocity.x = vx + sx * SEP_STRENGTH;
-    this.body.velocity.z = vz + sz * SEP_STRENGTH;
+    this.body.velocity.x = vx + dvx + sx * SEP_STRENGTH;
+    this.body.velocity.z = vz + dvz + sz * SEP_STRENGTH;
     this.body.wakeUp();
   }
 
@@ -457,6 +565,27 @@ class Bot {
   /* ----------------------------- shooting ----------------------------- */
 
   /**
+   * Where on the target this bot is trying to put the round, in world space.
+   *
+   * Every tier before the elite one aimed at `target.pos`, which is the chest — so a bot
+   * could only ever headshot you by accident. `headBias` is the share of shots aimed at the
+   * head instead. It reads the target's live hitbox rather than a constant, so crouching
+   * genuinely moves the aim point down: HB_PLAYER.headY is 0.78 standing and
+   * HB_PLAYER_CROUCH.headY is 0.45, and `player.hb` is swapped as you crouch.
+   */
+  aimPoint(target, out) {
+    out.copy(target.pos);
+    if (this.aim.headBias > 0 && Math.random() < this.aim.headBias) {
+      // Aim at the lower half of the head sphere: dead-centre on a 0.27 m ball means half
+      // of the residual error misses high over the shoulder, where there is no hitbox at
+      // all, while the same error low still catches the chest.
+      const hb = target.hb ?? HB_BOT;
+      out.y += hb.headY - hb.headR * 0.35;
+    }
+    return out;
+  }
+
+  /**
    * Aim with lead compensation, then degrade by (1 - accuracy). Difficulty is expressed as
    * cone width, so a "40% accuracy" bot genuinely misses instead of being handicapped by a
    * hidden dice roll after the fact.
@@ -468,7 +597,8 @@ class Bot {
     if (this.fireCd > 0) return;
 
     const muzzle = this.gunMesh.userData.muzzle.getWorldPosition(_v1);
-    const dist = muzzle.distanceTo(target.pos);
+    const aimAt = this.aimPoint(target, _v3);
+    const dist = muzzle.distanceTo(aimAt);
     const flight = dist / w.speed;
 
     // Imperfect lead. The old code led the target perfectly and compensated bullet drop
@@ -477,7 +607,7 @@ class Bot {
     // depends on the difficulty, so a bot mis-times a moving target the way a person does.
     const skill = this.diff.accuracy;
     const leadErr = lerp(0.45, 0.95, skill) * rand(0.75, 1.2);
-    _v2.copy(target.pos).addScaledVector(target.vel, flight * leadErr);
+    _v2.copy(aimAt).addScaledVector(target.vel, flight * leadErr);
     _v2.y += 0.5 * 9.82 * flight * flight * lerp(0.55, 1.0, skill);
     _v2.sub(muzzle).normalize();
 
@@ -491,13 +621,16 @@ class Bot {
      *  2. Distance scaling — holding a bead at 40 m is genuinely harder than at 5 m.
      *  3. Situational penalties: freshly acquired targets, and targets moving laterally.
      */
+    const A = this.aim;
     const lateral = Math.hypot(target.vel.x, target.vel.z);
+    const ownSpeed = Math.hypot(this.body.velocity.x, this.body.velocity.z);
     const freshness = clamp(1 - this.aimSettle, 0, 1);           // 1 right after acquiring
-    const spread = AIM.floor
-                 + (1 - skill) * AIM.base
-                 + (dist / 100) * (1 - skill) * AIM.range        // range penalty
-                 + lateral * AIM.tracking * (1 - skill * 0.5)    // tracking penalty
-                 + freshness * AIM.snap * (1 - skill * 0.6);     // snap-shot penalty
+    const spread = A.floor
+                 + (1 - skill) * A.base
+                 + (dist / 100) * (1 - skill) * A.range          // range penalty
+                 + lateral * A.tracking * (1 - skill * 0.5)      // tracking penalty
+                 + ownSpeed * A.moveSpread                       // shooting on the move
+                 + freshness * A.snap * (1 - skill * 0.6);       // snap-shot penalty
 
     // Random-walk the persistent offset, then clamp it so it cannot drift absurdly wide.
     const drift = spread * 0.55;
@@ -505,8 +638,10 @@ class Bot {
     this.aimOff.y = clamp(this.aimOff.y + rand(-drift, drift), -spread, spread);
     this.aimOff.z = clamp(this.aimOff.z + rand(-drift, drift), -spread, spread);
 
-    // Per-shot jitter on top, plus the weapon's own mechanical spread.
-    const jitter = spread * 0.5 + w.spread * 0.5;
+    // Per-shot jitter on top, plus a share of the weapon's own mechanical spread. Only a
+    // share, because fireWeapon() applies the full cone again — counting it fully here as
+    // well charged the bot for its gun twice, which no accuracy value could dig out of.
+    const jitter = spread * 0.5 + w.spread * A.weaponFrac;
     _v2.x += this.aimOff.x + rand(-jitter, jitter);
     _v2.y += this.aimOff.y + rand(-jitter, jitter);
     _v2.z += this.aimOff.z + rand(-jitter, jitter);
@@ -514,8 +649,16 @@ class Bot {
 
     this.mag--;
     this.fireCd = w.cooldown * this.diff.fireMult * (w.auto ? 1 : rand(1.0, 1.5));
-    fireWeapon(this, w, muzzle.clone(), _v2, 1);
+    fireWeapon(this, w, muzzle.clone(), _v2, A.weaponSpreadMult);
     if (this.mag <= 0) this.reloading = w.reload;
+  }
+
+  /** True while the bot is deliberately planted to take an accurate shot. */
+  isCounterStrafing() {
+    return this.aim.counterStrafe > 0
+        && this.hasLOS
+        && this.reactTimer <= 0
+        && this.fireCd <= this.aim.counterStrafe;
   }
 
   /* --------------------------- state machine --------------------------- */
@@ -535,13 +678,14 @@ class Bot {
     this.fireCd = Math.max(0, this.fireCd - dt);
     // Aim settles the longer a bot holds the same target in view, and resets the moment it
     // loses them — so peeking a fresh angle is punished less than standing in the open.
-    if (this.hasLOS && this.target === this._lastAimTarget) this.aimSettle += dt;
+    if (this.hasLOS && this.target === this._lastAimTarget) this.aimSettle += dt * this.aim.settle;
     else { this.aimSettle = 0; this.aimOff.set(0, 0, 0); }
     this._lastAimTarget = this.hasLOS ? this.target : null;
     this.stepTimer = Math.max(0, this.stepTimer - dt);
     this.stateTime += dt;
     this.repathTimer -= dt;
     this.nadeCd -= dt;
+    this.peekTimer -= dt;
     if (this.reloading > 0) {
       this.reloading -= dt;
       if (this.reloading <= 0) this.mag = WEAPON_BY_ID[this.weaponId].mag;
@@ -586,10 +730,13 @@ class Bot {
 
       case ST.ALERT: {
         this.setPlanarVelocity(0, 0);
-        // Sweep the area the noise came from.
+        // Sweep the area the noise came from. The sweep amplitude scales with (1 - accuracy):
+        // a weak bot flails around the remembered angle, while an elite one pre-aims it and
+        // barely drifts, so peeking a bot that heard you is a real risk rather than a freebie.
+        const sweep = 6 * (1 - this.diff.accuracy * 0.9);
         this.faceDir(
-          this.lastKnown.x - this.body.position.x + Math.sin(this.stateTime * 4) * 6,
-          this.lastKnown.z - this.body.position.z + Math.cos(this.stateTime * 4) * 6, dt, 4);
+          this.lastKnown.x - this.body.position.x + Math.sin(this.stateTime * 4) * sweep,
+          this.lastKnown.z - this.body.position.z + Math.cos(this.stateTime * 4) * sweep, dt, 4);
         if (this.hasLOS) { this.setState(ST.CHASE); break; }
         if (this.stateTime > 1.5) this.setState(ST.PATROL);
         break;
@@ -624,12 +771,31 @@ class Bot {
       }
 
       case ST.COVER: {
+        // Reaching cover used to hand the bot 12 free health and send it straight back out,
+        // which is both unearnable by the player and not what taking cover is for. Now the
+        // bot actually uses the cover: it holds there, then leans out on a timer to shoot
+        // and tucks back in. Damage it takes mid-peek is real damage, so out-trading a
+        // peeking bot is how you finish it rather than chasing a self-healing target.
         if (this.stateTime === 0 || !this.path) this.findCover();
-        const done = this.followPath(this.moveSpeed('cover'), dt);
-        if (done || this.stateTime > 2.0) {
-          this.health = Math.min(100, this.health + 12);   // catching breath
-          this.setState(ST.CHASE);
+        const inCover = this.followPath(this.moveSpeed('cover'), dt);
+        if (!inCover) break;
+
+        this.setPlanarVelocity(0, 0);
+        if (this.peekTimer <= -PEEK_HIDE) this.peekTimer = PEEK_SHOW;   // lean out
+        if (this.peekTimer > 0) {
+          // Leaning out: sidestep off the cover line and take the shot if one is there.
+          this.faceTarget(dt);
+          if (this.target) {
+            const dx = this.target.pos.x - this.body.position.x;
+            const dz = this.target.pos.z - this.body.position.z;
+            const len = Math.hypot(dx, dz) || 1;
+            this.setPlanarVelocity((-dz / len) * this.strafeDir * 2.2,
+                                   (dx / len) * this.strafeDir * 2.2);
+          }
+          if (this.hasLOS && this.reactTimer <= 0) this.shootAt(this.target, dt);
         }
+        // Healthy again (from a pickup) or out of patience — back into the fight.
+        if (this.health / 100 > 0.6 || this.stateTime > 7.0) this.setState(ST.CHASE);
         break;
       }
 
@@ -655,6 +821,7 @@ class Bot {
     }
 
     // Gravity is left to the solver; only X/Z are driven.
+    this.applyLocomotion(dt);
   }
 
   // Visual step — called once per rendered frame with the actual frame delta.
@@ -691,6 +858,13 @@ class Bot {
    */
   combatMove(dist, dt) {
     const band = BOT_RANGE_BAND[this.weaponId] || BOT_RANGE_BAND.ar;
+
+    // Counter-strafe: plant just before the shot so `moveSpread` is not charged for it.
+    // This is the whole reason a tier pays for moveSpread — it buys a visible, punishable
+    // window where the bot is standing still, which is the opening the player is meant to
+    // take. Without the accel limit in applyLocomotion() this would be free and invisible.
+    if (this.isCounterStrafing()) { this.setPlanarVelocity(0, 0); return; }
+
     const speed = this.moveSpeed(dist < band.min ? 'retreat' : 'combat');
 
     // Forward axis toward the target, and the perpendicular used for strafing.
@@ -795,7 +969,10 @@ class Bot {
     this.alive = false;
     this.state = ST.DEAD;
     this.deathTimer = 0;
+    // setPlanarVelocity only records a wish, and simStep() returns before applyLocomotion()
+    // once alive is false — so a corpse needs its velocity cleared here or it keeps sliding.
     this.setPlanarVelocity(0, 0);
+    this.body.velocity.x = 0; this.body.velocity.z = 0;
     this.body.collisionResponse = false;
     this.plate.root.style.display = 'none';
     this.blip.visible = false;
@@ -810,7 +987,9 @@ class Bot {
     this.state = ST.SPAWN;
     this.stateTime = 0;
     this.target = null; this.hasLOS = false; this.path = null;
-    this.weaponId = pick(BOT_GUN_IDS);
+    this.wishVx = 0; this.wishVz = 0;
+    this.peekTimer = 0;
+    this.weaponId = this.fixedWeaponId ?? pick(BOT_GUN_IDS);
     this.mag = WEAPON_BY_ID[this.weaponId].mag;
     this.reloading = 0;
     this.nadeCd = rand(6, 16);

@@ -400,6 +400,8 @@ const {
   bots,
   Bot,
   loadSoldier,
+  registerBotClips,
+  botClipNames,
   buildBotGun,
   alertBots,
 } = createBotRuntime({
@@ -1016,6 +1018,63 @@ const {
 });
 
 
+/**
+ * Load optional extra bot animation clips.
+ *
+ * Driven by assets/bots/anim/manifest.json, a flat map of clip name to file, e.g.
+ *   { "StrafeLeft": "strafe-left.fbx", "Death": "death.glb" }
+ * Names must be ones the rig binds (see botClipNames); anything else is ignored.
+ *
+ * The rig in soldier.glb is stock Mixamo, and retargeting is by track name, so a clip
+ * exported against any Mixamo skeleton binds to it directly with no bone remapping. Mixamo
+ * serves FBX, which needs its own loader, so that is imported lazily — there is no point
+ * paying for FBXLoader on a machine that has no clips to load.
+ *
+ * Every failure path here is non-fatal and silent by design, exactly like loadProp: no
+ * manifest, an unreadable file or an unknown clip name each cost one animation, never the
+ * match. The names that did load are reported on window.__game.assets.anims.
+ */
+async function loadBotAnimations() {
+  let manifest;
+  try {
+    const resp = await fetch('./assets/bots/anim/manifest.json');
+    if (!resp.ok) return [];
+    manifest = await resp.json();
+  } catch {
+    return [];                                  // no manifest is the normal case
+  }
+  if (!manifest || typeof manifest !== 'object') return [];
+
+  let FBXLoader = null;
+  const clips = {};
+  for (const [name, file] of Object.entries(manifest)) {
+    if (!botClipNames.includes(name) || typeof file !== 'string') continue;
+    const url = `./assets/bots/anim/${file}`;
+    try {
+      if (file.toLowerCase().endsWith('.fbx')) {
+        if (!FBXLoader) ({ FBXLoader } = await import('three/addons/loaders/FBXLoader.js'));
+        const group = await new FBXLoader().loadAsync(url);
+        // Mixamo puts exactly one clip in an FBX; its own name is not useful here.
+        if (group.animations?.length) {
+          const clip = group.animations[0].clone();
+          clip.name = name;
+          clips[name] = clip;
+        }
+      } else {
+        const gltf = await modelLoader.loadAsync(url);
+        if (gltf.animations?.length) {
+          const clip = gltf.animations[0].clone();
+          clip.name = name;
+          clips[name] = clip;
+        }
+      }
+    } catch {
+      // One bad file must not take the rest of the manifest with it.
+    }
+  }
+  return registerBotClips(clips);
+}
+
 async function boot() {
   loadSettings();
   createPlayerBody();
@@ -1028,6 +1087,9 @@ async function boot() {
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
   const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadBlasterViewModels()]);
+  // Extra bot animation clips, if any have been added. Must run after loadSoldier and
+  // before the first Bot is constructed, because clips bind at mesh-build time.
+  const extraAnims = soldierOk ? await loadBotAnimations() : [];
 
   // The level is built only after the GLBs resolve, so every prop uses its model when the
   // file exists and its primitive when it does not — a missing file costs one crate, never
@@ -1063,7 +1125,8 @@ async function boot() {
   if (isLocal) window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
-    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
+    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims },
+    registerBotClips, botClipNames,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,

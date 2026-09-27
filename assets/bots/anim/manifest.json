@@ -1,0 +1,28 @@
+{
+  "_README": [
+    "Optional extra animation clips for the bot rig, as a flat map of clip name to file.",
+    "Loaded by loadBotAnimations() in src/main.js at boot, before the first Bot is built.",
+    "",
+    "Recognised names (anything else is ignored):",
+    "  Idle, Walk, Run          - already shipped inside soldier.glb; listing one overrides it",
+    "  StrafeLeft, StrafeRight  - lateral locomotion",
+    "  WalkBack                 - backpedal",
+    "  Crouch                   - crouched idle/walk",
+    "  Death                    - death collapse, replacing the procedural one",
+    "",
+    "Files live beside this manifest. .fbx and .glb/.gltf both work.",
+    "",
+    "The rig in assets/bots/soldier.glb is stock Mixamo (mixamorig:Hips .. mixamorig:Head),",
+    "and retargeting is by track name, so any clip exported against a Mixamo skeleton binds",
+    "with no bone remapping. Download from mixamo.com as FBX, WITHOUT SKIN, and tick In",
+    "Place for locomotion clips - the bots are moved by physics, so a clip carrying root",
+    "motion will make them slide.",
+    "",
+    "Example:",
+    "  { \"StrafeLeft\": \"strafe-left.fbx\", \"Death\": \"death.fbx\" }",
+    "",
+    "This file is intentionally present and empty rather than absent: probing for a missing",
+    "manifest logs a 404 to the console on every boot, which the boot smoke test treats as a",
+    "runtime error and which is noise for players too."
+  ]
+}

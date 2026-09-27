@@ -86,12 +86,15 @@ export default [
   },
 
   // ── scripts/**/*.mjs  ─────────────────────────────────────────────────────
+  // Node tooling, but page.evaluate() callbacks inside it ARE parsed as part of the file
+  // even though they execute in a browser (see scripts/fbx-to-glb.mjs). Browser globals are
+  // added here for the same reason they are for tests/.
   {
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
-      globals: globals.node,
+      globals: { ...globals.node, ...browserGlobals },
     },
     rules: {
       'no-undef': 'error',

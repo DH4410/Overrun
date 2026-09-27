@@ -400,6 +400,7 @@ const {
   bots,
   Bot,
   loadSoldier,
+  loadedCharacters,
   registerBotClips,
   botClipNames,
   buildBotGun,
@@ -1048,22 +1049,6 @@ async function loadBotAnimations() {
   let FBXLoader = null;
   const clips = {};
 
-  /**
-   * Restore the colon that three's FBXLoader strips from Mixamo bone names.
-   *
-   * The skeleton in soldier.glb has bones named `mixamorig:Hips`, but a clip loaded from
-   * Mixamo's own FBX arrives with tracks named `mixamorigHips` — the loader drops the
-   * separator. AnimationMixer binds tracks to nodes by exact name, and a track that matches
-   * nothing is silently ignored, so without this every clip loads, reports no error, and
-   * animates absolutely nothing. Measured across all eight clips: 0 of 53 tracks bound
-   * before this, 53 of 53 after.
-   */
-  const retarget = (clip) => {
-    for (const track of clip.tracks) {
-      track.name = track.name.replace(/^mixamorig(?=[A-Z])/, 'mixamorig:');
-    }
-    return clip;
-  };
   for (const [name, file] of Object.entries(manifest)) {
     if (!botClipNames.includes(name) || typeof file !== 'string') continue;
     const url = `./assets/bots/anim/${file}`;
@@ -1073,7 +1058,10 @@ async function loadBotAnimations() {
         const group = await new FBXLoader().loadAsync(url);
         // Mixamo puts exactly one clip in an FBX; its own name is not useful here.
         if (group.animations?.length) {
-          const clip = retarget(group.animations[0].clone());
+          // Track names are left exactly as the exporter wrote them. Matching them to a
+          // skeleton is done per character in retargetClips (src/bots.js), against the
+          // live bone names rather than an assumed spelling.
+          const clip = group.animations[0].clone();
           clip.name = name;
           clips[name] = clip;
         }
@@ -1142,7 +1130,8 @@ async function boot() {
   if (isLocal) window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
-    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims },
+    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims,
+              characters: loadedCharacters() },
     registerBotClips, botClipNames,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,

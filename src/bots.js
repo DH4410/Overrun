@@ -225,6 +225,62 @@ const BOT_CLIP_NAMES = ['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'Wal
 const extraClips = {};
 
 /**
+ * Strip the rig prefix and separator so a bone can be matched however it was spelled.
+ *
+ * Every link in this pipeline spells Mixamo bones differently. Mixamo writes
+ * `mixamorig:Hips`; three's FBXLoader drops the colon to `mixamorigHips`; three's
+ * GLTFLoader runs names through PropertyBinding.sanitizeNodeName, which also drops it. So
+ * the GLB on disk says `mixamorig:Hips` while the same file loaded in the browser says
+ * `mixamorigHips`. Comparing against the file rather than against the loaded scene is
+ * exactly the mistake that made an earlier version of this "fix" insert a colon the runtime
+ * then had no match for.
+ *
+ * The digit in the pattern is not decorative: characters re-rigged through Mixamo more than
+ * once come back prefixed `mixamorig1`, `mixamorig2` and so on (Crypto is one), and those
+ * are the same bones under a different label.
+ */
+const MIXAMO_PREFIX = /^mixamorig\d*[:_]?/i;
+
+function boneKey(name) {
+  return name.replace(MIXAMO_PREFIX, '').toLowerCase();
+}
+
+/**
+ * Rewrite a clip's track names onto the bone names a given skeleton actually uses.
+ *
+ * Done against the live skeleton rather than against any assumed convention, because the
+ * failure is silent: AnimationMixer binds the tracks it can resolve and ignores the rest,
+ * so a clip that matches nothing plays perfectly happily and moves nothing at all. Clips
+ * are cached per character, since the rewrite only depends on the skeleton.
+ */
+function retargetClips(clips, root) {
+  const byKey = new Map();
+  root.traverse((o) => { if (o.isBone) byKey.set(boneKey(o.name), o.name); });
+
+  const out = {};
+  for (const [name, clip] of Object.entries(clips)) {
+    if (!clip) continue;
+    let needsRewrite = false;
+    for (const track of clip.tracks) {
+      const node = track.name.slice(0, track.name.lastIndexOf('.'));
+      if (!byKey.has(boneKey(node))) continue;      // unknown bone: leave it, it just no-ops
+      if (byKey.get(boneKey(node)) !== node) { needsRewrite = true; break; }
+    }
+    if (!needsRewrite) { out[name] = clip; continue; }
+
+    const copy = clip.clone();
+    for (const track of copy.tracks) {
+      const dot = track.name.lastIndexOf('.');
+      const node = track.name.slice(0, dot);
+      const target = byKey.get(boneKey(node));
+      if (target) track.name = target + track.name.slice(dot);
+    }
+    out[name] = copy;
+  }
+  return out;
+}
+
+/**
  * Register additional AnimationClips for the bot rig, by clip name.
  *
  * Bots built before this is called keep the clips they bound, so this is meant for boot.
@@ -250,18 +306,55 @@ function registerBotClips(clips) {
  */
 let soldierGltf = null;
 
+/**
+ * The character roster.
+ *
+ * Every bot used to be the same stock soldier, which made a firefight read as one model
+ * cloned six times and gave teams no silhouette of their own. These are Mixamo characters
+ * converted by scripts/fbx-to-glb.mjs, which normalises each one to SOLDIER_HEIGHT and
+ * restores the `mixamorig:` bone names — so all of them drive the same clip set and the
+ * fitting maths below needs no per-character constants.
+ *
+ * `teams` says which side a character may appear on. Blue and red get disjoint casts so the
+ * team you are looking at is legible from the shape alone, before the kit colour registers;
+ * free-for-all draws from everyone, since there are no sides to confuse.
+ */
+const CHARACTERS = [
+  { id: 'soldier', file: './assets/bots/soldier.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
+  { id: 'swat', file: './assets/bots/swat.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
+  { id: 'crypto', file: './assets/bots/crypto.glb', teams: [TEAM.SOLO, TEAM.RED] },
+  { id: 'ely', file: './assets/bots/ely.glb', teams: [TEAM.SOLO, TEAM.RED] },
+];
+
+/** Loaded character GLBs, keyed by id. Missing entries simply drop out of the roster. */
+const characterGltf = {};
+
+/** Characters available to a team, or the stock soldier if nothing else loaded. */
+function rosterFor(team) {
+  const usable = CHARACTERS.filter((c) => characterGltf[c.id] && c.teams.includes(team));
+  if (usable.length) return usable;
+  return CHARACTERS.filter((c) => characterGltf[c.id]);
+}
+
 const SOLDIER_HEIGHT = 1.832;   // measured from the GLB's bounding box
 const BOT_TARGET_HEIGHT = 2.0;
 const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MESH_SCALE = -0.78)
 
+/**
+ * Load every character in the roster. Each one is optional in exactly the way the props
+ * already are: a missing or broken file costs that character, and the game falls back
+ * through the remaining roster to the stock soldier and finally to the blocky humanoid.
+ */
 async function loadSoldier() {
-  try {
-    soldierGltf = await modelLoader.loadAsync('./assets/bots/soldier.glb');
-    return true;
-  } catch {
-    soldierGltf = null;         // fall back to the blocky humanoid
-    return false;
-  }
+  await Promise.all(CHARACTERS.map(async (c) => {
+    try {
+      characterGltf[c.id] = await modelLoader.loadAsync(c.file);
+    } catch {
+      characterGltf[c.id] = null;
+    }
+  }));
+  soldierGltf = characterGltf.soldier ?? null;
+  return Object.values(characterGltf).some(Boolean);
 }
 
 /**
@@ -269,9 +362,9 @@ async function loadSoldier() {
  * material.opacity and the team tint writes material.emissive — sharing them would fade and
  * recolour every bot at once.
  */
-function buildSoldierMesh(teamColor) {
+function buildSoldierMesh(teamColor, gltf) {
   const g = new THREE.Group();
-  const model = skeletonClone(soldierGltf.scene);
+  const model = skeletonClone(gltf.scene);
 
   // Fitted so that after the group's BOT_MESH_SCALE the soldier stands BOT_TARGET_HEIGHT tall
   // with its feet exactly where the procedural mesh put them.
@@ -306,13 +399,26 @@ function buildSoldierMesh(teamColor) {
 
   const mixer = new THREE.AnimationMixer(model);
   const clips = {};
-  // soldier.glb ships Idle / Walk / Run. Any extra clip registered through
-  // registerBotClips() (see below) is picked up here too, so dropping new locomotion in
-  // needs no change to this function.
-  for (const name of BOT_CLIP_NAMES) {
-    const clip = THREE.AnimationClip.findByName(soldierGltf.animations, name)
-      ?? extraClips[name];
-    if (clip) { clips[name] = mixer.clipAction(clip); clips[name].play(); clips[name].weight = 0; }
+
+  // Resolve the clip set for this character once and cache it on the glTF: the retarget
+  // depends only on the skeleton, and buildSoldierMesh runs for every bot that spawns.
+  if (!gltf.userData.__clips) {
+    const source = {};
+    for (const name of BOT_CLIP_NAMES) {
+      // A converted character ships no animations of its own — every clip comes from the
+      // shared set in assets/bots/anim. soldier.glb is the exception: it carries the
+      // original Idle/Walk/Run, which still serve as the fallback if the manifest is empty.
+      const clip = THREE.AnimationClip.findByName(gltf.animations ?? [], name)
+        ?? extraClips[name];
+      if (clip) source[name] = clip;
+    }
+    gltf.userData.__clips = retargetClips(source, model);
+  }
+
+  for (const [name, clip] of Object.entries(gltf.userData.__clips)) {
+    clips[name] = mixer.clipAction(clip);
+    clips[name].play();
+    clips[name].weight = 0;
   }
   if (clips.Idle) clips.Idle.weight = 1;
   g.userData.mixer = mixer;
@@ -331,7 +437,7 @@ function buildSoldierMesh(teamColor) {
   const bones = {};
   model.traverse((o) => {
     if (!o.isBone) return;
-    const short = o.name.replace(/^mixamorig[:_]?/i, '');
+    const short = o.name.replace(MIXAMO_PREFIX, '');
     if (short === 'Spine1' || short === 'Spine2' || short === 'Neck' || short === 'Head') {
       bones[short] = o;
     }
@@ -345,8 +451,9 @@ function buildSoldierMesh(teamColor) {
 }
 
 /** Blocky humanoid, tinted by team so allies and enemies read instantly. */
-function buildBotMesh(teamColor) {
-  if (soldierGltf) return buildSoldierMesh(teamColor);
+function buildBotMesh(teamColor, team = TEAM.SOLO) {
+  const roster = rosterFor(team);
+  if (roster.length) return buildSoldierMesh(teamColor, characterGltf[pick(roster).id]);
   return buildBlockyBotMesh(teamColor);
 }
 
@@ -446,7 +553,7 @@ class Bot {
     this.peekTimer = 0;      // COVER: >0 while leaning out, <=0 while tucked back in
 
     const color = TEAM_COLOR[team];
-    this.mesh = buildBotMesh(color);
+    this.mesh = buildBotMesh(color, team);
     this.mesh.scale.setScalar(BOT_MESH_SCALE);
     this.hb = HB_BOT;
     this.gunMesh = buildBotGun(this.weaponId);
@@ -1254,6 +1361,9 @@ return {
   bots,
   Bot,
   loadSoldier,
+  characters: CHARACTERS,
+  loadedCharacters: () => Object.entries(characterGltf)
+    .filter(([, v]) => Boolean(v)).map(([k]) => k),
   registerBotClips,
   botClipNames: BOT_CLIP_NAMES,
   buildBotGun,

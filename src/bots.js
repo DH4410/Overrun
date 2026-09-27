@@ -197,6 +197,35 @@ const BOT_MESH_Y = 0.04;
 const BOT_CHEST = 0.50;
 const BOT_EYE = 1.05;
 
+/**
+ * Locomotion and action clips the bot mesh will bind if they are present.
+ *
+ * Idle / Walk / Run ship inside soldier.glb. The rest are the names used by additional
+ * clips registered through registerBotClips() — retargeting is by track name, and the rig
+ * is stock Mixamo, so a clip exported against any Mixamo skeleton binds without remapping.
+ * Missing names are simply skipped, so the game degrades to whatever is actually there.
+ */
+const BOT_CLIP_NAMES = ['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'Death'];
+
+/** Extra clips registered at boot, keyed by the names above. */
+const extraClips = {};
+
+/**
+ * Register additional AnimationClips for the bot rig, by clip name.
+ *
+ * Bots built before this is called keep the clips they bound, so this is meant for boot.
+ * Returns the names that were accepted, so a caller can report what actually loaded.
+ */
+function registerBotClips(clips) {
+  const accepted = [];
+  for (const [name, clip] of Object.entries(clips)) {
+    if (!clip || !BOT_CLIP_NAMES.includes(name)) continue;
+    extraClips[name] = clip;
+    accepted.push(name);
+  }
+  return accepted;
+}
+
 /* --------------------- rigged soldier bot mesh --------------------- */
 
 /**
@@ -263,13 +292,41 @@ function buildSoldierMesh(teamColor) {
 
   const mixer = new THREE.AnimationMixer(model);
   const clips = {};
-  for (const name of ['Idle', 'Walk', 'Run']) {
-    const clip = THREE.AnimationClip.findByName(soldierGltf.animations, name);
+  // soldier.glb ships Idle / Walk / Run. Any extra clip registered through
+  // registerBotClips() (see below) is picked up here too, so dropping new locomotion in
+  // needs no change to this function.
+  for (const name of BOT_CLIP_NAMES) {
+    const clip = THREE.AnimationClip.findByName(soldierGltf.animations, name)
+      ?? extraClips[name];
     if (clip) { clips[name] = mixer.clipAction(clip); clips[name].play(); clips[name].weight = 0; }
   }
   if (clips.Idle) clips.Idle.weight = 1;
   g.userData.mixer = mixer;
   g.userData.clips = clips;
+
+  /**
+   * Spine chain, for aiming the whole upper body rather than just the gun.
+   *
+   * The rig is Mixamo (`mixamorig:Hips` down to `mixamorig:Head`, colon intact), so the
+   * bones can be found by name. Pitching the gun mesh alone left the soldier staring
+   * levelly ahead while its weapon pointed at the floor or the ceiling, which is the single
+   * most obviously wrong thing about the bots up close. Splitting the angle down the chain
+   * — most of it at the chest, less at the neck — is how a person actually looks down a
+   * barrel, and it costs three quaternion writes a frame.
+   */
+  const bones = {};
+  model.traverse((o) => {
+    if (!o.isBone) return;
+    const short = o.name.replace(/^mixamorig[:_]?/i, '');
+    if (short === 'Spine1' || short === 'Spine2' || short === 'Neck' || short === 'Head') {
+      bones[short] = o;
+    }
+    if (short === 'RightHand') bones.RightHand = o;
+  });
+  g.userData.bones = bones;
+  g.userData.restPitch = new Map(
+    Object.entries(bones).map(([k, b]) => [k, b.rotation.x]),
+  );
   return g;
 }
 
@@ -846,10 +903,27 @@ class Bot {
   renderStep(frameDt) {
     this.updateTransforms();
     if (!this.alive) {
-      // Death fall-over and fade animation driven by deathTimer (advanced in simStep).
-      const fall = Math.min(1, this.deathTimer / 0.3);
+      /**
+       * Death. The old version rotated the whole mesh a rigid -90 degrees over 0.3 s, which
+       * read as a plank tipping over — the legs stayed straight and the body pivoted about
+       * a point in mid-air. This eases the fall instead (fast at first, settling at the
+       * end, the way a body drops), adds a yaw twist so two deaths never look identical,
+       * and folds the spine forward through the same bone offsets the aim uses, so the
+       * upper body crumples rather than staying rigid.
+       */
+      const t = Math.min(1, this.deathTimer / 0.55);
+      const fall = 1 - (1 - t) * (1 - t);              // ease-out: quick, then settles
       this.mesh.rotation.x = -Math.PI / 2 * fall;
+      this.mesh.rotation.y = this.yaw + Math.PI + (this.deathTwist ?? 0) * fall;
       this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
+      const bones = this.mesh.userData.bones;
+      if (bones) {
+        const slump = fall * 0.5;
+        applyBonePitch(this.mesh, bones, 'Spine1', slump);
+        applyBonePitch(this.mesh, bones, 'Spine2', slump * 0.8);
+        applyBonePitch(this.mesh, bones, 'Neck', slump * 0.9);
+        applyBonePitch(this.mesh, bones, 'Head', slump * 0.7);
+      }
       if (this.deathTimer > 0.6) {
         const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
         this.mesh.traverse((o) => {
@@ -969,15 +1043,30 @@ class Bot {
       this.mesh.userData.arms[0].rotation.x = -swing * 0.5;
     }
 
-    // Aim the gun at whatever we are shooting at.
-    if (this.target && (this.state === ST.SHOOT || this.state === ST.NADE)) {
+    // Aim at whatever we are shooting at.
+    const engaging = this.target && (this.state === ST.SHOOT || this.state === ST.NADE
+                                     || (this.state === ST.COVER && this.peekTimer > 0));
+    let pitch = 0;
+    if (engaging) {
       const dy = this.target.pos.y - this.eye.y;
-      const dh = Math.hypot(this.target.pos.x - this.body.position.x, this.target.pos.z - this.body.position.z);
-      const pitch = clamp(Math.atan2(dy, dh), -1.1, 1.1);
-      this.gunMesh.rotation.x = pitch;
-      if (this.mesh.userData.arms) this.mesh.userData.arms[1].rotation.x = -pitch;
-    } else {
-      this.gunMesh.rotation.x = lerp(this.gunMesh.rotation.x, 0, Math.min(1, 6 * dt));
+      const dh = Math.hypot(this.target.pos.x - this.body.position.x,
+                            this.target.pos.z - this.body.position.z);
+      pitch = clamp(Math.atan2(dy, dh), -1.1, 1.1);
+    }
+    this.aimPitch = lerp(this.aimPitch ?? 0, pitch, Math.min(1, 9 * dt));
+    this.gunMesh.rotation.x = this.aimPitch;
+
+    const bones = this.mesh.userData.bones;
+    if (bones) {
+      // Split the aim down the spine the way a person does: most of it at the chest, the
+      // rest at the neck and head. Applied after mixer.update so it layers on top of the
+      // locomotion clip rather than being overwritten by it.
+      applyBonePitch(this.mesh, bones, 'Spine1', this.aimPitch * 0.30);
+      applyBonePitch(this.mesh, bones, 'Spine2', this.aimPitch * 0.30);
+      applyBonePitch(this.mesh, bones, 'Neck', this.aimPitch * 0.22);
+      applyBonePitch(this.mesh, bones, 'Head', this.aimPitch * 0.18);
+    } else if (this.mesh.userData.arms) {
+      this.mesh.userData.arms[1].rotation.x = -this.aimPitch;
     }
   }
 
@@ -987,6 +1076,8 @@ class Bot {
     this.alive = false;
     this.state = ST.DEAD;
     this.deathTimer = 0;
+    // Which way the body twists as it goes down, so two deaths never look identical.
+    this.deathTwist = rand(-0.9, 0.9);
     // setPlanarVelocity only records a wish, and simStep() returns before applyLocomotion()
     // once alive is false — so a corpse needs its velocity cleared here or it keeps sliding.
     this.setPlanarVelocity(0, 0);
@@ -1021,12 +1112,29 @@ class Bot {
     this.gunMesh.position.copy(this.gunAnchor());
     this.mesh.add(this.gunMesh);
     this.mesh.rotation.x = 0;
+    this.aimPitch = 0;
+    const bones = this.mesh.userData.bones;
+    if (bones) for (const name of Object.keys(bones)) applyBonePitch(this.mesh, bones, name, 0);
     this.mesh.visible = true;
     this.mesh.traverse((o) => { if (o.isMesh) { o.material.opacity = 1; o.material.transparent = false; } });
     this.blip.visible = true;
     this.plate.root.style.display = '';
     this.updateTransforms();
   }
+}
+
+/**
+ * Add `extra` radians of pitch to a bone, on top of whatever the animation clip posed it to.
+ *
+ * The mixer writes absolute bone rotations every frame, so simply assigning rotation.x would
+ * be overwritten by the next clip update and the aim would flicker at the clip's frame rate.
+ * The rest pose captured at build time is the reference the offset is measured from.
+ */
+function applyBonePitch(meshGroup, bones, name, extra) {
+  const bone = bones[name];
+  if (!bone) return;
+  const rest = meshGroup.userData.restPitch?.get(name) ?? 0;
+  bone.rotation.x = rest + extra;
 }
 
 /** A gunshot is audible: everyone close enough who is not already engaged perks up. */
@@ -1044,6 +1152,8 @@ return {
   bots,
   Bot,
   loadSoldier,
+  registerBotClips,
+  botClipNames: BOT_CLIP_NAMES,
   buildBotGun,
   alertBots,
 };

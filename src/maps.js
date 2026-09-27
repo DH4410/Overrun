@@ -412,11 +412,147 @@ const _spFrom = new CANNON.Vec3();
 const _spTo = new CANNON.Vec3();
 const _spRes = new CANNON.RaycastResult();
 
-function buildSpawnPoints() {
+/* ================================================================== *
+ * === FOUNDRY — the competitive map ===
+ * ================================================================== */
+
+/**
+ * A compact, deliberately symmetric arena, built for the 1v1 duel and for anyone who wants
+ * a map that rewards knowing it.
+ *
+ * Both other maps are asymmetric: the warehouse is a ring with props scattered by hand, and
+ * the dungeon is a random carve. Neither can host a fair duel, because "who got the better
+ * spawn" is decided by the level rather than by the players. Foundry has exact 180-degree
+ * rotational symmetry — every solid is placed through mirrored(), which emits the piece at
+ * (x, z) and again at (-x, -z) — so the two ends are the same position played from opposite
+ * sides, and a duel round is decided by aim and timing.
+ *
+ * The shape is three lanes, which is the oldest competitive layout there is because it
+ * works: two flanks and a contested middle. Mid holds a raised platform, so taking it buys
+ * you height and sightlines into both lanes but puts you in the open to everyone; the lanes
+ * are safer, slower, and let you arrive behind someone who took mid. Every sightline is
+ * broken at least once by cover, so no angle is a free kill from spawn.
+ */
+const FOUNDRY_HALF = 32;      // floor spans 64 x 64 m
+const FOUNDRY_CEIL = 8;
+const FOUNDRY_MID_H = 1.5;    // height of the mid platform's walking surface
+
+/** Emit a piece at (x, z) and again rotated 180 degrees, to (-x, -z). */
+function mirrored(emit) {
+  emit(1);
+  emit(-1);
+}
+
+function buildFoundry() {
+  const H = FOUNDRY_HALF;
+  const CEIL_Y = FOUNDRY_CEIL;
+
+  /* ---- floor ---- */
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2), MATS.floor);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  mapGroup.add(floor);
+  addStaticBox(H, 0.5, H, { x: 0, y: -0.5, z: 0 });
+
+  /* ---- ceiling, on the layer the minimap camera skips ---- */
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2), MATS.ceiling);
+  ceil.rotation.x = Math.PI / 2;
+  ceil.position.y = CEIL_Y;
+  ceil.layers.set(L_CEIL);
+  mapGroup.add(ceil);
+  addStaticBox(H, 0.5, H, { x: 0, y: CEIL_Y + 0.5, z: 0 });
+
+  /* ---- outer shell. block:false because the walls ARE the boundary; marking them as
+         blockers would push every nav waypoint away from the edge and strand the lanes. ---- */
+  addSolid(H * 2, CEIL_Y, 1.5, 0, CEIL_Y / 2, -H, MATS.wall, { block: false });
+  addSolid(H * 2, CEIL_Y, 1.5, 0, CEIL_Y / 2, H, MATS.wall, { block: false });
+  addSolid(1.5, CEIL_Y, H * 2, -H, CEIL_Y / 2, 0, MATS.wall, { block: false });
+  addSolid(1.5, CEIL_Y, H * 2, H, CEIL_Y / 2, 0, MATS.wall, { block: false });
+  addBlocker(0, -H, H, 1.4); addBlocker(0, H, H, 1.4);
+  addBlocker(-H, 0, 1.4, H); addBlocker(H, 0, 1.4, H);
+
+  /* ---- lane dividers: two walls per side, split by a doorway at z = 0 so mid and the
+         lanes actually connect. Without the doorway the lanes are three separate maps. ---- */
+  mirrored((s) => {
+    addSolid(1.2, 5.0, 15, s * 12, 2.5, s * 12.5, MATS.wall);     // outer half
+    addSolid(1.2, 5.0, 9, s * 12, 2.5, s * -2.5, MATS.wall);      // inner half
+  });
+
+  /* ---- mid platform: height and sightlines, reachable by a ramp from each side ---- */
+  addSolid(13, FOUNDRY_MID_H, 13, 0, FOUNDRY_MID_H / 2, 0, MATS.metal, { block: false });
+  mirrored((s) => {
+    addRamp(s * 2.6, 0, s * 12.5, s * 2.6, FOUNDRY_MID_H, s * 6.0, 5.0, MATS.metal);
+    // A chest-high lip along the platform edge, so holding mid still means taking cover.
+    addSolid(13, 1.0, 0.7, s * 0, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
+  });
+
+  /* ---- spawn-side cover: the first thing you can stand behind out of spawn ---- */
+  mirrored((s) => {
+    addSolid(6, 2.0, 1.2, s * -6, 1.0, s * 21, MATS.wall);
+    addSolid(1.2, 2.0, 6, s * 21, 1.0, s * 21, MATS.wall);
+  });
+
+  /* ---- crates. Every one is mirrored, so a crate you can peek from has a twin the other
+         side can peek from at exactly the same angle. ---- */
+  mirrored((s) => {
+    addSolid(2.4, 1.4, 2.4, s * 20, 0.7, s * 4, MATS.metal);
+    addSolid(2.4, 1.4, 2.4, s * 22, 0.7, s * -6, MATS.metal);
+    addSolid(2.0, 2.2, 2.0, s * 7, 1.1, s * 18, MATS.metal);
+    addSolid(3.0, 1.2, 1.4, s * -18, 0.6, s * 9, MATS.metal);
+    addSolid(1.4, 1.8, 3.0, s * -25, 0.9, s * -3, MATS.metal);
+  });
+
+  /* ---- pillars, breaking the long shell-hugging sightlines ---- */
+  mirrored((s) => {
+    addPillar(s * 27, s * 13, 0.8, CEIL_Y, MATS.metal);
+    addPillar(s * 5, s * 27, 0.8, CEIL_Y, MATS.metal);
+  });
+}
+
+/** Mirrored spawn candidates. Listed in pairs so the symmetry is checkable by eye. */
+const FOUNDRY_SPAWNS = [
+  [0, 27], [0, -27],
+  [-9, 25], [9, -25],
+  [9, 25], [-9, -25],
+  [24, 24], [-24, -24],
+  [-24, 24], [24, -24],
+  [28, 0], [-28, 0],
+  [17, -14], [-17, 14],
+];
+
+function buildFoundryMap() {
+  buildFoundry();
+  buildSpawnPoints(FOUNDRY_SPAWNS, [[0, 27], [0, -27], [26, 0], [-26, 0]], FOUNDRY_CEIL - 0.5);
+  // Ammo sits in the lanes, health and shield out on the flanks — so topping up costs you
+  // the map control you spent the round taking.
+  spawnAmmoChests([
+    [20, 0], [-20, 0], [0, 20], [0, -20],
+    [26, 16], [-26, -16], [-26, 16], [26, -16],
+  ], 6);
+  spawnConsumables([
+    ['health', 28, 8], ['health', -28, -8],
+    ['shield', -14, 22], ['shield', 14, -22],
+    ['health', 0, 0], ['shield', 24, -24], ['shield', -24, 24],
+  ], 8);
+}
+
+/**
+ * `castY` is the height the ground-finding rays start from, and it must sit BELOW the
+ * current map's roof collider. This is the same trap documented on spawnCastY for the pickup
+ * spawners: the warehouse roof is at CONFIG.CEIL = 10, so a hardcoded 9.5 works there and
+ * silently breaks on any map with a lower lid. Foundry's roof spans y = 8.0 to 9.0, so a ray
+ * from 9.5 hit the top of the roof and every spawn point landed on it — the duel then opened
+ * with both players 10.5 m in the air.
+ */
+function buildSpawnPoints(
+  candidates = SPAWN_CANDIDATES,
+  fallback = [[0, 28], [0, -28], [28, 0], [-28, 0]],
+  castY = CONFIG.CEIL - 0.5,
+) {
   let rejected = 0;
-  for (const [x, z] of SPAWN_CANDIDATES) {
+  for (const [x, z] of candidates) {
     if (inBlocker(x, z, 2.0)) { rejected++; continue; }        // pillar, ramp, crate, low wall
-    _spFrom.set(x, CONFIG.CEIL - 0.5, z);
+    _spFrom.set(x, castY, z);
     _spTo.set(x, -1, z);
     _spRes.reset();
     world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
@@ -425,7 +561,7 @@ function buildSpawnPoints() {
   }
   // Never leave the game unable to spawn anyone.
   if (spawnPoints.length < 4) {
-    for (const [x, z] of [[0, 28], [0, -28], [28, 0], [-28, 0]]) {
+    for (const [x, z] of fallback) {
       spawnPoints.push(new THREE.Vector3(x, 0.9, z));
     }
   }
@@ -1196,6 +1332,9 @@ return {
   placeArenaProps,
   buildSpawnPoints,
   buildDungeonMap,
+  buildFoundryMap,
+  foundryHalf: FOUNDRY_HALF,
+  foundryCeil: FOUNDRY_CEIL,
   buildWaypoints,
   buildMapLayer,
 };
@@ -1212,6 +1351,9 @@ export function createMapController({
   placeArenaProps,
   buildSpawnPoints,
   buildDungeonMap,
+  buildFoundryMap,
+  foundryHalf,
+  foundryCeil,
   buildWaypoints,
   buildMapLayer,
   clearMap,
@@ -1256,6 +1398,25 @@ export function createMapController({
           ['shield', 20, 0], ['shield', -20, 0], ['shield', 34, -34], ['shield', -34, 34],
         ]);
       },
+    },
+    foundry: {
+      name: 'FOUNDRY',
+      blurb: 'Compact three-lane arena, mirrored end to end. Built for duels.',
+      background: 0x0b1016,
+      fog: { color: 0x0b1016, near: 40, far: 130 },
+      mapView: 40,
+      ceilY: foundryCeil,
+      // A finer nav step than the warehouse: the lanes are ~9 m wide, so an 8.5 m graph
+      // would put at most one node across a lane and bots would hug the walls.
+      nav: { extent: foundryHalf - 2, step: 5.5, pad: 1.0, coverPad: 2.8 },
+      layerExtent: foundryHalf + 2,
+      plates: { ground: 0x10161d, solid: 0x6f8496 },
+      lighting: {
+        ambient: { color: 0x9db4cc, intensity: 0.55 },
+        hemi: { sky: 0x8fa9c4, ground: 0x262c34, intensity: 0.85 },
+        sun: { color: 0xfff4e2, intensity: 1.55, pos: [26, 48, 18], extent: foundryHalf * 1.1, far: 140 },
+      },
+      build() { buildFoundryMap(); },
     },
     dungeon: {
       name: 'DUNGEON',

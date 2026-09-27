@@ -389,6 +389,7 @@ function updateMatch(dt) {
     // startDuelRound() revived the player; clear the overlay it left behind.
     el.pCta.style.display = '';
     el.pBig.textContent = 'PAUSED';
+    el.pSm.textContent = '';        // otherwise the round countdown lingers under PAUSED
     if (isPointerLocked()) el.pause.classList.remove('on');
   }
   for (const b of bots) {

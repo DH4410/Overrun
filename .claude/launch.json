@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "overrun",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/serve-tests.mjs"],
+      "port": 4173
+    }
+  ]
+}

@@ -518,6 +518,45 @@ function buildFoundry() {
     addPillar(s * 27, s * 13, 0.8, CEIL_Y, MATS.metal);
     addPillar(s * 5, s * 27, 0.8, CEIL_Y, MATS.metal);
   });
+
+  buildFoundryLights();
+}
+
+/**
+ * Interior lighting for Foundry.
+ *
+ * This is not optional decoration. The map is a sealed box with a roof at y = 8, so the
+ * directional sun contributes almost nothing indoors and the ambient and hemisphere terms
+ * alone leave the floor effectively black — the first playable build of this map rendered
+ * as a black screen with a faint wall edge. The warehouse does not have that problem only
+ * because buildArena() calls buildLights(); Foundry needed its own.
+ *
+ * Lamps are requests for one of the shared MAX_POINT_LIGHTS slots rather than lights of
+ * their own, so adding them here costs nothing when they are out of range or budget.
+ * Mirrored like everything else, so neither side is better lit than the other.
+ */
+function buildFoundryLights() {
+  const y = FOUNDRY_CEIL - 1.0;
+  const lamp = (x, z, color, intensity, distance) => {
+    addLightEmitter({ x, y, z, color, intensity, distance, priority: 1 });
+    const bulb = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.1, 1.5, 0.5, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffeccd }),
+    );
+    bulb.position.set(x, y, z);
+    bulb.layers.set(L_CEIL);
+    mapGroup.add(bulb);
+  };
+
+  // One warm lamp per lane end, so both flanks and both spawns read.
+  mirrored((s) => {
+    lamp(s * 20, s * 18, 0xffd9a8, 300, 52);
+    lamp(s * -20, s * 14, 0xffd9a8, 300, 52);
+    lamp(s * 2, s * 24, 0xffd9a8, 260, 46);
+  });
+  // Cool key over mid, so the contested ground is the brightest thing on the map and a
+  // silhouette standing on the platform is readable from either lane.
+  addLightEmitter({ x: 0, y, z: 0, color: 0xbfd8ff, intensity: 420, distance: 70, priority: 1 });
 }
 
 /** Mirrored spawn candidates. Listed in pairs so the symmetry is checkable by eye. */

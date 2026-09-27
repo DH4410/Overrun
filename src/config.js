@@ -47,6 +47,15 @@ export const CONFIG = {
   RESPAWN_DELAY: 4.0,
   PLAYER_RESPAWN: 3.0,
 
+  // 1v1 duel. Round-based rather than kill-based: one life each, the round ends the moment
+  // someone dies, and the match is first to DUEL_ROUNDS. DUEL_ROUND_SECONDS exists so a
+  // player who refuses to take the fight loses the round instead of stalling the match
+  // forever — a timed-out round is a draw and scores for neither side.
+  DUEL_ROUNDS: 7,
+  DUEL_ROUND_SECONDS: 75,
+  DUEL_RESET_DELAY: 3.5,
+  DUEL_WEAPON: 'ar',
+
   MAX_DECALS: 90,
   SENS: 0.0022,
 };

@@ -6,7 +6,7 @@ import {
   TEAM_COLOR,
 } from './config.js';
 
-export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL' };
+export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL' };
 export const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
 
 export function createMatchState() {
@@ -21,6 +21,12 @@ export function createMatchState() {
     kills: 0,
     wave: 1,
     waveBreak: 0,
+    // Duel only. roundsA is the player's, roundsB the bot's; roundReset counts down the
+    // interval between rounds and is <= 0 whenever a round is actually being played.
+    roundsA: 0,
+    roundsB: 0,
+    roundTime: 0,
+    roundReset: 0,
   };
 }
 
@@ -33,6 +39,7 @@ export function createMatchRuntime({
   combatants,
   allyMarks,
   pickSpawn,
+  spawnPoints,
   switchMap,
   getCurrentMapId,
   setAppState,
@@ -59,8 +66,8 @@ export function createMatchRuntime({
 let nameSeed = 0;
 function nextBotName() { return BOT_NAMES[(nameSeed++) % BOT_NAMES.length]; }
 
-function addBot(team) {
-  const b = new Bot(nextBotName(), team, match.diff);
+function addBot(team, weaponId = null) {
+  const b = new Bot(nextBotName(), team, match.diff, weaponId);
   const sp = pickSpawn(team);
   b.body.position.set(sp.x, sp.y + 0.5, sp.z);
   b.updateTransforms();
@@ -86,19 +93,26 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   switchMap(mapId);
 
   match.mode = mode;
-  match.diff = DIFFICULTY[diffKey];
+  // The duel is the elite bot's mode — the menu difficulty does not apply to it. Note that
+  // a tier also carries `bots`, the DM headcount, so elite must specify bots: 1.
+  match.diff = mode === 'duel' ? DIFFICULTY.elite : DIFFICULTY[diffKey];
   match.running = true;
   setAppState(APP_STATE.PLAYING);
   match.time = 0;
   match.timeLeft = CONFIG.MATCH_SECONDS;
   match.scoreA = 0; match.scoreB = 0;
   match.kills = 0; match.wave = 1; match.waveBreak = 0;
+  match.roundsA = 0; match.roundsB = 0;
+  match.roundTime = CONFIG.DUEL_ROUND_SECONDS; match.roundReset = 0;
   nameSeed = 0;
 
   player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
   player.kills = 0; player.deaths = 0;
   player.team = mode === 'tdm' ? TEAM.BLUE : TEAM.SOLO;
-  player.current = 'pistol';
+  // A duel is a mirror match, so both sides start on the same gun rather than the player
+  // opening on a pistol against whatever the bot happened to roll.
+  match.loadout = mode === 'duel' ? CONFIG.DUEL_WEAPON : 'pistol';
+  player.current = match.loadout;
   player.cooking = null;
   player.cooldown = 0; player.reloading = 0;
   player.recoilPitch = 0; player.recoilYaw = 0;
@@ -115,6 +129,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
     for (let i = 0; i < 3; i++) addBot(TEAM.RED);
   } else if (mode === 'dm') {
     for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO);
+  } else if (mode === 'duel') {
+    addBot(TEAM.RED, CONFIG.DUEL_WEAPON);
   } else {
     for (let i = 0; i < 4; i++) addBot(TEAM.RED);
   }
@@ -122,7 +138,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   const playerBlipColor = TEAM_COLOR[player.team];
   playerBlip.traverse((o) => { if (o.material) o.material.color.setHex(playerBlipColor); });
 
-  respawnPlayer(true);
+  if (mode === 'duel') startDuelRound(); else respawnPlayer(true);
   el.vname.textContent = player.name;
   el.tbMode.textContent = MODE_LABEL[mode];
   el.menu.classList.add('hidden');
@@ -150,8 +166,8 @@ function endMatch(title, sub) {
   clearEffects();
 }
 
-function respawnPlayer(immediate = false) {
-  const sp = pickSpawn(player.team);
+function respawnPlayer(immediate = false, at = null) {
+  const sp = at ?? pickSpawn(player.team);
   player.body.position.set(sp.x, sp.y + 0.6, sp.z);
   player.body.velocity.set(0, 0, 0);
   player.body.wakeUp();
@@ -165,7 +181,7 @@ function respawnPlayer(immediate = false) {
   player.reloading = 0;
   player.cooldown = 0.4;
   resetPlayerAmmo();                  // includes the one-smoke-per-life reset
-  player.current = 'pistol';
+  player.current = match.loadout ?? 'pistol';
   player.pitch = 0;
   // Face the middle of the arena, never the wall you happened to spawn against. Forward is
   // (-sin yaw, -cos yaw), so aiming it at the origin from (x, z) gives yaw = atan2(x, z).
@@ -173,6 +189,50 @@ function respawnPlayer(immediate = false) {
   if (!immediate) showPause(false);
   updateAmmoHud();
   updateVitals();
+}
+
+/* ----------------------------- 1v1 duel ----------------------------- */
+
+/**
+ * Place both duellists for a fresh round.
+ *
+ * pickSpawn() maximises distance from live enemies, which is right for a respawn mid-fight
+ * but not for a duel: it is evaluated per combatant, so whoever is placed second reacts to
+ * the first and the two sides get measurably unequal openings. A duel has to be a mirror,
+ * so this picks the single farthest-apart PAIR of spawn points up front and coin-flips who
+ * gets which end. Both then face the middle, as respawnPlayer() already does.
+ */
+function startDuelRound() {
+  const pts = spawnPoints;
+  let a = pts[0], b = pts[pts.length - 1], bestD = -1;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = pts[i].distanceToSquared(pts[j]);
+      if (d > bestD) { bestD = d; a = pts[i]; b = pts[j]; }
+    }
+  }
+  if (Math.random() < 0.5) { const t = a; a = b; b = t; }
+
+  respawnPlayer(true, a);
+  const bot = bots[0];
+  if (bot) {
+    bot.respawn(b);
+    bot.invulnTimer = 0;
+    bot.respawnTimer = 0;
+  }
+  match.roundTime = CONFIG.DUEL_ROUND_SECONDS;
+  match.roundReset = 0;
+}
+
+/** End a duel round. `winner` is 'player', 'bot', or null for a timed-out draw. */
+function endDuelRound(winner) {
+  if (match.roundReset > 0) return;          // already resetting; ignore a second death
+  if (winner === 'player') match.roundsA++;
+  else if (winner === 'bot') match.roundsB++;
+  match.roundReset = CONFIG.DUEL_RESET_DELAY;
+  const label = winner === 'player' ? 'ROUND WON' : winner === 'bot' ? 'ROUND LOST' : 'ROUND DRAW';
+  showToast(`${label}  ${match.roundsA} – ${match.roundsB}`);
+  checkWinConditions();
 }
 
 /** The single place a death is booked, for the player and for bots alike. */
@@ -190,6 +250,9 @@ function killCombatant(target, source, headshot) {
     } else if (match.mode === 'dm') {
       if (source === player) match.scoreA++;
       // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
+    } else if (match.mode === 'duel') {
+      // Rounds are scored in endDuelRound() below, off the death rather than off the kill,
+      // so that a duellist who falls out of the map still loses the round.
     } else if (source === player) {
       match.kills++;
     }
@@ -207,6 +270,8 @@ function killCombatant(target, source, headshot) {
     target.respawnTimer = CONFIG.RESPAWN_DELAY;
   }
   refreshBoard();
+  // One life each: a duel death ends the round rather than starting a respawn timer.
+  if (match.mode === 'duel') { endDuelRound(target === player ? 'bot' : 'player'); return; }
   checkWinConditions();
 }
 
@@ -225,6 +290,14 @@ function checkWinConditions() {
   } else if (match.mode === 'tdm') {
     if (match.scoreA >= CONFIG.TDM_TARGET) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
     if (match.scoreB >= CONFIG.TDM_TARGET) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
+  } else if (match.mode === 'duel') {
+    const enemy = bots[0];
+    if (match.roundsA >= CONFIG.DUEL_ROUNDS) {
+      return endMatch('DUEL WON', `${match.roundsA} – ${match.roundsB} vs ${enemy ? enemy.name : 'ELITE'}`);
+    }
+    if (match.roundsB >= CONFIG.DUEL_ROUNDS) {
+      return endMatch('DUEL LOST', `${match.roundsB} – ${match.roundsA} to ${enemy ? enemy.name : 'ELITE'}`);
+    }
   }
 }
 
@@ -232,7 +305,16 @@ function updateMatch(dt) {
   if (!match.running) return;
   match.time += dt;
 
-  if (match.mode === 'sv') {
+  if (match.mode === 'duel') {
+    if (match.roundReset > 0) {
+      match.roundReset -= dt;
+      if (match.roundReset <= 0 && match.running) startDuelRound();
+    } else {
+      match.roundTime -= dt;
+      // A round nobody wins scores for nobody, so hiding out the clock gains you nothing.
+      if (match.roundTime <= 0) { match.roundTime = 0; endDuelRound(null); }
+    }
+  } else if (match.mode === 'sv') {
     // Endless waves: 4 -> 6 -> 8 ... with a short breather between them.
     const anyAlive = bots.some((b) => b.alive);
     if (!anyAlive) {
@@ -269,27 +351,43 @@ function updateMatch(dt) {
     }
   }
 
-  // Respawns.
+  // Respawns. In a duel both sides are placed by startDuelRound() instead, so the only
+  // thing left here is the death overlay, counting down to the next round rather than to
+  // a respawn.
   if (!player.alive) {
     player.respawnTimer -= dt;
     el.pause.classList.add('on');
     el.pBig.textContent = 'ELIMINATED';
-    el.pSm.textContent = `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
+    el.pSm.textContent = match.mode === 'duel'
+      ? `ROUND ${match.roundsA + match.roundsB + 1} IN ${Math.max(0, match.roundReset).toFixed(1)}s`
+      : `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
     // The death screen is not a pause — the resume prompt would just be confusing here.
     el.pCta.style.display = isPointerLocked() ? 'none' : '';
-    if (player.respawnTimer <= 0) {
+    if (player.respawnTimer <= 0 && match.mode !== 'duel') {
       respawnPlayer();
       el.pCta.style.display = '';
       if (isPointerLocked()) el.pause.classList.remove('on');
     }
+  } else if (match.mode === 'duel' && el.pBig.textContent === 'ELIMINATED') {
+    // startDuelRound() revived the player; clear the overlay it left behind.
+    el.pCta.style.display = '';
+    el.pBig.textContent = 'PAUSED';
+    if (isPointerLocked()) el.pause.classList.remove('on');
   }
   for (const b of bots) {
-    if (b.alive || match.mode === 'sv') continue;
+    // Survival waves and duel rounds both place their own bots; neither auto-respawns.
+    if (b.alive || match.mode === 'sv' || match.mode === 'duel') continue;
     if (b.respawnTimer <= 0) b.respawn(pickSpawn(b.team));
   }
 
   // Top bar.
-  if (match.mode === 'sv') {
+  if (match.mode === 'duel') {
+    el.tbA.textContent = match.roundsA;
+    el.tbB.textContent = match.roundsB;
+    el.tbTime.textContent = match.roundReset > 0
+      ? `NEXT ${Math.ceil(match.roundReset)}`
+      : formatTime(match.roundTime);
+  } else if (match.mode === 'sv') {
     el.tbA.textContent = match.kills;
     el.tbB.textContent = `W${match.wave}`;
     el.tbTime.textContent = formatTime(match.time);
@@ -313,6 +411,7 @@ function formatTime(s) {
 return {
   addBot,
   clearBots,
+  startDuelRound,
   startMatch,
   endMatch,
   respawnPlayer,

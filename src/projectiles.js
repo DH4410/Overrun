@@ -325,6 +325,7 @@ function syncGrenades() {
 }
 
 return {
+  bullets,
   clearBullets,
   stepBullets,
   fireWeapon,

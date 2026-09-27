@@ -1026,3 +1026,9 @@ kbd {
   #play { padding: 13px 10px; }
   #player-card { padding-top: 16px; }
 }
+
+/* 1v1 duel locks the difficulty pills — the elite tier is part of the mode, not a choice.
+   Greyed rather than hidden so the reason the pills stopped responding is visible. */
+#diff-locked { display: none; font-size: 10px; letter-spacing: 2px; color: var(--warn); margin-top: 6px; }
+#diffgrp.locked #diffs { opacity: .32; pointer-events: none; filter: grayscale(1); }
+#diffgrp.locked #diff-locked { display: block; }

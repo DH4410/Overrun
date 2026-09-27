@@ -86,6 +86,18 @@ export const DIFFICULTY = {
    *     `counterStrafe` is it doing exactly that — the stop is a real, punishable window;
    *   - `reaction` 0.18 s is a fast human, not zero. You can still win the peek.
    * Beat it by never being the one standing still.
+   *
+   * Measured by tests/e2e/duel.spec.mjs — 60 AR rounds down a verified-clear 20 m lane at a
+   * stationary target, settled aim:
+   *
+   *            hit rate   headshot share
+   *   hard        0.72         0.02
+   *   elite       1.00         0.75
+   *   elite, while strafing at 4.6 m/s:  0.03
+   *
+   * The headshot share is the real gap: elite converts a hit into a kill roughly twice as
+   * fast as any other tier even where the raw hit rates are close. The strafing row is the
+   * counter-play, and the test asserts it stays that way.
    */
   elite: {
     label: 'ELITE', accuracy: 0.98, reaction: 0.18, bots: 1, aggression: 1.0,
@@ -576,11 +588,17 @@ class Bot {
   aimPoint(target, out) {
     out.copy(target.pos);
     if (this.aim.headBias > 0 && Math.random() < this.aim.headBias) {
-      // Aim at the lower half of the head sphere: dead-centre on a 0.27 m ball means half
-      // of the residual error misses high over the shoulder, where there is no hitbox at
-      // all, while the same error low still catches the chest.
+      // Dead centre of the head sphere, NOT its lower edge.
+      //
+      // Aiming low looks like the safer choice — residual error then falls back onto the
+      // chest rather than over the shoulder. It is not, because of how the zones resolve:
+      // the limb volume is a cylinder of radius bodyR * 1.6 whose top reaches headY - 0.10,
+      // and nearestCombatantHit() takes the NEAREST volume along the ray. A wide cylinder
+      // is entered before the narrow head sphere, so any shot aimed at the head's lower
+      // edge scores as a 0.6x limb hit instead of a 2.4x headshot. Measured: aiming low put
+      // essentially every connection in the limb zone. Centre clears the cylinder.
       const hb = target.hb ?? HB_BOT;
-      out.y += hb.headY - hb.headR * 0.35;
+      out.y += hb.headY;
     }
     return out;
   }

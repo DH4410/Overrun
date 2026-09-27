@@ -26,7 +26,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createAudio } from './audio.js';
-import { BOT_RANGE_BAND, createBotRuntime } from './bots.js';
+import {
+  AIM,
+  BOT_RANGE_BAND,
+  DIFFICULTY,
+  aimProfile,
+  createBotRuntime,
+} from './bots.js';
 import { createEffects } from './effects.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
@@ -354,6 +360,7 @@ const player = createPlayerState();
 combatants.push(player);
 
 const {
+  bullets,
   clearBullets,
   stepBullets,
   fireWeapon,
@@ -779,6 +786,7 @@ const {
 const {
   addBot,
   clearBots,
+  startDuelRound,
   startMatch,
   endMatch,
   respawnPlayer,
@@ -795,6 +803,7 @@ const {
   combatants,
   allyMarks,
   pickSpawn,
+  spawnPoints,
   switchMap,
   getCurrentMapId,
   setAppState: (state) => { appState = state; },
@@ -1044,13 +1053,14 @@ async function boot() {
   const isLocal = ['localhost', '127.0.0.1', ''].includes(location.hostname);
   if (isLocal) window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
-    renderer, fixedStep, camera, spawnStats,
+    renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}` },
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,
     settings, applySettings, QUALITY, vmCamera,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
+    DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     currentMapId: getCurrentMapId,
     forceUpdatePlates: (dt) => updatePlates(dt),
     // Everything that normally runs once per rendered frame, so a headless soak test can

@@ -27,12 +27,19 @@ function bindMenu() {
   }
   if (blurb) blurb.textContent = MAPS[map].blurb;
 
+  // The duel always runs the elite opponent, so the difficulty pills do not apply to it.
+  // Grey them out rather than hiding them, so it is obvious why they stopped responding.
+  const diffGrp = $('diffgrp');
+  const syncDiffLock = () => diffGrp?.classList.toggle('locked', mode === 'duel');
+
   for (const b of document.querySelectorAll('.mode-btn')) {
     b.addEventListener('click', () => {
       mode = b.dataset.mode;
       document.querySelectorAll('.mode-btn').forEach((x) => x.classList.toggle('active', x === b));
+      syncDiffLock();
     });
   }
+  syncDiffLock();
   for (const b of document.querySelectorAll('#diffs .pill')) {
     b.addEventListener('click', () => {
       diff = b.dataset.diff;

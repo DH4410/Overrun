@@ -1047,6 +1047,23 @@ async function loadBotAnimations() {
 
   let FBXLoader = null;
   const clips = {};
+
+  /**
+   * Restore the colon that three's FBXLoader strips from Mixamo bone names.
+   *
+   * The skeleton in soldier.glb has bones named `mixamorig:Hips`, but a clip loaded from
+   * Mixamo's own FBX arrives with tracks named `mixamorigHips` — the loader drops the
+   * separator. AnimationMixer binds tracks to nodes by exact name, and a track that matches
+   * nothing is silently ignored, so without this every clip loads, reports no error, and
+   * animates absolutely nothing. Measured across all eight clips: 0 of 53 tracks bound
+   * before this, 53 of 53 after.
+   */
+  const retarget = (clip) => {
+    for (const track of clip.tracks) {
+      track.name = track.name.replace(/^mixamorig(?=[A-Z])/, 'mixamorig:');
+    }
+    return clip;
+  };
   for (const [name, file] of Object.entries(manifest)) {
     if (!botClipNames.includes(name) || typeof file !== 'string') continue;
     const url = `./assets/bots/anim/${file}`;
@@ -1056,7 +1073,7 @@ async function loadBotAnimations() {
         const group = await new FBXLoader().loadAsync(url);
         // Mixamo puts exactly one clip in an FBX; its own name is not useful here.
         if (group.animations?.length) {
-          const clip = group.animations[0].clone();
+          const clip = retarget(group.animations[0].clone());
           clip.name = name;
           clips[name] = clip;
         }

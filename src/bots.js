@@ -187,10 +187,24 @@ const ST = {
 const BOT_FOV_COS = Math.cos((65 * Math.PI) / 180);
 const BOT_AWARE_NEAR = 6;
 
-// Planar speed (m/s) each locomotion clip in soldier.glb was authored for. Used to drive
-// action.timeScale so playback rate tracks how fast the bot is actually travelling.
-const WALK_CLIP_SPEED = 1.6;
-const RUN_CLIP_SPEED = 4.4;
+/**
+ * Planar speed (m/s) each locomotion clip was authored for, used to drive action.timeScale
+ * so playback rate tracks how fast the bot is actually travelling.
+ *
+ * The In Place exports carry no root motion, so these cannot be read back off the clip —
+ * they are Mixamo's nominal rates for these animations. Being a little wrong costs some
+ * foot-slide, not correctness, and the timeScale clamp in animate() bounds how wrong it can
+ * look either way.
+ */
+const CLIP_SPEED = {
+  Walk: 1.6,
+  Run: 4.4,
+  WalkBack: 1.4,
+  StrafeLeft: 1.5,
+  StrafeRight: 1.5,
+};
+const WALK_CLIP_SPEED = CLIP_SPEED.Walk;
+const RUN_CLIP_SPEED = CLIP_SPEED.Run;
 
 const BOT_MESH_SCALE = 1.2;
 const BOT_MESH_Y = 0.04;
@@ -911,18 +925,29 @@ class Bot {
        * and folds the spine forward through the same bone offsets the aim uses, so the
        * upper body crumples rather than staying rigid.
        */
-      const t = Math.min(1, this.deathTimer / 0.55);
-      const fall = 1 - (1 - t) * (1 - t);              // ease-out: quick, then settles
-      this.mesh.rotation.x = -Math.PI / 2 * fall;
-      this.mesh.rotation.y = this.yaw + Math.PI + (this.deathTwist ?? 0) * fall;
-      this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
-      const bones = this.mesh.userData.bones;
-      if (bones) {
-        const slump = fall * 0.5;
-        applyBonePitch(this.mesh, bones, 'Spine1', slump);
-        applyBonePitch(this.mesh, bones, 'Spine2', slump * 0.8);
-        applyBonePitch(this.mesh, bones, 'Neck', slump * 0.9);
-        applyBonePitch(this.mesh, bones, 'Head', slump * 0.7);
+      const deathAction = this.mesh.userData.clips?.Death;
+      if (deathAction) {
+        // An authored death clip is playing (started in die()). It already puts the body on
+        // the floor, so the mesh keeps its upright transform and only the mixer runs — the
+        // procedural tip-over below would fight it and lay the corpse on its side.
+        this.mesh.rotation.x = 0;
+        this.mesh.rotation.y = this.yaw + Math.PI;
+        this.mesh.position.y = this.body.position.y + BOT_MESH_Y;
+        this.mesh.userData.mixer.update(frameDt);
+      } else {
+        const t = Math.min(1, this.deathTimer / 0.55);
+        const fall = 1 - (1 - t) * (1 - t);            // ease-out: quick, then settles
+        this.mesh.rotation.x = -Math.PI / 2 * fall;
+        this.mesh.rotation.y = this.yaw + Math.PI + (this.deathTwist ?? 0) * fall;
+        this.mesh.position.y = this.body.position.y + BOT_MESH_Y - 0.45 * fall;
+        const bones = this.mesh.userData.bones;
+        if (bones) {
+          const slump = fall * 0.5;
+          applyBonePitch(this.mesh, bones, 'Spine1', slump);
+          applyBonePitch(this.mesh, bones, 'Spine2', slump * 0.8);
+          applyBonePitch(this.mesh, bones, 'Neck', slump * 0.9);
+          applyBonePitch(this.mesh, bones, 'Head', slump * 0.7);
+        }
       }
       if (this.deathTimer > 0.6) {
         const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
@@ -1014,26 +1039,82 @@ class Bot {
   }
 
   animate(dt) {
-    const speed = Math.hypot(this.body.velocity.x, this.body.velocity.z);
+    const vx = this.body.velocity.x, vz = this.body.velocity.z;
+    const speed = Math.hypot(vx, vz);
 
     const mixer = this.mesh.userData.mixer;
     if (mixer) {
-      // Rigged soldier: cross-fade idle -> walk -> run on planar speed. Weights are lerped
-      // rather than switched so a bot changing pace does not pop between clips.
+      /**
+       * Directional locomotion blend.
+       *
+       * Speed alone is not enough once bots strafe and back off as much as this one does:
+       * blending only idle/walk/run meant a bot side-stepping across your crosshair played
+       * a forward walk while travelling sideways, and a bot giving ground moon-walked. The
+       * blend is now over the movement direction in the bot's OWN frame.
+       *
+       * Forward is (sin yaw, cos yaw) because yaw is measured from +Z, and the character's
+       * right is therefore (-cos yaw, sin yaw) — the same perpendicular combatMove() uses
+       * for strafing, so a positive lateral component here is the same direction it asked
+       * to move in.
+       */
       const clips = this.mesh.userData.clips;
-      const wRun = clamp((speed - 3.2) / 2.5, 0, 1);
-      const wWalk = clamp((speed - 0.25) / 2.0, 0, 1) * (1 - wRun);
-      const wIdle = 1 - wWalk - wRun;
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      const moving = clamp((speed - 0.25) / 1.5, 0, 1);
+      const fwd = speed > 0.05 ? (vx * fx + vz * fz) / speed : 1;
+      const rgt = speed > 0.05 ? (vx * -fz + vz * fx) / speed : 0;
+
+      // Split the movement weight between the four directional clips by how much of the
+      // travel each one accounts for.
+      const parts = {
+        fwd: Math.max(0, fwd),
+        back: Math.max(0, -fwd),
+        right: Math.max(0, rgt),
+        left: Math.max(0, -rgt),
+      };
+      const total = parts.fwd + parts.back + parts.right + parts.left || 1;
+      const runBlend = clamp((speed - 3.2) / 2.5, 0, 1);
+
+      const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0 };
+      // Any direction we have no clip for falls back to the forward walk/run pair, so a
+      // partial clip set degrades to the old behaviour instead of freezing mid-stride.
+      const put = (name, weight) => {
+        if (weight <= 0) return;
+        if (clips[name]) want[name] += weight;
+        else { want.Run += weight * runBlend; want.Walk += weight * (1 - runBlend); }
+      };
+      const share = (p) => (p / total) * moving;
+      want.Run += share(parts.fwd) * runBlend;
+      want.Walk += share(parts.fwd) * (1 - runBlend);
+      put('WalkBack', share(parts.back));
+      put('StrafeRight', share(parts.right));
+      put('StrafeLeft', share(parts.left));
+
+      // Tucked into cover: hold a crouch rather than standing idle in the open.
+      const hiding = this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8;
+      if (hiding && clips.Crouch) {
+        for (const key of Object.keys(want)) want[key] = 0;
+        want.Crouch = 1;
+      } else {
+        let used = 0;
+        for (const key of Object.keys(want)) used += want[key];
+        want.Idle = Math.max(0, 1 - used);
+      }
+
+      // Weights are lerped rather than switched so a bot changing pace or direction does
+      // not pop between clips.
       const k = Math.min(1, 8 * dt);
-      if (clips.Idle) clips.Idle.weight = lerp(clips.Idle.weight, wIdle, k);
-      if (clips.Walk) clips.Walk.weight = lerp(clips.Walk.weight, wWalk, k);
-      if (clips.Run) clips.Run.weight = lerp(clips.Run.weight, wRun, k);
+      for (const [name, target] of Object.entries(want)) {
+        const action = clips[name];
+        if (action) action.weight = lerp(action.weight, target, k);
+      }
+
       // Foot-sliding fix: the clips were playing at their authored rate no matter how fast
       // the bot was actually moving, so the feet skated whenever the two disagreed. Drive
       // playback rate from real planar speed against the speed each clip was authored for.
       // Clamped because a bot shoved by an explosion should not windmill its legs.
-      if (clips.Walk) clips.Walk.timeScale = clamp(speed / WALK_CLIP_SPEED, 0.6, 1.8);
-      if (clips.Run) clips.Run.timeScale = clamp(speed / RUN_CLIP_SPEED, 0.6, 1.8);
+      for (const [name, authored] of Object.entries(CLIP_SPEED)) {
+        if (clips[name]) clips[name].timeScale = clamp(speed / authored, 0.6, 1.8);
+      }
       mixer.update(dt);
     } else {
       const t = performance.now() * 0.001;
@@ -1078,6 +1159,21 @@ class Bot {
     this.deathTimer = 0;
     // Which way the body twists as it goes down, so two deaths never look identical.
     this.deathTwist = rand(-0.9, 0.9);
+
+    // Authored death clip, if one was loaded. Played once and clamped on the final frame so
+    // the corpse holds its landed pose for the fade rather than snapping back to idle.
+    const clips = this.mesh.userData.clips;
+    if (clips?.Death) {
+      for (const [name, action] of Object.entries(clips)) {
+        if (name !== 'Death') action.weight = 0;
+      }
+      clips.Death.reset();
+      clips.Death.setLoop(THREE.LoopOnce, 1);
+      clips.Death.clampWhenFinished = true;
+      clips.Death.timeScale = 1;
+      clips.Death.weight = 1;
+      clips.Death.play();
+    }
     // setPlanarVelocity only records a wish, and simStep() returns before applyLocomotion()
     // once alive is false — so a corpse needs its velocity cleared here or it keeps sliding.
     this.setPlanarVelocity(0, 0);
@@ -1113,6 +1209,12 @@ class Bot {
     this.mesh.add(this.gunMesh);
     this.mesh.rotation.x = 0;
     this.aimPitch = 0;
+    const respawnClips = this.mesh.userData.clips;
+    if (respawnClips?.Death) {
+      respawnClips.Death.stop();
+      respawnClips.Death.weight = 0;
+      if (respawnClips.Idle) { respawnClips.Idle.weight = 1; respawnClips.Idle.play(); }
+    }
     const bones = this.mesh.userData.bones;
     if (bones) for (const name of Object.keys(bones)) applyBonePitch(this.mesh, bones, name, 0);
     this.mesh.visible = true;

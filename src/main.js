@@ -1135,7 +1135,7 @@ async function boot() {
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, throwGrenade, clearGrenades,
     forceHudTick: (dt) => updateHudTimers(dt),
-    currentMapId: getCurrentMapId,
+    currentMapId: getCurrentMapId, findPath,
     forceUpdatePlates: (dt) => updatePlates(dt),
     // Everything that normally runs once per rendered frame, so a headless soak test can
     // exercise the same code paths the real loop does.

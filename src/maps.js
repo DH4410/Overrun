@@ -1309,6 +1309,46 @@ function findPath(fromPos, toPos) {
   const out = [];
   for (let n = g; n !== -1; n = prev[n]) out.push(waypoints[n].pos);
   out.reverse();
+  return stringPull(fromPos, out);
+}
+
+/**
+ * Straighten a waypoint path by dropping nodes the bot can simply walk past.
+ *
+ * Breadth-first search returns the fewest GRAPH EDGES, not the shortest route, and the graph
+ * is a coarse grid — so a bot crossing open floor visibly zig-zagged from node to node
+ * instead of walking at its target. This walks the path keeping only the corners: from the
+ * current anchor, advance while there is still clear line of sight, and emit a node only
+ * where sight breaks.
+ *
+ * Run once per repath, never per frame: losClear is a raycast, and repath() already caps
+ * itself at one call every two seconds per bot, so this is a few dozen rays a second across
+ * the whole match rather than a few dozen per bot per frame.
+ *
+ * Sight is tested at 0.9 m, roughly chest height on the path itself, because the waypoint
+ * positions sit on the floor and a floor-to-floor ray grazes every ramp and kerb in the
+ * level and would refuse to straighten anything.
+ */
+function stringPull(fromPos, path) {
+  if (!path || path.length < 3) return path;
+  const Y = 0.9;
+  const out = [];
+  let anchor = fromPos;
+  let i = 0;
+  while (i < path.length - 1) {
+    // Farthest node still directly reachable from the current anchor.
+    let far = i;
+    for (let j = i + 1; j < path.length; j++) {
+      if (!losClear(anchor.x, anchor.y + Y, anchor.z, path[j].x, path[j].y + Y, path[j].z)) break;
+      far = j;
+    }
+    // No progress means even the next node is occluded; keep it and move on rather than
+    // spinning here, since the graph edge says it is walkable even if the ray disagrees.
+    const next = Math.max(far, i + 1);
+    out.push(path[next]);
+    anchor = path[next];
+    i = next;
+  }
   return out;
 }
 

@@ -3,8 +3,6 @@ import * as CANNON from 'cannon-es';
 
 import {
   CONFIG,
-  DAMP_PER_STEP,
-  PLAYER_DAMPING,
   TEAM,
 } from './config.js';
 import {
@@ -52,7 +50,10 @@ export function createPlayerState() {
   invulnTimer: 0,                    // spawn protection — see SPAWN_INVULN
   stepTimer: 0,
   sway: new THREE.Vector2(),
-};;
+  // Seconds since the last hard landing and how hard it was, for the camera dip.
+  landTime: 99, landKick: 0,
+  airVy: 0,
+};
 }
 
 /** Player simulation, damage, weapons, input, pointer lock, and gamepad runtime. */
@@ -102,16 +103,31 @@ const PLAYER_CHEST = 0.75;
 const PLAYER_CHEST_CROUCH = 0.52;  // lowers bots' aim point to match crouching camera height
 const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
 
+/**
+ * The player's collider: a wide sphere at the feet and two narrow ones up the body to the top
+ * of the head.
+ *
+ * It used to be the foot sphere alone, with the camera 1.6 m above it and nothing in between,
+ * so the whole upper body passed through anything overhead: jump under a ramp and the camera
+ * went through it and out on top. The upper spheres are deliberately NARROWER than the foot
+ * sphere, so walls and ledge edges only ever touch the feet — they cannot snag a crate lip or
+ * hoist the body onto one — and they only come into play against something overhead.
+ */
+const BODY_R = 0.3;
+const BODY_OFFSETS = { stand: [0.75, 1.35], crouch: [0.45, 0.8] };
+const HEAD_TOP = { stand: 1.35 + BODY_R, crouch: 0.8 + BODY_R };
+
 function createPlayerBody() {
   const b = new CANNON.Body({
     mass: CONFIG.PLAYER_MASS,
     material: MAT_BODY,
-    shape: new CANNON.Sphere(CONFIG.PLAYER_RADIUS),
-    linearDamping: PLAYER_DAMPING,
+    linearDamping: 0,
     angularDamping: 1,
     fixedRotation: true,
     collisionFilterGroup: G_BODY,
   });
+  b.addShape(new CANNON.Sphere(CONFIG.PLAYER_RADIUS));
+  for (const y of BODY_OFFSETS.stand) b.addShape(new CANNON.Sphere(BODY_R), new CANNON.Vec3(0, y, 0));
   b.updateMassProperties();
   world.addBody(b);
   player.body = b;
@@ -175,6 +191,26 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
 
 /* ----------------------------- movement ----------------------------- */
 
+/** Ground friction: speed falls in proportion to itself, but never slower than STOP_SPEED. */
+function applyFriction(b, dt) {
+  const sp = Math.hypot(b.velocity.x, b.velocity.z);
+  if (sp < 1e-4) { b.velocity.x = 0; b.velocity.z = 0; return; }
+  const drop = Math.max(sp, CONFIG.STOP_SPEED) * CONFIG.FRICTION * dt;
+  const k = Math.max(0, sp - drop) / sp;
+  b.velocity.x *= k;
+  b.velocity.z *= k;
+}
+
+/** Add speed along the wish direction, never past `wishSpeed` along it. */
+function accelerate(b, dx, dz, wishSpeed, accel, dt) {
+  const along = b.velocity.x * dx + b.velocity.z * dz;
+  const add = wishSpeed - along;
+  if (add <= 0) return;
+  const gain = Math.min(accel * wishSpeed * dt, add);
+  b.velocity.x += gain * dx;
+  b.velocity.z += gain * dz;
+}
+
 const _up = new CANNON.Vec3(0, 1, 0);
 const _cn = new CANNON.Vec3();
 const _wish = new THREE.Vector3();
@@ -198,14 +234,18 @@ const _crouchRes = new CANNON.RaycastResult();
 function setCrouch(on) {
   if (player.crouching === on) return;
 
+  const p = player.body.position;
   if (!on) {
-    // Overhead clearance: reject standup if there is geometry within the radius delta above us.
-    const clearNeeded = CONFIG.PLAYER_RADIUS - CONFIG.CROUCH_RADIUS;  // 0.12 m
-    _crouchFrom.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS, player.body.position.z);
-    _crouchTo.set(player.body.position.x, player.body.position.y + CONFIG.CROUCH_RADIUS + clearNeeded + 0.05, player.body.position.z);
-    _crouchRes.reset();
-    world.raycastClosest(_crouchFrom, _crouchTo, RAY_OPTS, _crouchRes);
-    if (_crouchRes.hasHit) return;  // not enough clearance — stay crouched
+    // Overhead clearance for the whole standing body: from the body centre up to where the top
+    // of the head will be once standing (the centre rises by the radius change as well).
+    const top = CONFIG.PLAYER_RADIUS - CONFIG.CROUCH_RADIUS + HEAD_TOP.stand + 0.05;
+    for (const [ox, oz] of [[0, 0], [0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22]]) {
+      _crouchFrom.set(p.x + ox, p.y, p.z + oz);
+      _crouchTo.set(p.x + ox, p.y + top, p.z + oz);
+      _crouchRes.reset();
+      world.raycastClosest(_crouchFrom, _crouchTo, RAY_OPTS, _crouchRes);
+      if (_crouchRes.hasHit) return;  // not enough clearance — stay crouched
+    }
   }
 
   player.crouching = on;
@@ -215,11 +255,14 @@ function setCrouch(on) {
   const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
   shape.radius = to;
   shape.updateBoundingSphereRadius();
+  const offsets = on ? BODY_OFFSETS.crouch : BODY_OFFSETS.stand;
+  offsets.forEach((y, i) => { player.body.shapeOffsets[i + 1].y = y; });
   player.body.updateBoundingRadius();
+  player.body.aabbNeedsUpdate = true;
   // The sphere grows about its centre, so standing up buries the lower half in the floor and
   // the solver answers by launching the body ~0.8 m into the air. Shift the centre by the
   // radius delta instead, which keeps the feet exactly where they were.
-  player.body.position.y += to - from;
+  p.y += to - from;
 }
 
 /* Ledge step-up (see call site in stepPlayer). */
@@ -234,7 +277,7 @@ function stepOver(b) {
   if (len < 0.001) return;
   const ax = b.position.x + (_wish.x / len) * STEP_AHEAD;
   const az = b.position.z + (_wish.z / len) * STEP_AHEAD;
-  const foot = b.position.y - CONFIG.PLAYER_RADIUS;
+  const foot = b.position.y - b.shapes[0].radius;
 
   // Straight down, from just above the tallest step we allow to just below the current foot.
   _stepFrom.set(ax, foot + STEP_MAX + 0.05, az);
@@ -269,9 +312,17 @@ function stepPlayer(dt) {
     player.sprayIndex = 0;
   }
 
-  if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
+  if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; return; }
 
+  const wasGrounded = player.grounded;
   playerGroundCheck();
+  // Landing: how fast we came down decides how hard the camera dips (see updateCamera).
+  if (player.grounded && !wasGrounded && player.airVy < -3.5) {
+    player.landKick = clamp((-player.airVy - 3.5) * 0.022, 0.02, 0.14);
+    player.landTime = 0;
+    Audio.step?.();
+  }
+  player.landTime += dt;
   // Crouch reads from a latch when the player has chosen toggle-style bindings (see
   // settings.toggleCrouch), otherwise straight from the held key.
   setCrouch(settings.toggleCrouch ? crouchLatch : !!keys.KeyC);
@@ -305,13 +356,14 @@ function stepPlayer(dt) {
   if (aiming) speed *= 0.55;
 
   _wish.set(fx * iz + rx * ix, 0, fz * iz + rz * ix);
-  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(speed);
+  if (_wish.lengthSq() > 0) _wish.normalize();
 
-  // Air control is deliberately weak so jumps commit.
-  const accel = CONFIG.MOVE_ACCEL * (player.grounded ? 1 : 0.22);
-  const k = Math.min(1, accel * dt);
-  b.velocity.x = lerp(b.velocity.x, _wish.x, k);
-  b.velocity.z = lerp(b.velocity.z, _wish.z, k);
+  // Friction on the ground only, then accelerate toward the wish. See CONFIG.GROUND_ACCEL.
+  if (player.grounded) applyFriction(b, dt);
+  if (_wish.lengthSq() > 0) {
+    accelerate(b, _wish.x, _wish.z, speed, player.grounded ? CONFIG.GROUND_ACCEL : CONFIG.AIR_ACCEL, dt);
+  }
+  _wish.multiplyScalar(speed);
 
   // Ledge step-up. A sphere collider catches on the lip of a crate: the contact normal points
   // back at you and the velocity controller just grinds against it. Probe a short way along
@@ -323,8 +375,10 @@ function stepPlayer(dt) {
     b.velocity.y = CONFIG.JUMP_SPEED;
     player.grounded = false;
   }
-  // Cancel the vertical component of linearDamping (see DAMP_PER_STEP).
-  b.velocity.y /= DAMP_PER_STEP;
+  // The rest of the player's gravity: the world supplies 9.82, CONFIG.PLAYER_GRAVITY is the
+  // total. Only the player falls faster — grenades and bodies keep world gravity.
+  b.velocity.y -= (CONFIG.PLAYER_GRAVITY + CONFIG.GRAVITY) * dt;
+  if (!player.grounded) player.airVy = b.velocity.y;
 
   // Footsteps.
   const planar = Math.hypot(b.velocity.x, b.velocity.z);

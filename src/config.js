@@ -43,8 +43,26 @@ export const CONFIG = {
   WALK_SPEED: 5.0,
   SPRINT_MULT: 1.6,
   CROUCH_MULT: 0.5,
-  MOVE_ACCEL: 60,
-  JUMP_SPEED: 4.7,
+  /**
+   * Ground movement is acceleration plus friction, the model every tactical shooter since Quake
+   * uses, rather than the old "lerp half-way to the target speed every physics step" — which
+   * reached full speed in about 50 ms and stopped dead just as fast, so movement had no weight.
+   * With these, walking speed takes ~0.15 s to reach and ~0.2 s to shed: quick enough to peek,
+   * slow enough that stopping to shoot (counter-strafing) is a thing you do, not a thing that
+   * happens.
+   */
+  GROUND_ACCEL: 10,     // per second, as a multiple of the wish speed
+  FRICTION: 8,          // per second, proportional to speed...
+  STOP_SPEED: 2.5,      // ...but never less than this, so a slow drift still stops promptly
+  /** Air steering. No friction in the air, and only this much control: jumps commit. */
+  AIR_ACCEL: 1.2,
+  /**
+   * Jumping. The player falls under extra gravity so a jump is a quick hop, not a float: the
+   * old 4.7 m/s under world gravity took 0.96 s in the air. Same 1.25 m apex (the warehouse
+   * perch steps are 1.15 m), 0.73 s in the air.
+   */
+  PLAYER_GRAVITY: 18.5,
+  JUMP_SPEED: 6.8,
   MAX_HEALTH: 100,
   MAX_ARMOR: 100,
   START_ARMOR: 50,
@@ -97,9 +115,6 @@ export const FIXED_DT = 1 / CONFIG.PHYSICS_HZ;
 export const HIP_FOV = 78;
 export const ADS_FOV = 68;
 
-/** cannon applies damping as v *= (1-d)^dt. Horizontal velocity is overwritten every tick. */
-export const PLAYER_DAMPING = 0.95;
-export const DAMP_PER_STEP = Math.pow(1 - PLAYER_DAMPING, FIXED_DT);
 
 export const TEAM = { SOLO: 0, BLUE: 1, RED: 2 };
 export const TEAM_COLOR = { 0: 0x52e08a, 1: 0x4d9dff, 2: 0xff4d4d };

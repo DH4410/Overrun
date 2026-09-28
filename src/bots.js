@@ -171,6 +171,10 @@ const SEP_STRENGTH = 3.2;     // m/s of push at zero distance
 // bot needs ~0.18 s to reach its 4.6 m/s combat speed from a standstill.
 const BOT_ACCEL = 26;
 const BOT_DECEL = 34;
+// Seconds without getting any closer to the next path node before a bot counts as stuck.
+const STUCK_AFTER = 0.8;
+// How far ahead combat footwork looks for walls and edges, in metres.
+const PROBE_AHEAD = 1.1;
 // Cover peek rhythm, in seconds: lean out for PEEK_SHOW, tuck back for PEEK_HIDE.
 const PEEK_SHOW = 0.9;
 const PEEK_HIDE = 1.1;
@@ -684,6 +688,18 @@ class Bot {
     // Locomotion wish, applied under an acceleration limit in applyLocomotion().
     this.wishVx = 0; this.wishVz = 0;
     this.peekTimer = 0;      // COVER: >0 while leaning out, <=0 while tucked back in
+    // Path-following watchdog (see followPath / unstick).
+    this.nodeBest = Infinity;
+    this.stuckTime = 0;
+    this.stuckCount = 0;
+    this.sidestepTimer = 0;
+    this.sidestepDir = 1;
+    // Combat footwork (see combatMove).
+    this.sinceFlip = 0;
+    this.blockedTime = 0;
+    this.probeTimer = 0;
+    this.strafeBlocked = false;
+    this.rangeBlocked = false;
 
     const color = TEAM_COLOR[team];
     this.mesh = buildBotMesh(color, team);
@@ -832,17 +848,44 @@ class Bot {
     this.path = findPath(this.body.position, destination);
     this.pathIdx = 0;
     this.repathTimer = 2.0;
+    this.nodeBest = Infinity;
+    this.stuckTime = 0;
   }
 
-  /** Drive toward the next path node. Returns true once the path is exhausted. */
+  /**
+   * Drive toward the next path node. Returns true once the path is exhausted.
+   *
+   * A watchdog tracks the closest this bot has come to the node it is heading for. If that
+   * stops improving for STUCK_AFTER seconds, something is in the way — a crate the graph did
+   * not know about, another bot, a corner — and unstick() takes over. Before this there was no
+   * such check at all, and a bot that met an obstacle ran into it until its two-second repath
+   * sent it straight back into the same obstacle, forever.
+   */
   followPath(speed, dt) {
     if (!this.path || this.pathIdx >= this.path.length) { this.setPlanarVelocity(0, 0); return true; }
     const node = this.path[this.pathIdx];
     const dx = node.x - this.body.position.x;
     const dz = node.z - this.body.position.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 1.6) { this.pathIdx++; return this.pathIdx >= this.path.length; }
-    this.setPlanarVelocity((dx / dist) * speed, (dz / dist) * speed);
+    if (dist < 1.0) {
+      this.pathIdx++;
+      this.nodeBest = Infinity;
+      this.stuckTime = 0;
+      this.stuckCount = 0;
+      return this.pathIdx >= this.path.length;
+    }
+    if (dist < this.nodeBest - 0.15) { this.nodeBest = dist; this.stuckTime = 0; }
+    else if ((this.stuckTime += dt) > STUCK_AFTER) { this.unstick(); return false; }
+
+    let vx = (dx / dist) * speed, vz = (dz / dist) * speed;
+    if (this.sidestepTimer > 0) {
+      // Coming off a corner: mostly sideways, a little forward.
+      this.sidestepTimer -= dt;
+      const sx = (-dz / dist) * this.sidestepDir, sz = (dx / dist) * this.sidestepDir;
+      vx = vx * 0.35 + sx * speed * 0.8;
+      vz = vz * 0.35 + sz * speed * 0.8;
+    }
+    this.setPlanarVelocity(vx, vz);
     this.faceDir(dx, dz, dt, 7);
     if (this.stepTimer <= 0) {
       this.stepTimer = 0.42;
@@ -853,6 +896,39 @@ class Bot {
       }
     }
     return false;
+  }
+
+  /**
+   * The bot has stopped closing on its node. Plan again from where it actually stands — the
+   * path's start is chosen by what this spot can walk to, which is usually all it takes — and
+   * step sideways for a moment to come off whatever it is hung on. A bot that gets stuck three
+   * times on the same leg abandons the destination for another one.
+   */
+  unstick() {
+    this.stuckTime = 0;
+    this.nodeBest = Infinity;
+    this.stuckCount++;
+    this.sidestepTimer = 0.4;
+    this.sidestepDir = Math.random() < 0.5 ? -1 : 1;
+    const dest = this.path?.[this.path.length - 1];
+    if (dest && this.stuckCount < 3) {
+      this.repath(dest);
+    } else {
+      this.stuckCount = 0;
+      this.patrolWp = randInt(0, waypoints.length - 1);
+      this.repath(waypoints[this.patrolWp].pos);
+    }
+  }
+
+  /**
+   * Would a step this way run into something or off an edge? One ray ahead at hip height, one
+   * down past the end of it to make sure there is still floor there.
+   */
+  moveBlocked(ux, uz) {
+    const p = this.body.position;
+    const x = p.x + ux * PROBE_AHEAD, z = p.z + uz * PROBE_AHEAD;
+    if (!losClear(p.x, p.y, p.z, x, p.y, z)) return true;
+    return losClear(x, p.y, z, x, p.y - 1.4, z);
   }
 
   /** Bots are moved by writing velocity, never by forces — no sliding, no slope drift.
@@ -879,16 +955,6 @@ class Bot {
    * neighbour is a collision response rather than a decision the bot made.
    */
   applyLocomotion(dt) {
-    const vx = this.body.velocity.x, vz = this.body.velocity.z;
-    let dvx = this.wishVx - vx, dvz = this.wishVz - vz;
-    const dv = Math.hypot(dvx, dvz);
-    if (dv > 1e-6) {
-      // Slowing down is quicker than speeding up, the way legs actually work.
-      const slowing = Math.hypot(this.wishVx, this.wishVz) < Math.hypot(vx, vz);
-      const maxStep = (slowing ? BOT_DECEL : BOT_ACCEL) * (this.diff.speed ?? 1) * dt;
-      if (dv > maxStep) { dvx *= maxStep / dv; dvz *= maxStep / dv; }
-    }
-
     let sx = 0, sz = 0;
     for (const o of bots) {
       if (o === this || !o.alive) continue;
@@ -902,8 +968,23 @@ class Bot {
       sx += (dx / d) * w;
       sz += (dz / d) * w;
     }
-    this.body.velocity.x = vx + dvx + sx * SEP_STRENGTH;
-    this.body.velocity.z = vz + dvz + sz * SEP_STRENGTH;
+    // The push is part of what the bot WANTS, so it goes through the same acceleration limit
+    // as everything else. It used to be added to the body velocity after the limit, and the
+    // next step read that velocity back as its starting point — so the push compounded, about
+    // +1 m/s every step at 1.5 m apart, and two bots that bunched up flung each other away at
+    // several metres a second. That read as bots teleporting.
+    const wx = this.wishVx + sx * SEP_STRENGTH, wz = this.wishVz + sz * SEP_STRENGTH;
+    const vx = this.body.velocity.x, vz = this.body.velocity.z;
+    let dvx = wx - vx, dvz = wz - vz;
+    const dv = Math.hypot(dvx, dvz);
+    if (dv > 1e-6) {
+      // Slowing down is quicker than speeding up, the way legs actually work.
+      const slowing = Math.hypot(wx, wz) < Math.hypot(vx, vz);
+      const maxStep = (slowing ? BOT_DECEL : BOT_ACCEL) * (this.diff.speed ?? 1) * dt;
+      if (dv > maxStep) { dvx *= maxStep / dv; dvz *= maxStep / dv; }
+    }
+    this.body.velocity.x = vx + dvx;
+    this.body.velocity.z = vz + dvz;
     this.body.wakeUp();
   }
 
@@ -1052,6 +1133,7 @@ class Bot {
     this.repathTimer -= dt;
     this.nadeCd -= dt;
     this.peekTimer -= dt;
+    this.sinceFlip += dt;
     if (this.reloading > 0) {
       this.reloading -= dt;
       if (this.reloading <= 0) this.mag = WEAPON_BY_ID[this.weaponId].mag;
@@ -1086,7 +1168,10 @@ class Bot {
 
       case ST.PATROL: {
         if (this.hasLOS) { this.setState(ST.CHASE); break; }
-        if (!this.path || this.repathTimer <= 0 || this.pathIdx >= (this.path?.length ?? 0)) {
+        // A new destination only once the old one is reached. This used to pick a fresh random
+        // waypoint every two seconds, so a patrolling bot turned round and headed somewhere new
+        // before it had got anywhere — which looked exactly like confusion.
+        if (!this.path || this.pathIdx >= this.path.length) {
           this.patrolWp = randInt(0, waypoints.length - 1);
           this.repath(waypoints[this.patrolWp].pos);
         }
@@ -1291,24 +1376,53 @@ class Bot {
 
     this.strafeTimer -= dt;
     if (this.strafeTimer <= 0) {
-      this.strafeDir = Math.random() < 0.5 ? -1 : 1;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      if (dir !== this.strafeDir) this.sinceFlip = 0;
+      this.strafeDir = dir;
       this.strafeTimer = rand(0.7, 1.8);
     }
 
+    // Look before stepping, so a bot turns back at a wall or a drop instead of finding it.
+    const rangeSign = dist < band.min ? -1 : dist > band.max ? 1 : 0;
+    this.probeTimer -= dt;
+    if (this.probeTimer <= 0) {
+      this.probeTimer = 0.12;
+      this.strafeBlocked = this.moveBlocked(rx * this.strafeDir, rz * this.strafeDir);
+      this.rangeBlocked = rangeSign !== 0 && this.moveBlocked(fx * rangeSign, fz * rangeSign);
+    }
+
+    /**
+     * Blocked, measured properly: asked for real speed and got little of it, for longer than
+     * a deliberate reversal takes. The old test was "slower than 0.6 m/s", and every reversal
+     * passes through 0.6 m/s on its way through zero — so each flip triggered another flip, and
+     * a bot in a firefight locked into reversing every physics step, vibrating on the spot at
+     * 0.2-0.4 m/s until the fight moved on. Measured: 22 reversals a second.
+     */
+    const asked = Math.hypot(this.wishVx, this.wishVz);
+    const actual = Math.hypot(this.body.velocity.x, this.body.velocity.z);
+    if (asked > 1.5 && actual < asked * 0.35 && this.sinceFlip > 0.45) this.blockedTime += dt;
+    else this.blockedTime = 0;
+
+    if ((this.strafeBlocked || this.blockedTime > 0.15) && this.sinceFlip > 0.45) {
+      this.strafeDir *= -1;
+      this.strafeTimer = rand(0.6, 1.3);
+      this.sinceFlip = 0;
+      this.blockedTime = 0;
+      this.probeTimer = 0;                 // look the new way on the next step
+    }
+
     let vx = 0, vz = 0;
-    if (dist < band.min) {                 // too close — give ground while still firing
+    if (rangeSign < 0 && !this.rangeBlocked) {        // too close — give ground while still firing
       vx -= fx * speed; vz -= fz * speed;
-    } else if (dist > band.max) {           // too far — close in
+    } else if (rangeSign > 0 && !this.rangeBlocked) {  // too far — close in
       vx += fx * speed * 0.9; vz += fz * speed * 0.9;
     }
-    // Always some lateral movement so a bot is never a stationary target.
-    vx += rx * this.strafeDir * speed * 0.75;
-    vz += rz * this.strafeDir * speed * 0.75;
-
-    // If barely moving despite wanting to, we are against geometry — flip the strafe.
-    const actual = Math.hypot(this.body.velocity.x, this.body.velocity.z);
-    if (actual < 0.6 && this.stateTime > 0.3) { this.strafeDir *= -1; this.strafeTimer = rand(0.5, 1.0); }
-
+    // Always some lateral movement so a bot is never a stationary target — unless both ways
+    // are walled off, in which case it holds rather than grinding into the geometry.
+    if (!this.strafeBlocked) {
+      vx += rx * this.strafeDir * speed * 0.75;
+      vz += rz * this.strafeDir * speed * 0.75;
+    }
     this.setPlanarVelocity(vx, vz);
   }
 
@@ -1548,6 +1662,8 @@ class Bot {
     this.target = null; this.hasLOS = false; this.path = null;
     this.wishVx = 0; this.wishVz = 0;
     this.peekTimer = 0;
+    this.nodeBest = Infinity; this.stuckTime = 0; this.stuckCount = 0; this.sidestepTimer = 0;
+    this.blockedTime = 0; this.sinceFlip = 0;
     this.weaponId = this.fixedWeaponId ?? pick(BOT_GUN_IDS);
     this.mag = WEAPON_BY_ID[this.weaponId].mag;
     this.reloading = 0;

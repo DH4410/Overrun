@@ -146,27 +146,84 @@ function addSolid(w, h, d, x, y, z, mat, { block = true, uvScale = null, cast = 
   return m;
 }
 
-/** Inclined slab from (x0,y0,z0) up to (x1,y1,z1) — the only way onto the central hub. */
+/**
+ * A solid ramp from (x0,y0,z0) up to (x1,y1,z1).
+ *
+ * This used to be a 0.4 m slab tilted in mid-air with open space beneath it. The player's
+ * collider was a single sphere at the feet, so jumping underneath put the camera — 1.6 m above
+ * that sphere — through the slab and onto the top of the ramp. Real ramps are solid, and so is
+ * this one: the walking surface is still one tilted box, and a row of boxes fills everything
+ * beneath it. The slab is also sunk by half its thickness, so its TOP face runs exactly through
+ * both end points; before, its lower end stood 0.2 m proud of the floor and every approach
+ * started by bumping over a lip.
+ */
 function addRamp(x0, y0, z0, x1, y1, z1, width, mat) {
   const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
   const run = Math.hypot(dx, dz);
   const len = Math.hypot(run, dy);
   const yaw = Math.atan2(dx, dz);
   const pitch = -Math.atan2(dy, run);
-  const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-  const quat = new THREE.Quaternion().setFromEuler(euler);
-  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+  const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+  const T = 0.4;
+  const n = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
+  addStaticBox(width / 2, T / 2, len / 2, {
+    x: (x0 + x1) / 2 - n.x * T / 2,
+    y: (y0 + y1) / 2 - n.y * T / 2,
+    z: (z0 + z1) / 2 - n.z * T / 2,
+  }, new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w));
 
-  const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.4, len), mat);
-  m.position.set(cx, cy, cz);
-  m.quaternion.copy(quat);
+  // Fill. Each box's top sits at the slab's underside at the box's LOW end, so it is always
+  // below the walking surface, and the sliver left between them is far too thin for anything.
+  const ux = dx / run, uz = dz / run;
+  const slope = dy / run;
+  const under = T * len / run;                 // the slab's thickness measured vertically
+  const yawQ = new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw);
+  const SEG = 0.8;
+  for (let a = 0; a < run; a += SEG) {
+    const b = Math.min(run, a + SEG);
+    const h = slope * a - under;
+    if (h < 0.05) continue;
+    const mid = (a + b) / 2;
+    addStaticBox(width / 2, h / 2, (b - a) / 2, { x: x0 + ux * mid, y: y0 + h / 2, z: z0 + uz * mid }, yawQ);
+  }
+
+  const m = new THREE.Mesh(wedgeGeometry(width, run, dy, UV_SCALE.get(mat) ?? 0.15), mat);
+  m.position.set(x0, y0, z0);
+  m.rotation.y = yaw;
   m.castShadow = true; m.receiveShadow = true;
   mapGroup.add(m);
 
-  const cq = new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w);
-  addStaticBox(width / 2, 0.2, len / 2, { x: cx, y: cy, z: cz }, cq);
-  addBlocker(cx, cz, width / 2, Math.max(Math.abs(dz) / 2, width / 2));
+  // Footprint of the rotated ramp, for spawn validation and the minimap plan.
+  addBlocker((x0 + x1) / 2, (z0 + z1) / 2,
+    Math.abs(ux) * run / 2 + Math.abs(uz) * width / 2,
+    Math.abs(uz) * run / 2 + Math.abs(ux) * width / 2);
   return m;
+}
+
+/**
+ * A solid wedge in local space: `width` across X, rising from y = 0 at z = 0 to y = `rise` at
+ * z = `run`. Flat-shaded, with UVs scaled like addSolid's so its texture density matches.
+ */
+function wedgeGeometry(width, run, rise, uvs) {
+  const hw = width / 2;
+  const slopeLen = Math.hypot(run, rise);
+  const A0 = [-hw, 0, 0], A1 = [hw, 0, 0];
+  const B0 = [-hw, 0, run], B1 = [hw, 0, run];
+  const C0 = [-hw, rise, run], C1 = [hw, rise, run];
+  const pos = [], uv = [];
+  const tri = (a, b, c, ta, tb, tc) => { pos.push(...a, ...b, ...c); uv.push(...ta, ...tb, ...tc); };
+  const quad = (a, b, c, d, ta, tb, tc, td) => { tri(a, b, c, ta, tb, tc); tri(a, c, d, ta, tc, td); };
+  const W = width * uvs, S = slopeLen * uvs, R = run * uvs, H = rise * uvs;
+  quad(A0, C0, C1, A1, [0, 0], [0, S], [W, S], [W, 0]);          // walking surface
+  quad(B0, B1, C1, C0, [0, 0], [W, 0], [W, H], [0, H]);          // back wall
+  quad(A0, A1, B1, B0, [0, 0], [W, 0], [W, R], [0, R]);          // underside
+  tri(A0, B0, C0, [0, 0], [R, 0], [R, H]);                       // sides
+  tri(A1, C1, B1, [0, 0], [R, H], [R, 0]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function addPillar(x, z, radius, height, mat) {
@@ -1183,17 +1240,38 @@ function buildDungeonMap() {
   ]);
 }
 
-/* --------------------- bot navigation waypoints --------------------- */
+/* --------------------------- bot navigation --------------------------- */
 /**
- * The waypoint graph. Nodes sit on the floor plane only: bots never take the perches or the
- * catwalks, which is a deliberate design line — verticality is the human's edge, and it keeps
- * the AI off a class of pathing bugs. Bots still aim and throw grenades in full 3D, so a
- * camped perch is contested, not safe.
+ * The navigation graph: nodes laid on every walkable SURFACE of the level, joined wherever a
+ * bot's body can actually walk from one to the next.
+ *
+ * It replaces a flat grid at a fixed 0.9 m that was linked by single zero-width rays, which is
+ * where "bots keep running into a wall" came from, several ways over:
+ *  - A node could sit INSIDE a solid that was not flagged as a blocker (Foundry's raised mid
+ *    platform), and bots dutifully pressed their faces into its side trying to reach it.
+ *  - A zero-width ray fits through gaps a 0.72 m body does not, so edges and straightened
+ *    paths clipped every corner and bots wedged themselves on it.
+ *  - Paths were straightened with rays at the node height PLUS 0.9 m, about 1.7 m up, which
+ *    clears every low wall and crate in the game — so straightened routes ran straight into
+ *    them.
+ *  - The start of every path was the nearest node by distance, even when it was on the far
+ *    side of a wall.
+ *
+ * Nodes now come from rays cast down through the level, so a raised platform or a ramp gets
+ * nodes on its surface and nothing gets nodes inside a solid. An edge exists only if the floor
+ * is continuous under it (no step taller than NAV_STEP — bots cannot jump) and a body-wide
+ * sweep at knee, chest and head height is clear. Straightening uses the same test.
  */
-const waypoints = [];       // { pos: Vector3, links: number[], cover: boolean }
+const waypoints = [];       // { pos: Vector3, floor: number, links: number[], cover: boolean }
 const _rayFrom   = new CANNON.Vec3();
 const _rayTo     = new CANNON.Vec3();
 const _rayResult = new CANNON.RaycastResult();
+
+const NAV_RADIUS = 0.42;     // bot body half-width (0.36 spheres) plus a little margin
+const NAV_STEP = 0.3;        // tallest rise between floor samples a bot can walk up
+const NAV_HEADROOM = 2.1;    // bots stand 2.0 m tall
+const NAV_Y = 0.9;           // node height above its own floor
+const NAV_SWEEP_Y = [0.4, 1.2, 1.9];
 
 function losClear(ax, ay, az, bx, by, bz) {
   _rayFrom.set(ax, ay, az);
@@ -1203,39 +1281,171 @@ function losClear(ax, ay, az, bx, by, bz) {
   return !_rayResult.hasHit;
 }
 
-function buildWaypoints({ extent = 46, step = 8.5, pad = 1.1, coverPad = 3.6 } = {}) {
-  for (let x = -extent; x <= extent; x += step) {
-    for (let z = -extent; z <= extent; z += step) {
-      if (inBlocker(x, z, pad)) continue;
-      waypoints.push({
-        pos: new THREE.Vector3(x, 0.9, z),
-        links: [],
-        cover: inBlocker(x, z, coverPad),     // hugging a solid = usable as a cover spot
-      });
+/** Height of the first walkable surface below (x, y, z) within `depth`, or null. */
+function floorBelow(x, y, z, depth) {
+  _rayFrom.set(x, y, z);
+  _rayTo.set(x, y - depth, z);
+  _rayResult.reset();
+  world.raycastClosest(_rayFrom, _rayTo, RAY_OPTS, _rayResult);
+  if (!_rayResult.hasHit || _rayResult.hitNormalWorld.y < 0.6) return null;
+  return _rayResult.hitPointWorld.y;
+}
+
+const _local = new CANNON.Vec3();
+const _world = new CANNON.Vec3();
+
+/**
+ * True if the point is inside any level collider. Rays cannot answer this: they skip back
+ * faces, so a ray that starts inside a wall sees nothing at all.
+ */
+function inSolid(x, y, z) {
+  _world.set(x, y, z);
+  for (const body of mapBodies) {
+    body.pointToLocalFrame(_world, _local);
+    for (const shape of body.shapes) {
+      if (shape.halfExtents) {
+        const h = shape.halfExtents;
+        if (Math.abs(_local.x) < h.x && Math.abs(_local.y) < h.y && Math.abs(_local.z) < h.z) return true;
+      } else if (shape.radiusTop !== undefined) {
+        if (Math.abs(_local.y) < shape.height / 2
+            && _local.x * _local.x + _local.z * _local.z < shape.radiusTop * shape.radiusTop) return true;
+      }
     }
   }
-  // Connect each node to its three nearest neighbours, but only where the walk is actually
-  // clear. Edges are added symmetrically so BFS can traverse either way.
-  const N = 3;
+  return false;
+}
+
+/** A body-wide sweep from one floor point to another, at knee, chest and head height. */
+function sweepClear(ax, af, az, bx, bf, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const d = Math.hypot(dx, dz) || 1;
+  const px = (-dz / d) * NAV_RADIUS, pz = (dx / d) * NAV_RADIUS;
+  for (const y of NAV_SWEEP_Y) {
+    if (!losClear(ax, af + y, az, bx, bf + y, bz)) return false;
+    if (y > 1.5) continue;                     // the head is narrow: centre ray only
+    if (!losClear(ax + px, af + y, az + pz, bx + px, bf + y, bz + pz)) return false;
+    if (!losClear(ax - px, af + y, az - pz, bx - px, bf + y, bz - pz)) return false;
+  }
+  return true;
+}
+
+/**
+ * Can a bot walk in a straight line from floor point A to floor point B? The floor must be
+ * continuous underneath (sampled every `spacing` m) and the body sweep clear. Flat stretches
+ * are swept once; wherever the floor changes height each piece is swept on its own slope.
+ */
+function walkable(ax, af, az, bx, bf, bz, spacing = 0.45) {
+  const dx = bx - ax, dz = bz - az;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-3) return Math.abs(bf - af) <= NAV_STEP;
+  // The cheap test first: most candidate lines fail on a wall, not on the floor.
+  if (Math.abs(bf - af) < 0.02 && !sweepClear(ax, af, az, bx, bf, bz)) return false;
+  const n = Math.max(1, Math.ceil(d / spacing));
+  let prev = af, runStart = 0, runX = ax, runZ = az, runF = af;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const x = ax + dx * t, z = az + dz * t;
+    const h = floorBelow(x, prev + NAV_STEP + 0.05, z, NAV_STEP * 2 + 0.6);
+    if (h === null || Math.abs(h - prev) > NAV_STEP) return false;
+    // Close the current run of constant height when the floor changes, and sweep it.
+    if (Math.abs(h - runF) > 0.02 || i === n) {
+      const px = ax + dx * ((i - 1) / n), pz = az + dz * ((i - 1) / n);
+      if (i - 1 > runStart && !sweepClear(runX, runF, runZ, px, prev, pz)) return false;
+      if (!sweepClear(px, prev, pz, x, h, z)) return false;
+      runStart = i; runX = x; runZ = z; runF = h;
+    }
+    prev = h;
+  }
+  return Math.abs(prev - bf) <= NAV_STEP;
+}
+
+/** Every walkable surface in a column, top down, that a standing bot fits on. */
+function surfacesAt(x, z, topY) {
+  const out = [];
+  let y = topY;
+  for (let k = 0; k < 5 && y > -1; k++) {
+    const h = floorBelow(x, y, z, y + 2);
+    if (h === null) break;
+    if (!inSolid(x, h + 0.5, z) && !inSolid(x, h + 1.2, z) && !inSolid(x, h + 1.9, z)
+        && losClear(x, h + 0.1, z, x, h + NAV_HEADROOM, z)) out.push(h);
+    y = h - 0.05;           // continue below this surface: its underside is a back face
+  }
+  return out;
+}
+
+const NAV_DIRS = [[1, 0], [0.707, 0.707], [0, 1], [-0.707, 0.707], [-1, 0], [-0.707, -0.707], [0, -1], [0.707, -0.707]];
+
+/** Room for a body here: nothing within NAV_RADIUS at knee or chest height. */
+function nodeFits(x, f, z) {
+  for (const [ux, uz] of NAV_DIRS) {
+    for (const y of [0.4, 1.2]) {
+      if (!losClear(x, f + y, z, x + ux * (NAV_RADIUS + 0.08), f + y, z + uz * (NAV_RADIUS + 0.08))) return false;
+    }
+  }
+  return true;
+}
+
+function buildWaypoints({ extent = 46, step = 4, coverPad = 3.0, ceilY = CONFIG.CEIL } = {}) {
+  const cells = new Map();                     // "ix,iz" -> node indices in that column
+  const topY = ceilY - 0.3;
+  const cellsPerSide = Math.floor(extent / step);
+  for (let ix = -cellsPerSide; ix <= cellsPerSide; ix++) {
+    for (let iz = -cellsPerSide; iz <= cellsPerSide; iz++) {
+      const x = ix * step, z = iz * step;
+      for (const f of surfacesAt(x, z, topY)) {
+        if (!nodeFits(x, f, z)) continue;
+        const list = cells.get(`${ix},${iz}`) ?? [];
+        list.push(waypoints.length);
+        cells.set(`${ix},${iz}`, list);
+        waypoints.push({ pos: new THREE.Vector3(x, f + NAV_Y, z), floor: f, links: [], cover: false, ix, iz });
+      }
+    }
+  }
+
+  // Link each node to the walkable nodes in its eight neighbouring columns. Only the forward
+  // half of the neighbourhood is tested, and each edge is added both ways.
+  const FORWARD = [[1, 0], [1, 1], [0, 1], [-1, 1]];
   for (let i = 0; i < waypoints.length; i++) {
     const a = waypoints[i];
-    const cands = [];
-    for (let j = 0; j < waypoints.length; j++) {
-      if (i === j) continue;
-      const d = a.pos.distanceToSquared(waypoints[j].pos);
-      if (d < step * step * 4.2) cands.push({ j, d });
+    for (const [ox, oz] of FORWARD) {
+      for (const j of cells.get(`${a.ix + ox},${a.iz + oz}`) ?? []) {
+        const b = waypoints[j];
+        if (Math.abs(b.floor - a.floor) > step * Math.hypot(ox, oz) * 0.7 + NAV_STEP) continue;
+        if (!walkable(a.pos.x, a.floor, a.pos.z, b.pos.x, b.floor, b.pos.z)) continue;
+        a.links.push(j);
+        b.links.push(i);
+      }
     }
-    cands.sort((p, q) => p.d - q.d);
-    let added = 0;
-    for (const c of cands) {
-      if (added >= N) break;
-      const b = waypoints[c.j];
-      if (a.links.includes(c.j)) { added++; continue; }
-      if (!losClear(a.pos.x, 1.0, a.pos.z, b.pos.x, 1.0, b.pos.z)) continue;
-      a.links.push(c.j);
-      if (!b.links.includes(i)) b.links.push(i);
-      added++;
+  }
+
+  // Keep only the largest connected piece. Crate tops, wall tops and anything reachable only
+  // by jumping form islands a bot could be sent to and never reach.
+  const comp = new Int32Array(waypoints.length).fill(-1);
+  let best = -1, bestSize = 0;
+  for (let i = 0, c = 0; i < waypoints.length; i++) {
+    if (comp[i] >= 0) continue;
+    const stack = [i];
+    comp[i] = c;
+    let size = 0;
+    while (stack.length) {
+      const k = stack.pop();
+      size++;
+      for (const nx of waypoints[k].links) if (comp[nx] < 0) { comp[nx] = c; stack.push(nx); }
     }
+    if (size > bestSize) { bestSize = size; best = c; }
+    c++;
+  }
+  const remap = new Int32Array(waypoints.length).fill(-1);
+  const kept = [];
+  waypoints.forEach((w, i) => { if (comp[i] === best) { remap[i] = kept.length; kept.push(w); } });
+  for (const w of kept) w.links = w.links.map((j) => remap[j]).filter((j) => j >= 0);
+  waypoints.length = 0;
+  waypoints.push(...kept);
+
+  // Cover: a node with something chest-high close by on at least one side.
+  for (const w of waypoints) {
+    w.cover = NAV_DIRS.some(([ux, uz]) => !losClear(w.pos.x, w.floor + 1.0, w.pos.z,
+      w.pos.x + ux * coverPad, w.floor + 1.0, w.pos.z + uz * coverPad));
   }
 }
 
@@ -1335,71 +1545,147 @@ function nearestWaypoint(pos, skip = -1) {
   return best;
 }
 
-/** Breadth-first search across the waypoint graph. Returns an array of Vector3, or null. */
-function findPath(fromPos, toPos) {
-  const s = nearestWaypoint(fromPos);
-  const g = nearestWaypoint(toPos);
-  if (s < 0 || g < 0) return null;
-  if (s === g) return [waypoints[g].pos];
-
-  const prev = new Int32Array(waypoints.length).fill(-1);
-  const seen = new Uint8Array(waypoints.length);
-  const queue = [s];
-  seen[s] = 1;
-  let head = 0, found = false;
-  while (head < queue.length) {
-    const cur = queue[head++];
-    if (cur === g) { found = true; break; }
-    for (const nx of waypoints[cur].links) {
-      if (seen[nx]) continue;
-      seen[nx] = 1; prev[nx] = cur; queue.push(nx);
-    }
-  }
-  if (!found) return null;
-  const out = [];
-  for (let n = g; n !== -1; n = prev[n]) out.push(waypoints[n].pos);
-  out.reverse();
-  return stringPull(fromPos, out);
+/** The floor under a position, or a guess from its height if there is none within reach. */
+function floorUnder(pos) {
+  return floorBelow(pos.x, pos.y + 0.3, pos.z, 4) ?? pos.y - 0.9;
 }
 
 /**
- * Straighten a waypoint path by dropping nodes the bot can simply walk past.
- *
- * Breadth-first search returns the fewest GRAPH EDGES, not the shortest route, and the graph
- * is a coarse grid — so a bot crossing open floor visibly zig-zagged from node to node
- * instead of walking at its target. This walks the path keeping only the corners: from the
- * current anchor, advance while there is still clear line of sight, and emit a node only
- * where sight breaks.
- *
- * Run once per repath, never per frame: losClear is a raycast, and repath() already caps
- * itself at one call every two seconds per bot, so this is a few dozen rays a second across
- * the whole match rather than a few dozen per bot per frame.
- *
- * Sight is tested at 0.9 m, roughly chest height on the path itself, because the waypoint
- * positions sit on the floor and a floor-to-floor ray grazes every ramp and kerb in the
- * level and would refuse to straighten anything.
+ * The closest node that can actually be walked to from `pos`, trying the nearest few by
+ * distance. Falls back to the plain nearest node, so a bot is never left with no path.
  */
-function stringPull(fromPos, path) {
-  if (!path || path.length < 3) return path;
-  const Y = 0.9;
+function nearestReachable(pos) {
+  const f = floorUnder(pos);
+  const cands = [];
+  for (let i = 0; i < waypoints.length; i++) {
+    const w = waypoints[i];
+    const dx = w.pos.x - pos.x, dz = w.pos.z - pos.z;
+    cands.push({ i, d: dx * dx + dz * dz + 9 * (w.floor - f) * (w.floor - f) });
+  }
+  cands.sort((a, b) => a.d - b.d);
+  for (let k = 0; k < Math.min(6, cands.length); k++) {
+    const w = waypoints[cands[k].i];
+    if (walkable(pos.x, f, pos.z, w.pos.x, w.floor, w.pos.z, 0.6)) return cands[k].i;
+  }
+  return cands.length ? cands[0].i : -1;
+}
+
+/**
+ * A* over the graph, by walked distance. Returns an array of Vector3, or null.
+ *
+ * The path runs to the destination itself, not just to the node nearest it, whenever the last
+ * stretch is walkable — nodes are up to 2.8 m from any given point, and stopping short of a
+ * pickup or a remembered position by that much looks like a bot losing interest. And when the
+ * destination is in plain walking reach, the graph is skipped and the bot simply goes there.
+ */
+function findPath(fromPos, toPos) {
+  if (!waypoints.length) return null;
+  const fromFloor = floorUnder(fromPos);
+  const toFloor = floorUnder(toPos);
+  const dest = new THREE.Vector3(toPos.x, toFloor + NAV_Y, toPos.z);
+  if (walkable(fromPos.x, fromFloor, fromPos.z, dest.x, toFloor, dest.z, 0.6)) return [dest];
+  const s = nearestReachable(fromPos);
+  const g = nearestReachable(toPos);
+  if (s < 0 || g < 0) return null;
+  const finish = (path) => {
+    const last = waypoints[g];
+    if (walkable(last.pos.x, last.floor, last.pos.z, dest.x, toFloor, dest.z, 0.6)) path.push(dest);
+    return path;
+  };
+  if (s === g) return finish([waypoints[g].pos]);
+
+  const N = waypoints.length;
+  const cost = new Float64Array(N).fill(Infinity);
+  const prev = new Int32Array(N).fill(-1);
+  const closed = new Uint8Array(N);
+  const goal = waypoints[g].pos;
+  // Binary heap of [estimate, node].
+  const heap = [];
+  const push = (f, n) => {
+    heap.push([f, n]);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top[1];
+  };
+
+  cost[s] = 0;
+  push(waypoints[s].pos.distanceTo(goal), s);
+  while (heap.length) {
+    const cur = pop();
+    if (cur === g) break;
+    if (closed[cur]) continue;
+    closed[cur] = 1;
+    const cp = waypoints[cur].pos;
+    for (const nx of waypoints[cur].links) {
+      if (closed[nx]) continue;
+      const c = cost[cur] + cp.distanceTo(waypoints[nx].pos);
+      if (c < cost[nx]) {
+        cost[nx] = c;
+        prev[nx] = cur;
+        push(c + waypoints[nx].pos.distanceTo(goal), nx);
+      }
+    }
+  }
+  if (prev[g] < 0) return null;
+  const nodes = [];
+  for (let n = g; n !== -1; n = prev[n]) nodes.push(n);
+  nodes.reverse();
+  return finish(stringPull(fromPos, nodes));
+}
+
+/**
+ * Straighten a node path by dropping nodes the bot can walk straight past.
+ *
+ * A grid route zig-zags from node to node. From the current anchor this advances while the
+ * straight line is still walkable — the same body-wide test the graph edges passed, not a thin
+ * sight ray — and keeps a node only where that breaks. Run once per repath, never per frame.
+ */
+function stringPull(fromPos, nodes) {
+  const pts = nodes.map((n) => waypoints[n].pos);
+  if (nodes.length < 2) return pts;
   const out = [];
-  let anchor = fromPos;
-  let i = 0;
-  while (i < path.length - 1) {
-    // Farthest node still directly reachable from the current anchor.
-    let far = i;
-    for (let j = i + 1; j < path.length; j++) {
-      if (!losClear(anchor.x, anchor.y + Y, anchor.z, path[j].x, path[j].y + Y, path[j].z)) break;
+  let ax = fromPos.x, az = fromPos.z, af = floorUnder(fromPos);
+  let i = -1;
+  while (i < nodes.length - 1) {
+    let far = i + 1;
+    for (let j = i + 2; j < nodes.length; j++) {
+      const w = waypoints[nodes[j]];
+      if (!walkable(ax, af, az, w.pos.x, w.floor, w.pos.z, 0.9)) break;
       far = j;
     }
-    // No progress means even the next node is occluded; keep it and move on rather than
-    // spinning here, since the graph edge says it is walkable even if the ray disagrees.
-    const next = Math.max(far, i + 1);
-    out.push(path[next]);
-    anchor = path[next];
-    i = next;
+    const w = waypoints[nodes[far]];
+    out.push(w.pos);
+    ax = w.pos.x; az = w.pos.z; af = w.floor;
+    i = far;
   }
   return out;
+}
+
+/** Straight-line walkability between two positions, for callers outside the graph. */
+function canWalk(a, b) {
+  return walkable(a.x, floorUnder(a), a.z, b.x, floorUnder(b), b.z, 0.6);
 }
 
 return {
@@ -1418,6 +1704,7 @@ return {
   losClear,
   nearestWaypoint,
   findPath,
+  canWalk,
   buildArena,
   placeArenaProps,
   buildSpawnPoints,
@@ -1464,7 +1751,7 @@ export function createMapController({
       fog: { color: 0x0a0e14, near: 55, far: 190 },
       mapView: 46,
       ceilY: CONFIG.CEIL,
-      nav: { extent: 46, step: 8.5, pad: 1.1, coverPad: 3.6 },
+      nav: { extent: 48, step: 4, coverPad: 3.0 },
       layerExtent: A,
       plates: { ground: 0x141a21, solid: 0x5c6b7a },
       lighting: {
@@ -1496,9 +1783,9 @@ export function createMapController({
       fog: { color: 0x0b1016, near: 40, far: 130 },
       mapView: 40,
       ceilY: foundryCeil,
-      // A finer nav step than the warehouse: the lanes are ~9 m wide, so an 8.5 m graph
+      // A finer nav step than the warehouse: the lanes are ~9 m wide, so a coarse graph
       // would put at most one node across a lane and bots would hug the walls.
-      nav: { extent: foundryHalf - 2, step: 5.5, pad: 1.0, coverPad: 2.8 },
+      nav: { extent: foundryHalf - 1, step: 3, coverPad: 2.6 },
       layerExtent: foundryHalf + 2,
       plates: { ground: 0x10161d, solid: 0x6f8496 },
       lighting: {
@@ -1515,7 +1802,7 @@ export function createMapController({
       fog: { color: 0x140d07, near: 8, far: 60 },
       mapView: 44,
       ceilY: DUNGEON_CEIL,
-      nav: { extent: 40, step: DUNGEON_TILE, pad: 0.9, coverPad: 2.6 },
+      nav: { extent: 40, step: DUNGEON_TILE, coverPad: 2.6 },
       layerExtent: 44,
       // High-contrast plan: on the warehouse palette the dungeon minimap was near-black on
       // near-black and unreadable.
@@ -1563,7 +1850,7 @@ export function createMapController({
     rigSun.shadow.camera.updateProjectionMatrix();
 
     m.build();
-    buildWaypoints(m.nav);
+    buildWaypoints({ ...m.nav, ceilY: m.ceilY ?? CONFIG.CEIL });
     buildMapLayer(m.layerExtent, m.plates);
   }
 

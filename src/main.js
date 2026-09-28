@@ -990,7 +990,10 @@ function updateCamera(dt) {
   } else {
     camBodyY += (_renderBody.y - camBodyY) * (1 - Math.exp(-dt * 22));
   }
-  _camPos.set(_renderBody.x, camBodyY + camEye, _renderBody.z);
+  // Landing dip: the knees take a hard landing, so the eye drops and comes back over ~0.3 s.
+  const LAND_DIP_T = 0.3;
+  const dip = player.landTime < LAND_DIP_T ? player.landKick * Math.sin(Math.PI * player.landTime / LAND_DIP_T) : 0;
+  _camPos.set(_renderBody.x, camBodyY + camEye - dip, _renderBody.z);
   _camPos.add(_shakeOff);
 
   _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');

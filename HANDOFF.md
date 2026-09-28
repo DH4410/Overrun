@@ -15,12 +15,17 @@ the two bugs a real playtest turned up.
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
 | Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 16/16 unit, lint 0 errors (16 warnings, all pre-existing unused-export noise) |
+| Tests | 38 passed + 1 flaky of 39 Playwright (exit 0), 16/16 unit, lint 0 errors (16 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
 npm run lint && npm test && CI=1 npm run test:e2e
 ```
+
+**One test is flaky as of 2026-09-28:** `duel.spec.mjs:12 Duel starts one elite bot on a
+mirrored loadout` failed its first attempt and passed on retry, and the reason was not
+captured. The session-2 changes alter frame cadence (a 60 fps cap, 15 fps menus), so treat
+it as suspect rather than as noise: run that spec a few times and look at why.
 
 **Always run e2e with `CI=1`.** The Playwright config sets `reuseExistingServer: !CI`, and
 there are other checkouts of this repo on this machine — without `CI=1` a stale server on

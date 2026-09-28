@@ -6,7 +6,10 @@ Session 1 (2026-09-27) reworked bot AI, game modes, gunplay, physics, the map ro
 character/animation pipeline. Session 2 (2026-09-28) was laptop work: frame rate, battery, and
 the two bugs a real playtest turned up. Session 3 (2026-09-28) was a full playtest of every
 mode and map, then a code review after you reported movement and animation looking wrong and
-dead bots floating — it found the bots were being drawn backwards.
+dead bots floating — it found the bots were being drawn backwards. Session 4 (2026-09-28)
+worked through your ten-point list: bot jitter, animation, weapons, jumping through ramps, stuck
+bots, hitboxes and damage feedback, the UI, and movement. **The map and more characters are
+still to do** — see "Next session" below.
 
 ---
 
@@ -17,7 +20,7 @@ dead bots floating — it found the bots were being drawn backwards.
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
 | Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 45/45 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
+| Tests | 58/58 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -31,6 +34,85 @@ it comes back.
 **Always run e2e with `CI=1`.** The Playwright config sets `reuseExistingServer: !CI`, and
 there are other checkouts of this repo on this machine — without `CI=1` a stale server on
 `:4173` can serve a different tree and give a false green.
+
+---
+
+## Next session — start here
+
+1. **The map (your item 10).** You offered to connect Blender MCP, which is the plan. A
+   complete code-built draft is parked at `docs/drafts/mapPort.draft.js` — PORT, a daylight
+   container port with rotational symmetry, three lanes and a raised dock. It is NOT wired in
+   (it needs a `tint` option on `pbrMat` in `src/maps.js` and a `MAPS` entry). Its header
+   explains the design rules, which still apply whichever way the map is built: colliders equal
+   visuals, 1.0 m crates are jumpable and 2.59 m containers are not, daylight for readability,
+   `both()` symmetry for the duel. Poly Haven slugs confirmed to exist: `asphalt_floor`,
+   `container_side`, `corrugated_iron_02`, `factory_wall`, `concrete_block_wall`,
+   `hangar_concrete_floor`, `rough_concrete`, `plywood`, `metal_plate`.
+   Whatever is built: its own lights, `ceilY` for the spawn/pickup/nav casts, spawn candidates,
+   and the nav graph (`buildWaypoints`) finds walkable surfaces by raycasting, so it needs no
+   hand-placed nodes.
+2. **More characters (your item 4).** Needs you: Mixamo requires your login. Download 3-4
+   human characters in tactical/combat gear as **FBX, T-pose, with skin**, to Downloads. Then:
+   `node scripts/fbx-to-glb.mjs "<file>.fbx" assets/bots/<name>.glb --max-texture=512` and add
+   to `CHARACTERS` in `src/bots.js` (blue currently has only SWAT; casts must stay disjoint).
+   Exo Gray is on disk but rejected (896 bones, duplicated skeletons) — Blender could merge it.
+3. Playtest everything below in a real browser (`node scripts/serve-tests.mjs`, then
+   http://localhost:4173, Ctrl+Shift+R once).
+
+---
+
+## Session 4: your ten points
+
+Numbers are measured, before -> after. Each fix has a regression test that was re-broken and
+seen to fail on the old code.
+
+1. **"The AI lags and teleports when I aim."** Two causes, both in how bots move.
+   - *The animation clips carry root motion* — despite the manifest saying "In Place". The drawn
+     hips walked forward 1.7 m per Walk cycle, 2.5 m per Run cycle (every 0.73 s) and 1.2-1.6 m
+     per strafe, then snapped back when the clip looped. The physics body already moves the
+     bot, so every bot ran ahead of itself and teleported back. Now stripped at load
+     (`stripRootMotion` in `src/bots.js`); hips stay within 0.1 m of the body.
+   - *Bots vibrated in firefights.* The "blocked" test (speed < 0.6 m/s) fired on every
+     deliberate strafe reversal, which triggered the next reversal: 17-26 reversals a second,
+     near-stationary 74% of the time -> ~0.5/s and 2-14%. And the separation push compounded
+     through the velocity (+1 m/s per step), flinging bunched bots apart; peak 6.9 -> <2 m/s.
+   - `tests/e2e/bot-movement.spec.mjs`.
+2. **"The animation doesn't match."** Clips are now paced by their real speed, measured from the
+   root motion per character — the planted foot used to move at up to 15 m/s while chasing, now
+   0.4-0.7 m/s (measurement noise from heel lift). The gun is posed procedurally (shouldered on
+   the target when engaging, a ready carry otherwise) and both arms are solved onto it with
+   two-bone IK: a bot shoots you with a gun pointing at you, 0-1 degrees off. Fast strafes turn
+   the legs into a run while the torso twists back to the target. The floating armbands are gone.
+3. **Weapons.** The Kenney toy blasters are replaced by procedural real guns
+   (`src/gunmodels.js`): M4-pattern carbine with a red dot, striker pistol, walnut pump shotgun,
+   olive bolt-action sniper, gloved hands. Aiming puts each gun's own sight on the screen centre
+   with the rest below it (`tests/e2e/viewmodel.spec.mjs`). Bots carry the same models. The
+   Kenney blaster GLBs in `assets/models/blaster/` are now unused.
+5. **"Under a ramp I can jump through it."** The player was one sphere at the feet with the
+   camera 1.6 m above; nothing collided above ~1 m. The player now has narrow upper spheres to
+   the top of the head (narrower than the feet, so they never snag a ledge), and ramps are solid
+   wedges. Camera under a 2.7 m slab: reached 3.24 m -> stops at 2.65 m.
+6. **"Bots get stuck running into walls."** Navigation rebuilt: nodes on every walkable surface
+   (found by raycasting), edges only where a body-wide sweep clears, A*, reachable start nodes,
+   a progress watchdog with unstick, paths that end at the real destination. The old path
+   straightening tested ~1.7 m up — over every low wall and crate. Stuck episodes per 240
+   bot-seconds: 49-75 -> 0 on all three maps.
+7. **Hitboxes and "why didn't the headshot kill?"** Bots are hit on capsules on their posed
+   skeleton: head x4 (an AR headshot now kills an unarmoured bot; it did 62), body and arms x1,
+   legs x0.75 (`tests/e2e/hitboxes.spec.mjs`). The player's own hitbox had a "limb" cylinder
+   that enclosed the torso, scoring most chest hits at 0.6x — fixed. Feedback: gold hitmarker +
+   metallic sound for a headshot, red for a kill, zone-coloured damage numbers, a kill banner
+   (with HEADSHOT), and an enemy you just hit shows its health for 2.5 s. Sniper body shots kill.
+8. & 9. **UI.** One stylesheet replaces the inline block and the override layer: text over the
+   game instead of glass panels, Barlow Condensed instead of Orbitron, one amber accent instead
+   of neon cyan; scanlines, gradient title, emoji icons, the fake player card and the debug
+   loading line are gone. READMEFORUI.md is updated.
+10. **Movement.** Acceleration + friction (full speed in 0.19 s, stop in 0.21 s — it was ~0.05 s
+    both ways), a quicker committed jump (same 1.25 m apex, 0.74 s in the air instead of 0.96 s,
+    via extra player-only gravity), weak air control, a landing dip. `tests/e2e/player-movement.spec.mjs`.
+
+Knock-on: hard bots now land 38% of rounds on a standing target at 20 m (was 72% — the old
+player limb cylinder caught near misses), but each torso hit counts in full. Elite unchanged.
 
 ---
 
@@ -200,7 +282,7 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.
-- [ ] **Realistic weapon viewmodels.** Blender MCP is connected as of session 3. See above.
+- [ ] **The map** and **more characters** — see "Next session" at the top.
 - [ ] **More animation, if wanted.** Hit reactions were discussed but not added — the bot has
       no hit-reaction hook yet, so it needs code as well as a clip.
 - [ ] **Clean up ~170 MB of source FBX in `C:\Users\dimah\Downloads`** (`Ch15_nonPBR`,
@@ -233,6 +315,15 @@ through that origin so stray rounds swept the target anyway. `duel.spec.mjs` now
 physics once before aiming, faces the bot so the muzzle is on the lane, checks line of sight
 from the real muzzle, and rejects lane endpoints that resolve inside geometry.
 
+**The Mixamo clips carry root motion, whatever the manifest says.** Check any new clip: the
+Hips position track's horizontal drift over one cycle should be ~0. `stripRootMotion` handles it
+at load; its "which axis is up" test is the axis that never nears zero — the largest average is
+wrong, because a Run cycle's forward drift averages more than the hip height.
+
+**The e2e harness fakes requestAnimationFrame**, so Playwright's actionability "stable" check
+never passes for a click inside a match: use `element.click()` in `page.evaluate`. Its fake
+gamepad also rewrites `aiming` every frame — hold LT (button 6) to aim in a test.
+
 **"Every track binds" is not "the pose is right".** The crushed soldier bound every track of
 every clip. Measure the pose itself — head above feet, toes along the heading — as
 `bot-presentation.spec.mjs` does.
@@ -262,7 +353,7 @@ often shows the previous frame. Take a second one before believing anything odd.
 `preview_start` with name `overrun` serves it on :4173. Stop that server before running e2e or
 Playwright cannot bind the port.
 
-**Bump `CACHE` in `sw.js` whenever assets change.** It is at `overrun-v12`. The fetch handler
+**Bump `CACHE` in `sw.js` whenever assets change.** It is at `overrun-v13`. The fetch handler
 matches by extension: `.fbx` and `.json` had to be added to `ASSET_RE` or the precached clips
 and manifest were never actually served offline.
 

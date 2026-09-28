@@ -175,6 +175,26 @@ html, body { font-family: var(--f-body); }
 }
 #menuresult:empty { display: none; }
 
+/* The sidebar is a fixed-height flex column that scrolls. Without this its children shrink to
+   fit instead, and #menuresult — which sets min-height: 0 — collapsed to nothing while its text
+   kept drawing, straight over the CALLSIGN label below it. */
+#menu-sidebar > * { flex-shrink: 0; }
+
+/* Final standings under the result line after a match. */
+#menuresult table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+#menuresult td {
+  font-family: var(--f-body); font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  color: rgba(255, 255, 255, .72); padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+#menuresult td.num { text-align: right; font-variant-numeric: tabular-nums; width: 44px; }
+#menuresult tr.self td { color: var(--ov-accent); }
+
+/* Corner panels are sized in px for a ~1280x720 window; below that they crowded the view (at
+   800x450 they covered most of the bottom half). main.js sets --hud-scale from the window size
+   and scales the WebGL minimap to match #mapframe. */
+#vitals, #ammo, #mapframe { zoom: var(--hud-scale, 1); }
+
 /* ── Callsign ── */
 #nameinput {
   width: 100%;

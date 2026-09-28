@@ -69,9 +69,10 @@ const SETTINGS_SCHEMA = [
   {
     key: 'frameCap', type: 'choice', label: 'Frame rate cap',
     options: FRAME_CAPS.map((v) => ({ value: v, label: v === 0 ? 'UNCAPPED' : String(v) })),
-    hint: 'Every frame drawn costs battery. 60 looks the same as uncapped on most laptops and '
-        + 'draws far less power; 30 stretches the charge furthest. The simulation runs on its '
-        + 'own clock, so the cap never slows the game down.',
+    hint: 'Every frame drawn costs battery; 30 stretches the charge furthest. Frames are kept '
+        + 'evenly spaced so turning stays smooth, which means some screens land a little above '
+        + 'the number (72 on a 144 Hz screen). The simulation runs on its own clock, so the cap '
+        + 'never slows the game down.',
   },
   {
     key: 'adaptiveRes', type: 'toggle', label: 'Adaptive resolution',

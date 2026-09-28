@@ -68,7 +68,7 @@ import {
   saveSettings,
   settings,
 } from './settings.js';
-import { lerp, rand } from './utils.js';
+import { clamp, lerp, rand } from './utils.js';
 import {
   WEAPON_BY_ID,
   WEAPONS,
@@ -540,6 +540,8 @@ function applySettings() {
  */
 let renderScale = 1;
 let baseRenderScale = 1;
+/** Scale of the corner HUD panels, and of the minimap drawn inside #mapframe. See resizeRenderer. */
+let hudScale = 1;
 
 const frameGate = createFrameGate();
 const resScaler = createResScaler();
@@ -550,6 +552,10 @@ function applyRenderScale() {
 }
 
 function resizeRenderer() {
+  // The corner panels are sized for a ~1280x720 window and scale down below it (the CSS applies
+  // this as `zoom`). The minimap is drawn by WebGL, not CSS, so renderMinimap reads it too.
+  hudScale = clamp(Math.min(innerWidth / 1280, innerHeight / 720), 0.62, 1);
+  document.documentElement.style.setProperty('--hud-scale', String(hudScale));
   const w = Math.max(320, Math.round(innerWidth * renderScale));
   const h = Math.max(240, Math.round(innerHeight * renderScale));
   renderer.setSize(w, h, false);              // false: let CSS stretch it back to full size
@@ -723,8 +729,8 @@ function renderMinimap() {
   // pixel ratio itself). With a render scale below 1 those are no longer CSS pixels, so the
   // minimap rectangle has to be scaled to match or it drifts off the corner.
   const size = renderer.getSize(_rendererSize);
-  const box = MAP_PX * renderScale;
-  const margin = MAP_MARGIN * renderScale;
+  const box = MAP_PX * hudScale * renderScale;
+  const margin = MAP_MARGIN * hudScale * renderScale;
   const x = size.x - margin - box;
   const y = margin;                    // GL origin is bottom-left
 
@@ -901,6 +907,9 @@ const _vmTarget = new THREE.Vector3();
 const _v1 = new THREE.Vector3();
 
 function fixedStep(dt) {
+  // Every moving body's position before this step, so frames can be drawn between the two.
+  player.prevBodyPos.copy(player.body.position);
+  for (const b of bots) b.prevBodyPos.copy(b.body.position);
   // Bots set their body velocity here — must precede world.step so the solver sees it.
   for (const b of bots) b.simStep(dt);
   stepPlayer(dt);
@@ -948,9 +957,40 @@ function updateViewModel(dt) {
   updateMuzzleFlash(dt);
 }
 
+/**
+ * How far the physics accumulator is into the next fixed step, 0..1, set once per frame.
+ * Everything that moves is drawn this far between its last two physics states — see
+ * Bot.placeMesh for why that matters.
+ */
+let renderAlpha = 1;
+const _renderBody = new THREE.Vector3();
+
+// Smoothed camera height: eye height above the body, and the body's own height while grounded.
+let camEye = CONFIG.EYE_HEIGHT;
+let camBodyY = null;
+
 function updateCamera(dt) {
-  const eyeY = CONFIG.EYE_HEIGHT - (player.crouching ? CONFIG.EYE_HEIGHT - CONFIG.CROUCH_HEIGHT : 0);
-  _camPos.set(player.body.position.x, player.body.position.y + eyeY, player.body.position.z);
+  // Interpolated body position, snapping rather than smearing across a respawn.
+  const bp = player.body.position, pp = player.prevBodyPos;
+  if (pp.distanceToSquared(bp) > 4) _renderBody.set(bp.x, bp.y, bp.z);
+  else _renderBody.set(pp.x + (bp.x - pp.x) * renderAlpha, pp.y + (bp.y - pp.y) * renderAlpha,
+    pp.z + (bp.z - pp.z) * renderAlpha);
+
+  /**
+   * Vertical smoothing. Crouching used to drop the eye 0.77 m in a single frame, and stepOver()
+   * lifts the body onto a ledge in a single physics step — both read as the camera jolting.
+   * The eye height eases toward its target, and while grounded so does the body height, which
+   * spreads a step-up over ~50 ms. Airborne it follows exactly: a jump must never lag, and a
+   * large change (spawning, a long drop) snaps.
+   */
+  const wantEye = CONFIG.EYE_HEIGHT - (player.crouching ? CONFIG.EYE_HEIGHT - CONFIG.CROUCH_HEIGHT : 0);
+  camEye += (wantEye - camEye) * (1 - Math.exp(-dt * 16));
+  if (camBodyY === null || !player.grounded || Math.abs(_renderBody.y - camBodyY) > 0.8) {
+    camBodyY = _renderBody.y;
+  } else {
+    camBodyY += (_renderBody.y - camBodyY) * (1 - Math.exp(-dt * 22));
+  }
+  _camPos.set(_renderBody.x, camBodyY + camEye, _renderBody.z);
   _camPos.add(_shakeOff);
 
   _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');
@@ -1043,8 +1083,9 @@ function frame() {
       steps++;
     }
     if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
+    renderAlpha = accumulator / FIXED_DT;
 
-    for (const b of bots) b.renderStep(dt);
+    for (const b of bots) b.renderStep(dt, renderAlpha);
     syncGrenades();
     updateBursts(dt);
     updateExplosionFx(dt);

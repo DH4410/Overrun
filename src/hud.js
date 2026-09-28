@@ -181,6 +181,9 @@ function updatePlates(dt) {
   for (const b of bots) {
     const p = b.plate;
     if (!b.alive) { p.root.style.display = 'none'; continue; }
+    // A teammate already carries an ally marker with its name and health (updateAllyMarkers),
+    // so a plate on top of it just printed the name twice.
+    if (player.team !== TEAM.SOLO && b.team === player.team) { p.root.style.display = 'none'; continue; }
     // b.pos is the chest, so this lands a little above the top of the head at BOT_TARGET_HEIGHT.
     _proj.set(b.pos.x, b.pos.y + 0.95, b.pos.z).project(camera);
     // z > 1 means it is behind the near plane — otherwise the plate mirrors behind you.

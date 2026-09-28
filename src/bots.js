@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 import { TEAM, TEAM_COLOR } from './config.js';
-import { G_BODY, MAT_BODY, world } from './physics.js';
+import { G_BODY, MAT_BODY, RAY_OPTS, world } from './physics.js';
 import { HB_BOT } from './projectiles.js';
 import { matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
@@ -205,6 +205,17 @@ const CLIP_SPEED = {
 };
 
 
+/**
+ * Which way to turn a Mixamo spine bone about its X axis so the chest follows the aim
+ * (positive aimPitch = target above).
+ *
+ * Measured on the live rig, not assumed: +0.5 rad on Spine1 and Spine2 moved the head 0.16 to
+ * 0.23 m FORWARD, i.e. a positive rotation hunches the chest down. So aiming up needs the
+ * negative. This only became visible once facingCorrection() turned the models round — while
+ * they were drawn backwards, bowing toward the model's front was bowing away from the target.
+ */
+const AIM_PITCH_SIGN = -1;
+
 /** Where the weapon sits relative to the right hand bone, in metres. */
 const GUN_IN_HAND = new THREE.Vector3(0.0, 0.04, 0.10);
 
@@ -321,8 +332,19 @@ let soldierGltf = null;
  * team you are looking at is legible from the shape alone, before the kit colour registers;
  * free-for-all draws from everyone, since there are no sides to confuse.
  */
+/**
+ * The roster. `teams: []` means "only as a last resort", via rosterFor's fallback.
+ *
+ * The original three.js soldier is fallback-only because the shared Mixamo clip set does not
+ * fit its skeleton: measured in a live match, every soldier bot stood with its HEAD 0.3 m BELOW
+ * ITS FEET — a crumpled heap on the floor while its Idle weight read 0.99. Its own three clips
+ * pose it correctly, but it has no strafe, back-pedal, crouch or death of its own, so any bot
+ * using it spent most of a fight mangled. Ely is the same Vanguard character, converted through
+ * Mixamo properly. The two sides' casts stay disjoint, so blue is SWAT only until another
+ * character is added (tests/e2e/characters.spec.mjs asserts no model appears on both sides).
+ */
 const CHARACTERS = [
-  { id: 'soldier', file: './assets/bots/soldier.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
+  { id: 'soldier', file: './assets/bots/soldier.glb', teams: [] },
   { id: 'swat', file: './assets/bots/swat.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
   { id: 'crypto', file: './assets/bots/crypto.glb', teams: [TEAM.SOLO, TEAM.RED] },
   { id: 'ely', file: './assets/bots/ely.glb', teams: [TEAM.SOLO, TEAM.RED] },
@@ -341,6 +363,8 @@ function rosterFor(team) {
 const SOLDIER_HEIGHT = 1.832;   // measured from the GLB's bounding box
 const BOT_TARGET_HEIGHT = 2.0;
 const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MESH_SCALE = -0.78)
+/** Body centre above the soles: the lower collision sphere sits at -0.38 with radius 0.36. */
+const BOT_STAND_Y = 0.74;
 /**
  * Correction for character scale.
  *
@@ -371,6 +395,95 @@ async function loadSoldier() {
 }
 
 /**
+ * The yaw that turns a character to face its group's -Z.
+ *
+ * Bots are drawn at `yaw + PI` because the procedural mesh and the original three.js soldier
+ * both face -Z. Every Mixamo export faces +Z, so every converted character was drawn facing
+ * BACKWARDS: the body moved and aimed one way while the model faced the other. A bot running at
+ * you moonwalked, and a bot shooting at you had its back turned — which is most of what a
+ * playtest described as "the animation doesn't match the movement". Measured on all three
+ * converted characters: toes pointed against the bot's heading with a dot product of -0.97.
+ *
+ * Measured from each character's own skeleton rather than assumed per file, so a character
+ * added through scripts/fbx-to-glb.mjs cannot bring this back. Must run after a clip has posed
+ * the skeleton and before the model is rotated or parented, while its matrix is just its own
+ * scale.
+ */
+function facingCorrection(model) {
+  model.updateMatrixWorld(true);
+  const forward = new THREE.Vector3();
+  const foot = new THREE.Vector3();
+  const toe = new THREE.Vector3();
+  const found = {};
+  model.traverse((o) => {
+    if (o.isBone) found[o.name.replace(MIXAMO_PREFIX, '')] = o;
+  });
+  for (const side of ['Left', 'Right']) {
+    if (!found[`${side}Foot`] || !found[`${side}ToeBase`]) continue;
+    foot.setFromMatrixPosition(found[`${side}Foot`].matrixWorld);
+    toe.setFromMatrixPosition(found[`${side}ToeBase`].matrixWorld);
+    forward.add(toe.sub(foot));
+  }
+  if (Math.hypot(forward.x, forward.z) < 1e-6) return 0;   // no feet: leave it as authored
+  // Heading in the same sense as Bot.yaw (atan2(x, z)); the group wants it at PI, i.e. -Z.
+  // Snapped to a quarter turn so a splayed stance cannot skew the model off true.
+  const turn = Math.PI - Math.atan2(forward.x, forward.z);
+  return Math.round(turn / (Math.PI / 2)) * (Math.PI / 2);
+}
+
+/**
+ * A team armband around one upper-arm bone, fitted from the character's own vertices.
+ *
+ * This replaces a chest band and shoulder pads that were sized for the old blocky humanoid and
+ * parented to the bot's root. On the rigged characters they floated clear of the body as large
+ * coloured blocks and did not move with it at all, because the animation moves the bones and
+ * they were not on any bone.
+ *
+ * The band is a child of the bone, so the animation carries it. Its radius comes from the
+ * vertices that bone actually drives, measured in the bone's own bind space — so it fits a
+ * slim character and an armoured one alike, and nothing here depends on the file's units.
+ */
+function fitArmband(model, bone, material) {
+  const child = bone.children.find((c) => c.isBone);
+  const length = child ? child.position.length() : 0;
+  if (!(length > 0)) return null;
+
+  const radii = [];
+  const v = new THREE.Vector3();
+  const toBone = new THREE.Matrix4();
+  model.traverse((mesh) => {
+    if (!mesh.isSkinnedMesh) return;
+    const index = mesh.skeleton.bones.indexOf(bone);
+    if (index < 0) return;
+    const { position, skinIndex, skinWeight } = mesh.geometry.attributes;
+    if (!skinIndex || !skinWeight) return;
+    toBone.multiplyMatrices(mesh.skeleton.boneInverses[index], mesh.bindMatrix);
+    for (let i = 0; i < position.count; i++) {
+      let weight = 0;
+      for (let k = 0; k < 4; k++) {
+        if (skinIndex.getComponent(i, k) === index) weight += skinWeight.getComponent(i, k);
+      }
+      if (weight < 0.6) continue;
+      v.fromBufferAttribute(position, i).applyMatrix4(toBone);
+      const along = v.y / length;           // bone space: +Y runs down the arm to the elbow
+      if (along < 0.25 || along > 0.6) continue;
+      radii.push(Math.hypot(v.x, v.z));
+    }
+  });
+
+  // Too few vertices to trust means an unusual rig; a band sized off the bone still reads.
+  radii.sort((a, b) => a - b);
+  const radius = radii.length >= 8 ? radii[Math.floor(radii.length * 0.9)] * 1.06 : length * 0.28;
+  const band = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, length * 0.18, 18, 1, true),
+    material,
+  );
+  band.position.y = length * 0.42;
+  bone.add(band);
+  return band;
+}
+
+/**
  * One soldier instance. Materials are cloned per bot because the death fade writes
  * material.opacity and the team tint writes material.emissive — sharing them would fade and
  * recolour every bot at once.
@@ -396,19 +509,17 @@ function buildSoldierMesh(teamColor, gltf) {
   });
   g.add(model);
 
-  // Team kit: a chest webbing band, shoulder pads and a small shoulder lamp. Enough to call
-  // friend from foe in a glance without repainting the soldier.
-  const kitMat = matte(teamColor, 0.55, 0.15);
-  const band = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.13, 0.30), kitMat);
-  band.position.set(0, 0.62, 0.01);
-  const padL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.10, 0.22), kitMat);
-  padL.position.set(-0.22, 0.78, 0);
-  const padR = padL.clone();
-  padR.position.x = 0.22;
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6),
-    new THREE.MeshBasicMaterial({ color: teamColor }));
-  lamp.position.set(0.19, 0.80, 0.02);
-  g.add(band, padL, padR, lamp);
+  // Team kit: an armband on each upper arm — how real teams mark themselves, readable from
+  // any side, and carried by the animation. Slightly emissive so it still reads in the dungeon.
+  const kitMat = new THREE.MeshStandardMaterial({
+    color: teamColor, emissive: teamColor, emissiveIntensity: 0.35,
+    roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide,
+  });
+  model.traverse((o) => {
+    if (!o.isBone) return;
+    const short = o.name.replace(MIXAMO_PREFIX, '');
+    if (short === 'LeftArm' || short === 'RightArm') fitArmband(model, o, kitMat);
+  });
 
   const mixer = new THREE.AnimationMixer(model);
   const clips = {};
@@ -418,11 +529,13 @@ function buildSoldierMesh(teamColor, gltf) {
   if (!gltf.userData.__clips) {
     const source = {};
     for (const name of BOT_CLIP_NAMES) {
-      // A converted character ships no animations of its own — every clip comes from the
-      // shared set in assets/bots/anim. soldier.glb is the exception: it carries the
-      // original Idle/Walk/Run, which still serve as the fallback if the manifest is empty.
-      const clip = THREE.AnimationClip.findByName(gltf.animations ?? [], name)
-        ?? extraClips[name];
+      // The shared set in assets/bots/anim comes first, for every character. soldier.glb
+      // carries its own Idle/Walk/Run, but those are posed facing the opposite way to the
+      // Mixamo clips — so a soldier blending its own run into a Mixamo strafe swung its hips
+      // through a half turn mid-blend and visibly twisted. One clip source means one facing.
+      // The soldier's own clips remain the fallback if the manifest is missing.
+      const clip = extraClips[name]
+        ?? THREE.AnimationClip.findByName(gltf.animations ?? [], name);
       if (clip) source[name] = clip;
     }
     gltf.userData.__clips = retargetClips(source, model);
@@ -436,6 +549,13 @@ function buildSoldierMesh(teamColor, gltf) {
   if (clips.Idle) clips.Idle.weight = 1;
   g.userData.mixer = mixer;
   g.userData.clips = clips;
+
+  // Face the model the right way, measured on the pose it will actually be DRAWN in. The bind
+  // pose is not good enough: the SWAT character's rest pose faces -Z while every clip poses it
+  // facing +Z, because the clips' Hips rotation differs from its rest orientation by a half
+  // turn. Measured at rest it needed no correction and was still drawn backwards.
+  mixer.update(0);
+  model.rotation.y = facingCorrection(model);
 
   /**
    * Spine chain, for aiming the whole upper body rather than just the gun.
@@ -592,6 +712,8 @@ class Bot {
     this.body.addShape(new CANNON.Sphere(0.36), new CANNON.Vec3(0, 0.34, 0));
     this.body.updateMassProperties();
     world.addBody(this.body);
+    // Body position before the most recent physics step, for render interpolation.
+    this.prevBodyPos = new THREE.Vector3().copy(this.body.position);
 
     this.plate = makePlate(name, color);
     this.updateTransforms();
@@ -649,6 +771,10 @@ class Bot {
     this.eye.set(p.x, p.y + BOT_EYE, p.z);
     this.vel.set(this.body.velocity.x, this.body.velocity.y, this.body.velocity.z);
     this.mesh.position.set(p.x, p.y + BOT_MESH_Y, p.z);
+    // The mesh always faces the bot's heading. faceDir() used to be the only thing that wrote
+    // this, so a bot fresh from a spawn faced wherever its mesh last pointed until it first
+    // turned, then snapped round. The death branch of renderStep adds its twist after this.
+    this.mesh.rotation.y = this.yaw + Math.PI;
     this.blip.position.set(p.x, 0.6, p.z);
   }
 
@@ -905,8 +1031,9 @@ class Bot {
   // Game-logic step — called at fixed physics dt from fixedStep() so all timers are
   // coherent with the physics simulation.
   simStep(dt) {
-    // Fall-out guard: teleport any bot that escapes the floor back to a spawn.
-    if (this.body.position.y < -20) {
+    // Fall-out guard: teleport any LIVING bot that escapes the floor back to a spawn. A corpse
+    // is never moved — see die().
+    if (this.alive && this.body.position.y < -20) {
       const sp = pickSpawn(this.team);
       this.body.position.set(sp.x, sp.y + 0.6, sp.z);
       this.body.velocity.set(0, 0, 0);
@@ -1063,9 +1190,30 @@ class Bot {
     this.applyLocomotion(dt);
   }
 
-  // Visual step — called once per rendered frame with the actual frame delta.
-  renderStep(frameDt) {
+  /**
+   * Draw the body between its last two physics states instead of at the latest one.
+   *
+   * Physics runs on a fixed 120 Hz clock and frames do not line up with it, so a frame can
+   * land after one step, two or three. Drawn at the raw body position, a bot advanced by an
+   * uneven amount every frame and visibly stuttered at any frame rate. `alpha` is how far the
+   * accumulator is into the next step; blending by it moves the mesh the same distance every
+   * frame. Gameplay (pos, eye, aim, hitboxes) still uses the real physics position.
+   */
+  placeMesh(alpha) {
+    const p = this.body.position, q = this.prevBodyPos;
+    if (q.distanceToSquared(p) > 4) return;          // a teleport or respawn: do not smear it
+    const x = q.x + (p.x - q.x) * alpha;
+    const y = q.y + (p.y - q.y) * alpha;
+    const z = q.z + (p.z - q.z) * alpha;
+    this.mesh.position.set(x, y + BOT_MESH_Y, z);
+    this.blip.position.set(x, 0.6, z);
+  }
+
+  // Visual step — called once per rendered frame with the actual frame delta, and how far the
+  // physics accumulator is into the next step (see placeMesh).
+  renderStep(frameDt, alpha = 1) {
     this.updateTransforms();
+    if (this.alive) this.placeMesh(alpha);
     if (!this.alive) {
       /**
        * Death. The old version rotated the whole mesh a rigid -90 degrees over 0.3 s, which
@@ -1325,10 +1473,10 @@ class Bot {
       // Split the aim down the spine the way a person does: most of it at the chest, the
       // rest at the neck and head. Applied after mixer.update so it layers on top of the
       // locomotion clip rather than being overwritten by it.
-      applyBonePitch(this.mesh, bones, 'Spine1', this.aimPitch * 0.30);
-      applyBonePitch(this.mesh, bones, 'Spine2', this.aimPitch * 0.30);
-      applyBonePitch(this.mesh, bones, 'Neck', this.aimPitch * 0.22);
-      applyBonePitch(this.mesh, bones, 'Head', this.aimPitch * 0.18);
+      addBonePitch(bones, 'Spine1', this.aimPitch * AIM_PITCH_SIGN * 0.30);
+      addBonePitch(bones, 'Spine2', this.aimPitch * AIM_PITCH_SIGN * 0.30);
+      addBonePitch(bones, 'Neck', this.aimPitch * AIM_PITCH_SIGN * 0.22);
+      addBonePitch(bones, 'Head', this.aimPitch * AIM_PITCH_SIGN * 0.18);
     } else if (this.mesh.userData.arms) {
       this.mesh.userData.arms[1].rotation.x = -this.aimPitch;
     }
@@ -1357,14 +1505,37 @@ class Bot {
       clips.Death.weight = 1;
       clips.Death.play();
     }
-    // setPlanarVelocity only records a wish, and simStep() returns before applyLocomotion()
-    // once alive is false — so a corpse needs its velocity cleared here or it keeps sliding.
+    /**
+     * A corpse does not move.
+     *
+     * It used to keep a live DYNAMIC body with collisionResponse switched off — so gravity still
+     * pulled on it and nothing held it up. Every corpse fell through the floor, under it inside
+     * half a second, and at y = -20 the fall-out guard teleported it to a spawn point, where it
+     * hung in the air falling again while it faded. A frag landing nearby launched it through
+     * the walls on top of that. That is the "they still move and float after they die" report.
+     *
+     * Kinematic bodies ignore gravity and move only by their own velocity, which is zeroed;
+     * collisionResponse stays off so nobody trips over the dead. It is put on the floor first,
+     * so a bot killed while dropping off a ledge lies on the ground rather than in mid-air.
+     */
     this.setPlanarVelocity(0, 0);
-    this.body.velocity.x = 0; this.body.velocity.z = 0;
+    this.body.velocity.set(0, 0, 0);
     this.body.collisionResponse = false;
+    this.body.type = CANNON.Body.KINEMATIC;
+    this.settleOnFloor();
     this.plate.root.style.display = 'none';
     this.blip.visible = false;
     this.dropWeapon();
+  }
+
+  /** Drop the (kinematic) body straight down onto whatever is below it. */
+  settleOnFloor() {
+    const p = this.body.position;
+    const from = new CANNON.Vec3(p.x, p.y, p.z);
+    const to = new CANNON.Vec3(p.x, p.y - 12, p.z);
+    const hit = new CANNON.RaycastResult();
+    world.raycastClosest(from, to, RAY_OPTS, hit);
+    if (hit.hasHit) p.y = hit.hitPointWorld.y + BOT_STAND_Y;
   }
 
   dropWeapon() { spawnPickup(this.body.position, this.weaponId); }
@@ -1381,6 +1552,7 @@ class Bot {
     this.mag = WEAPON_BY_ID[this.weaponId].mag;
     this.reloading = 0;
     this.nadeCd = rand(6, 16);
+    this.body.type = CANNON.Body.DYNAMIC;   // undo die(): back under gravity and the solver
     this.body.collisionResponse = true;
     this.body.velocity.set(0, 0, 0);
     this.body.position.set(at.x, at.y + 0.5, at.z);
@@ -1414,6 +1586,20 @@ class Bot {
  * be overwritten by the next clip update and the aim would flicker at the clip's frame rate.
  * The rest pose captured at build time is the reference the offset is measured from.
  */
+/**
+ * Pitch a bone on top of the pose the animation gave it this frame.
+ *
+ * Only valid straight after mixer.update(), which rewrites every bound bone from scratch each
+ * frame — that is what stops the offset accumulating. applyBonePitch below instead ASSIGNS
+ * `rest + extra`, which is right when no clip is driving the bone, but used for aiming it threw
+ * the clip's own rotation about this axis away every frame: the forward lean of the run and the
+ * hunch of the crouch never reached the chest, neck or head.
+ */
+function addBonePitch(bones, name, extra) {
+  const bone = bones[name];
+  if (bone) bone.rotation.x += extra;
+}
+
 function applyBonePitch(meshGroup, bones, name, extra) {
   const bone = bones[name];
   if (!bone) return;

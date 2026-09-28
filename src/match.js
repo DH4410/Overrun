@@ -163,7 +163,33 @@ function endMatch(title, sub) {
   el.hud.classList.add('hidden');
   el.menu.classList.remove('hidden');
   el.menuResult.textContent = `${title} — ${sub}`;
+  el.menuResult.appendChild(standingsTable());
   clearEffects();
+}
+
+/**
+ * The final standings, shown on the menu under the result line.
+ *
+ * A match used to end by dropping you on the menu with one line of text, so there was no way to
+ * see how it went. The live scoreboard cannot be reused here because it sits inside #hud, which
+ * is hidden the moment the match ends. Built with DOM calls so names are never parsed as HTML.
+ */
+function standingsTable() {
+  const rows = [player, ...bots].sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  const table = document.createElement('table');
+  for (const c of rows) {
+    const tr = document.createElement('tr');
+    if (c === player) tr.className = 'self';
+    const cells = [c.name, c.kills, c.deaths];
+    cells.forEach((value, i) => {
+      const td = document.createElement('td');
+      if (i > 0) td.className = 'num';
+      td.textContent = String(value);
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  }
+  return table;
 }
 
 function respawnPlayer(immediate = false, at = null) {

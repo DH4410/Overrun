@@ -318,7 +318,9 @@ function explode(pos, owner) {
   }
 
   for (const body of world.bodies) {
-    if (body.mass <= 0) continue;
+    // Dynamic bodies only. Corpses are kinematic (see Bot.die) and keep their mass, so without
+    // the type check a frag would hand one a velocity that nothing ever takes away again.
+    if (body.mass <= 0 || body.type !== CANNON.Body.DYNAMIC) continue;
     _v2.set(body.position.x - pos.x, body.position.y - pos.y, body.position.z - pos.z);
     const d = _v2.length();
     if (d > CONFIG.FRAG_RADIUS * 1.6 || d < 1e-3) continue;

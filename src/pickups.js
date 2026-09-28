@@ -217,16 +217,18 @@ const consumables = [];
 const CONSUMABLE_KINDS = {
   health: {
     label: 'HEALTH', color: 0x46e07a, amount: 35, respawn: 22,
+    wanted: (p) => p.health < CONFIG.MAX_HEALTH,
     apply(p) {
-      if (p.health >= CONFIG.MAX_HEALTH) return false;
+      if (!this.wanted(p)) return false;
       p.health = Math.min(CONFIG.MAX_HEALTH, p.health + this.amount);
       return true;
     },
   },
   shield: {
     label: 'SHIELD', color: 0x4db4ff, amount: 40, respawn: 30,
+    wanted: (p) => p.armor < CONFIG.MAX_ARMOR,
     apply(p) {
-      if (p.armor >= CONFIG.MAX_ARMOR) return false;
+      if (!this.wanted(p)) return false;
       p.armor = Math.min(CONFIG.MAX_ARMOR, p.armor + this.amount);
       return true;
     },
@@ -317,7 +319,9 @@ function updateConsumables(dt) {
 
     if (!player.alive) continue;
     const d = c.mesh.position.distanceTo(player.body.position);
-    if (d < 2.4) prompt = c.spec.label;
+    // Only offer what can actually be taken: "walk in to collect" at full health was a promise
+    // the pickup then refused.
+    if (d < 2.4 && c.spec.wanted(player)) prompt = c.spec.label;
     if (d > 1.5) continue;
 
     if (!c.spec.apply(player)) continue;      // already full — leave it for later

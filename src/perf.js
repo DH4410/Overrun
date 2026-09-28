@@ -15,26 +15,33 @@
 export const IDLE_FPS = 15;
 
 /**
- * Tolerance on the cap.
+ * A render-rate limiter that keeps frames evenly spaced.
  *
- * A display refreshes on its own schedule, so an interval measured against a 60 Hz cap lands
- * a hair under 16.67 ms roughly half the time on a 60 Hz panel. Without slack that frame is
- * skipped and the cap silently halves.
- */
-const SLACK = 0.002;
-
-/**
- * A render-rate limiter.
+ * The point is battery: an uncapped loop on a 144 Hz laptop panel draws 2.4x the frames of a
+ * 60 cap for a difference most players cannot see. Simulation is unaffected — the caller keeps
+ * its own `lastTime`, so a skipped frame's time still reaches the physics accumulator.
  *
- * The point is battery, not smoothness: an uncapped loop on a 144 Hz laptop panel draws 2.4x
- * the frames of a 60 Hz cap for a difference most players cannot see, and every one of those
- * frames is GPU work drawn from the battery. Simulation is unaffected — the caller keeps its
- * own `lastTime`, so the time a skipped frame represents is still handed to the physics
- * accumulator on the next frame that does run.
+ * It runs every Nth display refresh, N fixed. The first version aimed at the exact number
+ * instead, which a display that does not divide into it cannot give evenly: on 144 Hz a 60 cap
+ * alternated frames 14 ms and 21 ms apart, and uneven frame spacing is judder — the camera
+ * visibly hitches while turning even though the average rate is right. So N is the largest
+ * whole number of refreshes that still meets the cap, and the rate lands at or a little above
+ * it: 72 on a 144 Hz panel, exactly 60 on 60 and 120 Hz.
+ *
+ * The refresh interval is measured, as the median interval between calls, because
+ * requestAnimationFrame fires once per refresh and nothing else reports the rate.
  */
 export function createFrameGate() {
-  let last = -Infinity;
+  let lastCall = -Infinity;
   let lastBudget = -1;
+  let count = 0;
+  const intervals = [];
+
+  const refresh = () => {
+    if (intervals.length === 0) return 0;
+    const sorted = intervals.slice().sort((a, b) => a - b);
+    return sorted[sorted.length >> 1];
+  };
 
   return {
     /**
@@ -43,28 +50,29 @@ export function createFrameGate() {
      * @returns {boolean} whether this frame should run
      */
     shouldRun(now, budget) {
-      // A budget change is a state change — going to or from a menu, or the player moving the
-      // cap slider. Draw that promptly, and never carry the old cadence across it: coming back
-      // from the 15 fps idle budget with `last` up to 66 ms in the future would skip the first
-      // few frames of play.
+      const interval = now - lastCall;
+      lastCall = now;
+      if (interval > 0 && interval < 0.1) {
+        intervals.push(interval);
+        if (intervals.length > 30) intervals.shift();
+      }
+      // A budget change is a state change — to or from a menu, or the cap setting moving. Draw
+      // it promptly, and start counting afresh.
       if (budget !== lastBudget) {
         lastBudget = budget;
-        last = now;
+        count = 0;
         return true;
       }
-      if (!(budget > 0)) { last = now; return true; }
-      if (now - last < budget - SLACK) return false;
-
-      // Advance by the budget rather than snapping to `now`. Snapping only holds the target
-      // when the panel rate is a multiple of the cap: at 144 Hz against a 60 cap it gives
-      // run-skip-skip, which is 48 fps, and 75 and 90 Hz panels sag the same way. Advancing
-      // keeps the average on target and lets only the phase jitter by one refresh. Resync when
-      // more than two budgets have gone by, which is a stall rather than jitter.
-      last = (now - last > budget * 2) ? now : last + budget;
+      if (!(budget > 0)) return true;
+      // The 0.1 absorbs timer noise, so a 60 Hz panel against a 60 cap is N = 1, not N = 0.
+      const every = Math.max(1, Math.floor(budget / (refresh() || budget) + 0.1));
+      count += 1;
+      if (count < every) return false;
+      count = 0;
       return true;
     },
 
-    reset() { last = -Infinity; lastBudget = -1; },
+    reset() { lastCall = -Infinity; lastBudget = -1; count = 0; intervals.length = 0; },
   };
 }
 

@@ -32,6 +32,8 @@ export function createPlayerState() {
   eye: new THREE.Vector3(),          // muzzle / line-of-sight origin
   vel: new THREE.Vector3(),          // world velocity, so bots can lead their shots
   body: null,
+  // Body position before the most recent physics step, for render interpolation.
+  prevBodyPos: new THREE.Vector3(),
   yaw: 0, pitch: 0,
   recoilPitch: 0, recoilYaw: 0,
   grounded: false, crouching: false, sprinting: false,
@@ -561,7 +563,11 @@ function bindInput() {
 
 function requestLock() {
   if (!match.running) return;
-  renderer.domElement.requestPointerLock();
+  // Chrome returns a promise here and rejects it when a lock is asked for too soon after the
+  // player left one — press Esc, click straight back in. Unhandled, that was a console error
+  // and a click that silently did nothing. The pause overlay is still up when it happens, so
+  // the next click simply asks again.
+  renderer.domElement.requestPointerLock()?.catch?.(() => {});
   Audio.init();
 }
 

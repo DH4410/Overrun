@@ -11,23 +11,38 @@ import { IDLE_FPS, RES_FLOOR, createFrameGate, createResScaler } from '../../src
  * divide evenly into.
  */
 function runGate({ panelHz, capHz, seconds = 2 }) {
+  return runTimes({ panelHz, capHz, seconds }).length / seconds;
+}
+
+/** The timestamps of the frames a gate let through, on a synthetic display. */
+function runTimes({ panelHz, capHz, seconds = 2 }) {
   const gate = createFrameGate();
   const budget = capHz > 0 ? 1 / capHz : 0;
   const frames = Math.round(panelHz * seconds);
-  let ran = 0;
+  const times = [];
   for (let i = 1; i <= frames; i += 1) {
-    if (gate.shouldRun(i / panelHz, budget)) ran += 1;
+    if (gate.shouldRun(i / panelHz, budget)) times.push(i / panelHz);
   }
-  return ran / seconds;
+  return times;
 }
 
-test('a cap is met on panels it does not divide evenly into', () => {
-  // 144 Hz against a 60 cap is the case that catches a gate which snaps its timestamp to `now`
-  // instead of advancing it by the budget: that spends two refreshes per frame and lands on 48.
-  for (const panelHz of [60, 75, 90, 120, 144, 165]) {
-    const fps = runGate({ panelHz, capHz: 60 });
-    assert.ok(Math.abs(fps - 60) <= 4, `${panelHz} Hz panel, 60 cap, measured ${fps} fps`);
+test('capped frames are evenly spaced, and never slower than the cap', () => {
+  // Uneven spacing is judder even when the average is right: the first gate hit 60 on a 144 Hz
+  // panel by alternating frames 14 ms and 21 ms apart, and turning the camera hitched. After
+  // the first few frames (while the refresh rate is being measured) every gap must be equal.
+  for (const panelHz of [60, 75, 90, 120, 144, 165, 240]) {
+    const times = runTimes({ panelHz, capHz: 60 }).slice(4);
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    const spread = Math.max(...gaps) - Math.min(...gaps);
+    assert.ok(spread < 1e-9, `${panelHz} Hz panel: frame gaps vary by ${(spread * 1000).toFixed(2)} ms`);
+    const fps = 1 / gaps[0];
+    assert.ok(fps >= 59.9 && fps <= panelHz + 1e-6, `${panelHz} Hz panel ran at ${fps.toFixed(1)} fps`);
   }
+});
+
+test('a 60 cap on a 144 Hz panel runs every second refresh', () => {
+  const times = runTimes({ panelHz: 144, capHz: 60 }).slice(4);
+  assert.ok(Math.abs(1 / (times[1] - times[0]) - 72) < 1e-6);
 });
 
 test('a 30 cap halves a 60 Hz panel and a 60 cap does not touch it', () => {

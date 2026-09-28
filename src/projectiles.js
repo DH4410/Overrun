@@ -7,11 +7,27 @@ import { matte } from './rendering.js';
 import { rand } from './utils.js';
 
 /** Combatant hitbox profiles. Offsets are relative to the combatant chest position. */
-export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78 };
-export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.38, headR: 0.27, headY: 0.45 };
+export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78, legLen: 0.67 };
+export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.38, headR: 0.27, headY: 0.45, legLen: 0.52 };
 export const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
 
-export const ZONE_MULT = { head: 2.4, body: 1.0, limb: 0.6 };
+/**
+ * Damage multiplier by hit zone, for rounds that hit a BOT. Bots are hit on capsules fitted to
+ * their animated skeleton (Bot.hitShapes), so the zone is whatever part of the model the round
+ * actually met. A rifle headshot kills an unarmoured bot outright — 26 x 4 — which is what every
+ * tactical shooter teaches you to expect; it used to be 26 x 2.4 = 62, and "I headshot him and he
+ * didn't die" was the report. Arms count as body, as in Valorant: an arm in front of the chest
+ * should not turn a chest shot into a weak one.
+ */
+export const ZONE_MULT = { head: 4.0, body: 1.0, arm: 1.0, leg: 0.75 };
+/**
+ * The same for rounds that hit the PLAYER. The player has no visible body, so this stays an
+ * analytic head / torso / legs hitbox, and the head multiplier stays where the bot aim profiles
+ * were tuned (tests/e2e/duel.spec.mjs): a 4x head on the player would make the elite bot, which
+ * aims at the head 80% of the time, a two-shot kill from across the map.
+ */
+export const PLAYER_ZONE_MULT = { head: 2.4, body: 1.0, leg: 0.7 };
+const ZONES = ['head', 'body', 'arm', 'leg'];
 
 /** Bullet hit testing, projectile simulation, and grenade lifecycle. */
 export function createProjectileRuntime({
@@ -80,23 +96,87 @@ function segmentCylinderY(o, d, len, cx, cy, cz, r, halfH) {
   return t;
 }
 
-/** Nearest combatant hit, with locational damage volumes and team/self filters. */
+/**
+ * Distance along the segment to a capsule (the points within `r` of the segment A-B), or -1.
+ * A sphere is the capsule with A = B. After Inigo Quilez's ray-capsule intersection.
+ */
+function segmentCapsule(o, d, len, ax, ay, az, bx, by, bz, r) {
+  const bax = bx - ax, bay = by - ay, baz = bz - az;
+  const oax = o.x - ax, oay = o.y - ay, oaz = o.z - az;
+  const baba = bax * bax + bay * bay + baz * baz;
+  const bard = bax * d.x + bay * d.y + baz * d.z;
+  const baoa = bax * oax + bay * oay + baz * oaz;
+  const rdoa = d.x * oax + d.y * oay + d.z * oaz;
+  const oaoa = oax * oax + oay * oay + oaz * oaz;
+  let t = -1;
+  if (baba < 1e-10) {                                  // a sphere
+    const h = rdoa * rdoa - (oaoa - r * r);
+    if (h < 0) return -1;
+    t = -rdoa - Math.sqrt(h);
+    if (t < 0 && oaoa <= r * r) t = 0;                 // started inside
+  } else {
+    const a = baba - bard * bard;
+    const b = baba * rdoa - baoa * bard;
+    const c = baba * oaoa - baoa * baoa - r * r * baba;
+    const h = b * b - a * c;
+    if (h < 0) return -1;
+    t = a > 1e-12 ? (-b - Math.sqrt(h)) / a : -1;
+    const y = baoa + t * bard;
+    if (!(a > 1e-12) || y <= 0 || y >= baba) {
+      // One of the end caps.
+      const ocx = y <= 0 ? oax : o.x - bx, ocy = y <= 0 ? oay : o.y - by, ocz = y <= 0 ? oaz : o.z - bz;
+      const b2 = d.x * ocx + d.y * ocy + d.z * ocz;
+      const c2 = ocx * ocx + ocy * ocy + ocz * ocz - r * r;
+      const h2 = b2 * b2 - c2;
+      if (h2 < 0) return -1;
+      t = -b2 - Math.sqrt(h2);
+    }
+  }
+  if (t < 0) {
+    // Started inside (a muzzle pressed into someone): that is a hit at the muzzle.
+    const s = baba > 1e-10 ? Math.min(1, Math.max(0, baoa / baba)) : 0;
+    const qx = oax - bax * s, qy = oay - bay * s, qz = oaz - baz * s;
+    return qx * qx + qy * qy + qz * qz <= r * r ? 0 : -1;
+  }
+  return t > len ? -1 : t;
+}
+
+/**
+ * Nearest combatant hit, with locational damage and team/self filters.
+ *
+ * Bots are tested against capsules on their posed skeleton (Bot.hitShapes). The player keeps
+ * an analytic hitbox — head sphere, torso cylinder, legs below it. That used to be a "limb"
+ * cylinder 1.6x the torso's radius that ENCLOSED the torso, so the nearest-entry rule scored
+ * most chest hits as limb hits: 0.6x damage for a centre-mass shot.
+ */
 function nearestCombatantHit(o, d, len, shooter) {
   let best = null, bestT = Infinity, bestZone = 'body';
   for (const c of combatants) {
     if (!c.alive || c === shooter) continue;
     if (shooter && shooter.team !== TEAM.SOLO && c.team === shooter.team) continue;
+    const shapes = c.hitShapes?.();
+    if (shapes) {
+      // Cheap reject first: a sphere round the whole body.
+      if (segmentSphere(o, d, len, shapes.centre, shapes.radius) < 0) continue;
+      const v = shapes.data;
+      for (let i = 0; i < shapes.count; i++) {
+        const k = i * 8;
+        const t = segmentCapsule(o, d, len, v[k], v[k + 1], v[k + 2], v[k + 3], v[k + 4], v[k + 5], v[k + 6]);
+        if (t >= 0 && t < bestT) { bestT = t; best = c; bestZone = ZONES[v[k + 7]]; }
+      }
+      continue;
+    }
     const p = c.pos, hb = c.hb;
     const th = segmentSphere(o, d, len, _v1.set(p.x, p.y + hb.headY, p.z), hb.headR);
     const tb = segmentCylinderY(o, d, len, p.x, p.y, p.z, hb.bodyR, hb.bodyHalfH);
-    // Centred lower and made taller than the torso so legs are genuinely hittable — the
-    // previous limb volume stopped at roughly hip height.
-    const tl = segmentCylinderY(o, d, len, p.x, p.y - 0.25, p.z, hb.bodyR * 1.6, hb.bodyHalfH * 1.6);
+    // Legs: from the floor up to the bottom of the torso, a little narrower than it.
+    const legTop = p.y - hb.bodyHalfH;
+    const legHalf = (hb.legLen ?? 0.7) / 2;
+    const tl = segmentCylinderY(o, d, len, p.x, legTop - legHalf, p.z, hb.bodyR * 0.85, legHalf);
     let t = -1, zone = 'body';
-    // Nearest wins, and ties resolve toward the more specific volume.
     if (th >= 0) { t = th; zone = 'head'; }
     if (tb >= 0 && (t < 0 || tb < t)) { t = tb; zone = 'body'; }
-    if (tl >= 0 && (t < 0 || tl < t - 1e-4)) { t = tl; zone = 'limb'; }
+    if (tl >= 0 && (t < 0 || tl < t)) { t = tl; zone = 'leg'; }
     if (t >= 0 && t < bestT) { bestT = t; best = c; bestZone = zone; }
   }
   return best ? { target: best, t: bestT, zone: bestZone, head: bestZone === 'head' } : null;
@@ -167,7 +247,8 @@ function stepBullets(dt) {
 
     if (cHit && cHit.t <= wallT) {
       _hitPoint.copy(b.prev).addScaledVector(_dir, cHit.t);
-      const dmg = b.damage * ZONE_MULT[cHit.zone];
+      const table = cHit.target === getPlayer() ? PLAYER_ZONE_MULT : ZONE_MULT;
+      const dmg = b.damage * (table[cHit.zone] ?? 1);
       spawnBlood(_hitPoint);
       applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head, cHit.zone);
       despawnBullet(i);

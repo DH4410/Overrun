@@ -91,9 +91,13 @@ export const DIFFICULTY = {
    * stationary target, settled aim:
    *
    *            hit rate   headshot share
-   *   hard        0.72         0.02
-   *   elite       1.00         0.75
+   *   hard        0.38         0.04
+   *   elite       1.00         0.82
    *   elite, while strafing at 4.6 m/s:  0.03
+   *
+   * (Hard read 0.72 before the player's hitbox was fixed: its "limb" cylinder was 1.6x the
+   * torso's radius and caught rounds that passed well clear of the body. Every torso hit a bot
+   * lands now counts in full instead of as a 0.6x limb hit, so it fights about as hard as it did.)
    *
    * The headshot share is the real gap: elite converts a hit into a kill roughly twice as
    * fast as any other tier even where the raw hit rates are close. The strafing row is the
@@ -192,13 +196,11 @@ const BOT_FOV_COS = Math.cos((65 * Math.PI) / 180);
 const BOT_AWARE_NEAR = 6;
 
 /**
- * Planar speed (m/s) each locomotion clip was authored for, used to drive action.timeScale
- * so playback rate tracks how fast the bot is actually travelling.
+ * Fallback planar speeds (m/s) for locomotion clips that carry no root motion to measure.
  *
- * The In Place exports carry no root motion, so these cannot be read back off the clip —
- * they are Mixamo's nominal rates for these animations. Being a little wrong costs some
- * foot-slide, not correctness, and the timeScale clamp in animate() bounds how wrong it can
- * look either way.
+ * The shipped clips DO carry root motion (see stripRootMotion), and their real speeds are
+ * measured from it per character — these nominal Mixamo rates were off by up to 40%, which
+ * is why a chasing bot's legs used to paddle faster than the ground under it.
  */
 const CLIP_SPEED = {
   Walk: 1.6,
@@ -220,8 +222,66 @@ const CLIP_SPEED = {
  */
 const AIM_PITCH_SIGN = -1;
 
-/** Where the weapon sits relative to the right hand bone, in metres. */
-const GUN_IN_HAND = new THREE.Vector3(0.0, 0.04, 0.10);
+/** Lower-body turn limits, in radians: toward a sideways move, and while backpedalling. */
+const LEG_TURN_MAX = 1.25;
+const LEG_BACK_MAX = 0.6;
+/** Beyond this angle off facing, a move counts as backpedalling. */
+const LEG_FWD_MAX = 1.95;
+/** How far the muzzle dips below level in the ready carry. */
+const READY_DIP = 0.55;
+
+const UP = new THREE.Vector3(0, 1, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _tq = new THREE.Quaternion();
+const _b1 = new THREE.Vector3(), _b2 = new THREE.Vector3(), _b3 = new THREE.Vector3();
+const _bm = new THREE.Matrix4();
+const _a1 = new THREE.Vector3(), _a2 = new THREE.Vector3(), _a3 = new THREE.Vector3();
+const _aq1 = new THREE.Quaternion(), _aq2 = new THREE.Quaternion(), _aq3 = new THREE.Quaternion();
+const _k1 = new THREE.Vector3(), _k2 = new THREE.Vector3(), _k3 = new THREE.Vector3(), _k4 = new THREE.Vector3();
+const _k5 = new THREE.Vector3(), _k6 = new THREE.Vector3(), _k7 = new THREE.Vector3();
+const _o1 = new THREE.Vector3(), _o2 = new THREE.Vector3(), _o3 = new THREE.Vector3();
+const _o4 = new THREE.Vector3(), _o5 = new THREE.Vector3(), _o6 = new THREE.Vector3();
+const _om1 = new THREE.Matrix4(), _om2 = new THREE.Matrix4();
+const _oq1 = new THREE.Quaternion(), _oq2 = new THREE.Quaternion();
+const _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3(), _g4 = new THREE.Vector3();
+const _g5 = new THREE.Vector3(), _g6 = new THREE.Vector3(), _g7 = new THREE.Vector3(), _g8 = new THREE.Vector3();
+const _g9 = new THREE.Vector3(), _g10 = new THREE.Vector3(), _gPos = new THREE.Vector3(), _gScale = new THREE.Vector3();
+const _qAim = new THREE.Quaternion(), _qLow = new THREE.Quaternion(), _qGun = new THREE.Quaternion();
+const _mGun = new THREE.Matrix4(), _mInv = new THREE.Matrix4();
+const _h1 = new THREE.Vector3(), _h2 = new THREE.Vector3(), _h3 = new THREE.Vector3(), _h4 = new THREE.Vector3();
+const _h5 = new THREE.Vector3(), _h6 = new THREE.Vector3(), _h7 = new THREE.Vector3(), _h8 = new THREE.Vector3();
+const _h9 = new THREE.Vector3();
+const _hb1 = new THREE.Vector3(), _hb2 = new THREE.Vector3();
+
+/** Bones the rig code needs, by their name with the Mixamo prefix stripped. */
+const RIG_BONES = [
+  'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
+  'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftHandMiddle1', 'LeftHandThumb1',
+  'RightArm', 'RightForeArm', 'RightHand', 'RightHandMiddle1', 'RightHandThumb1',
+  'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase', 'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase',
+  'HeadTop_End',
+];
+
+/**
+ * Hit capsules on the skeleton: [from bone, to bone, radius in metres, zone]. A null `to` is a
+ * sphere at the bone. Zone indices match ZONES in projectiles.js: 0 head, 1 body, 2 arm, 3 leg.
+ * Radii are for the 2 m characters, sized to the models' silhouettes rather than to anatomy,
+ * and slightly generous — a round that visibly touches a sleeve should count.
+ */
+const HIT_CAPSULES = [
+  ['Hips', 'Spine1', 0.17, 1],
+  ['Spine1', 'Spine2', 0.18, 1],
+  ['Spine2', 'Neck', 0.16, 1],
+  ['LeftArm', 'RightArm', 0.12, 1],            // across the shoulders: the chest's width
+  ['LeftUpLeg', 'RightUpLeg', 0.13, 1],        // pelvis
+  ['Neck', 'Head', 0.075, 1],
+  ['LeftArm', 'LeftForeArm', 0.065, 2], ['LeftForeArm', 'LeftHand', 0.055, 2], ['LeftHand', null, 0.06, 2],
+  ['RightArm', 'RightForeArm', 0.065, 2], ['RightForeArm', 'RightHand', 0.055, 2], ['RightHand', null, 0.06, 2],
+  ['LeftUpLeg', 'LeftLeg', 0.095, 3], ['LeftLeg', 'LeftFoot', 0.07, 3], ['LeftFoot', 'LeftToeBase', 0.06, 3],
+  ['RightUpLeg', 'RightLeg', 0.095, 3], ['RightLeg', 'RightFoot', 0.07, 3], ['RightFoot', 'RightToeBase', 0.06, 3],
+];
+/** The head is a sphere at the middle of the skull, which the Head bone is not (it is the base). */
+const HEAD_R = 0.14;
 
 const BOT_MESH_SCALE = 1.2;
 const BOT_MESH_Y = 0.04;
@@ -240,6 +300,54 @@ const BOT_CLIP_NAMES = ['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'Wal
 
 /** Extra clips registered at boot, keyed by the names above. */
 const extraClips = {};
+
+/** Locomotion clips that must play in place, because the physics body moves the bot. */
+const IN_PLACE_CLIPS = new Set(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch']);
+
+/** Root-motion distance removed from each registered clip, in the clip's own units, by name. */
+const clipDrift = {};
+
+/**
+ * Make a locomotion clip play in place, and return how far it used to travel per cycle.
+ *
+ * The Mixamo exports in assets/bots/anim were NOT exported "In Place", whatever the manifest
+ * says: the Hips position track walks forward 1.7 m per Walk cycle, 2.5 m per Run cycle and
+ * 1.2-1.6 m sideways per strafe, then snaps back when the clip loops. The physics body already
+ * moves the bot, so every drawn body ran ahead of where the bot really was and jumped back
+ * every 0.7-1.4 s — the "AI lags and teleports" report — and since bullets hit the physics
+ * body, the model being aimed at could be two metres from the thing that took the damage.
+ *
+ * Only the linear drift over the cycle is removed, on the two horizontal axes; the bob and
+ * sway within the stride are kept, and the clip still loops seamlessly. "Up" is whichever
+ * component carries the hip height, so this does not depend on the exporter's axis convention.
+ */
+function stripRootMotion(clip) {
+  const track = clip.tracks.find((t) => /Hips\.position$/.test(t.name));
+  if (!track || track.times.length < 2) return 0;
+  const v = track.values, times = track.times, n = times.length;
+  // Up is the axis that never comes near zero: the hips are always a leg's length off the
+  // floor, while a travelling axis starts at the origin. (The largest average is NOT safe: a
+  // Run cycle's forward drift averages more than the hip height.)
+  const floor = [Infinity, Infinity, Infinity];
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) floor[k] = Math.min(floor[k], Math.abs(v[i * 3 + k]));
+  const up = floor.indexOf(Math.max(...floor));
+  const hipHeight = floor[up];
+  const span = times[n - 1] - times[0] || 1;
+  let drift2 = 0;
+  for (let k = 0; k < 3; k++) {
+    if (k === up) continue;
+    const d = v[(n - 1) * 3 + k] - v[k];
+    drift2 += d * d;
+  }
+  const drift = Math.sqrt(drift2);
+  if (drift < hipHeight * 0.1) return 0;         // already in place
+  for (let k = 0; k < 3; k++) {
+    if (k === up) continue;
+    const d = v[(n - 1) * 3 + k] - v[k];
+    for (let i = 0; i < n; i++) v[i * 3 + k] -= d * (times[i] - times[0]) / span;
+  }
+  return drift;
+}
 
 /**
  * Strip the rig prefix and separator so a bone can be matched however it was spelled.
@@ -307,6 +415,10 @@ function registerBotClips(clips) {
   const accepted = [];
   for (const [name, clip] of Object.entries(clips)) {
     if (!clip || !BOT_CLIP_NAMES.includes(name)) continue;
+    if (IN_PLACE_CLIPS.has(name)) {
+      const drift = stripRootMotion(clip);
+      if (drift > 0) clipDrift[name] = { drift, duration: clip.duration };
+    }
     extraClips[name] = clip;
     accepted.push(name);
   }
@@ -436,63 +548,11 @@ function facingCorrection(model) {
 }
 
 /**
- * A team armband around one upper-arm bone, fitted from the character's own vertices.
- *
- * This replaces a chest band and shoulder pads that were sized for the old blocky humanoid and
- * parented to the bot's root. On the rigged characters they floated clear of the body as large
- * coloured blocks and did not move with it at all, because the animation moves the bones and
- * they were not on any bone.
- *
- * The band is a child of the bone, so the animation carries it. Its radius comes from the
- * vertices that bone actually drives, measured in the bone's own bind space — so it fits a
- * slim character and an armoured one alike, and nothing here depends on the file's units.
- */
-function fitArmband(model, bone, material) {
-  const child = bone.children.find((c) => c.isBone);
-  const length = child ? child.position.length() : 0;
-  if (!(length > 0)) return null;
-
-  const radii = [];
-  const v = new THREE.Vector3();
-  const toBone = new THREE.Matrix4();
-  model.traverse((mesh) => {
-    if (!mesh.isSkinnedMesh) return;
-    const index = mesh.skeleton.bones.indexOf(bone);
-    if (index < 0) return;
-    const { position, skinIndex, skinWeight } = mesh.geometry.attributes;
-    if (!skinIndex || !skinWeight) return;
-    toBone.multiplyMatrices(mesh.skeleton.boneInverses[index], mesh.bindMatrix);
-    for (let i = 0; i < position.count; i++) {
-      let weight = 0;
-      for (let k = 0; k < 4; k++) {
-        if (skinIndex.getComponent(i, k) === index) weight += skinWeight.getComponent(i, k);
-      }
-      if (weight < 0.6) continue;
-      v.fromBufferAttribute(position, i).applyMatrix4(toBone);
-      const along = v.y / length;           // bone space: +Y runs down the arm to the elbow
-      if (along < 0.25 || along > 0.6) continue;
-      radii.push(Math.hypot(v.x, v.z));
-    }
-  });
-
-  // Too few vertices to trust means an unusual rig; a band sized off the bone still reads.
-  radii.sort((a, b) => a - b);
-  const radius = radii.length >= 8 ? radii[Math.floor(radii.length * 0.9)] * 1.06 : length * 0.28;
-  const band = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius, radius, length * 0.18, 18, 1, true),
-    material,
-  );
-  band.position.y = length * 0.42;
-  bone.add(band);
-  return band;
-}
-
-/**
  * One soldier instance. Materials are cloned per bot because the death fade writes
  * material.opacity and the team tint writes material.emissive — sharing them would fade and
  * recolour every bot at once.
  */
-function buildSoldierMesh(teamColor, gltf) {
+function buildSoldierMesh(_teamColor, gltf) {
   const g = new THREE.Group();
   const model = skeletonClone(gltf.scene);
 
@@ -512,18 +572,9 @@ function buildSoldierMesh(teamColor, gltf) {
     o.frustumCulled = false;                  // skinned bounds are the bind pose, not the pose
   });
   g.add(model);
-
-  // Team kit: an armband on each upper arm — how real teams mark themselves, readable from
-  // any side, and carried by the animation. Slightly emissive so it still reads in the dungeon.
-  const kitMat = new THREE.MeshStandardMaterial({
-    color: teamColor, emissive: teamColor, emissiveIntensity: 0.35,
-    roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide,
-  });
-  model.traverse((o) => {
-    if (!o.isBone) return;
-    const short = o.name.replace(MIXAMO_PREFIX, '');
-    if (short === 'LeftArm' || short === 'RightArm') fitArmband(model, o, kitMat);
-  });
+  // No team kit. The armbands this replaced were open cylinders fitted to the arm's bind pose,
+  // and in motion they read as ribbons floating off the sleeves. Sides are told apart by the
+  // cast (each team draws from its own characters) and by the ally markers over teammates.
 
   const mixer = new THREE.AnimationMixer(model);
   const clips = {};
@@ -575,15 +626,24 @@ function buildSoldierMesh(teamColor, gltf) {
   model.traverse((o) => {
     if (!o.isBone) return;
     const short = o.name.replace(MIXAMO_PREFIX, '');
-    if (short === 'Spine1' || short === 'Spine2' || short === 'Neck' || short === 'Head') {
-      bones[short] = o;
-    }
-    if (short === 'RightHand') bones.RightHand = o;
+    if (RIG_BONES.includes(short)) bones[short] = o;
   });
   g.userData.bones = bones;
   g.userData.restPitch = new Map(
-    Object.entries(bones).map(([k, b]) => [k, b.rotation.x]),
+    ['Spine1', 'Spine2', 'Neck', 'Head'].filter((k) => bones[k]).map((k) => [k, bones[k].rotation.x]),
   );
+
+  // Each clip's real ground speed on THIS character, in world metres per second: the drift
+  // stripRootMotion removed, carried through the rig's scale. The group is still unscaled
+  // here, so the bot's BOT_MESH_SCALE is applied by hand.
+  g.userData.clipSpeed = {};
+  if (bones.Hips?.parent) {
+    model.updateMatrixWorld(true);
+    const scale = bones.Hips.parent.getWorldScale(new THREE.Vector3()).x * BOT_MESH_SCALE;
+    for (const [name, d] of Object.entries(clipDrift)) {
+      if (clips[name]) g.userData.clipSpeed[name] = (d.drift * scale) / d.duration;
+    }
+  }
   return g;
 }
 
@@ -636,6 +696,12 @@ function buildBotGun(id) {
   mz.position.set(0, 0.012, -len * 0.92);
   g.add(mz);
   g.userData.muzzle = mz;
+  // Where the hands go and where the eye looks along it, in the gun's own frame (-Z forward).
+  const pistol = id === 'pistol';
+  g.userData.grip = new THREE.Vector3(0, -0.07, 0.0);
+  g.userData.support = pistol ? new THREE.Vector3(-0.02, -0.09, 0.02) : new THREE.Vector3(0, -0.05, -Math.min(0.30, len * 0.36));
+  g.userData.sight = new THREE.Vector3(0, 0.075, pistol ? -0.06 : 0.02);
+  g.userData.pistol = pistol;
   return g;
 }
 
@@ -764,21 +830,16 @@ class Bot {
    * same factor. Characters with no hand bone (the blocky fallback) keep the old anchor.
    */
   attachGun() {
-    const hand = this.mesh.userData.bones?.RightHand;
-    if (!hand) {
+    if (!this.mesh.userData.bones?.RightHand) {
       this.gunMesh.position.copy(this.gunAnchor());
       this.mesh.add(this.gunMesh);
       return;
     }
-    hand.updateWorldMatrix(true, false);
-    const handScale = new THREE.Vector3();
-    hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), handScale);
-    const inv = 1 / (handScale.x || 1);
-    this.gunMesh.scale.setScalar(inv);
-    // Offsets are in hand-local space: forward along the fingers, and a little into the grip.
-    this.gunMesh.position.set(GUN_IN_HAND.x * inv, GUN_IN_HAND.y * inv, GUN_IN_HAND.z * inv);
-    this.gunMesh.rotation.set(0, Math.PI / 2, Math.PI / 2);
-    hand.add(this.gunMesh);
+    // Rigged characters: the gun is posed every frame by poseGun() and the hands are solved
+    // onto it, so it is parented to the bot's group, not to a hand. The group is scaled by
+    // BOT_MESH_SCALE, which the gun divides back out so it keeps its real size.
+    this.gunMesh.matrixAutoUpdate = false;
+    this.mesh.add(this.gunMesh);
   }
 
   updateTransforms() {
@@ -1025,6 +1086,7 @@ class Bot {
       // is entered before the narrow head sphere, so any shot aimed at the head's lower
       // edge scores as a 0.6x limb hit instead of a 2.4x headshot. Measured: aiming low put
       // essentially every connection in the limb zone. Centre clears the cylinder.
+      if (target.headPoint) return target.headPoint(out);
       const hb = target.hb ?? HB_BOT;
       out.y += hb.headY;
     }
@@ -1314,7 +1376,7 @@ class Bot {
         // the floor, so the mesh keeps its upright transform and only the mixer runs — the
         // procedural tip-over below would fight it and lay the corpse on its side.
         this.mesh.rotation.x = 0;
-        this.mesh.rotation.y = this.yaw + Math.PI;
+        this.mesh.rotation.y = this.yaw + Math.PI + (this.legYaw ?? 0);
         this.mesh.position.y = this.body.position.y + BOT_MESH_Y;
         this.mesh.userData.mixer.update(frameDt);
       } else {
@@ -1453,147 +1515,271 @@ class Bot {
   animate(dt) {
     const vx = this.body.velocity.x, vz = this.body.velocity.z;
     const speed = Math.hypot(vx, vz);
-
     const mixer = this.mesh.userData.mixer;
-    if (mixer) {
-      /**
-       * Directional locomotion blend.
-       *
-       * Speed alone is not enough once bots strafe and back off as much as this one does:
-       * blending only idle/walk/run meant a bot side-stepping across your crosshair played
-       * a forward walk while travelling sideways, and a bot giving ground moon-walked. The
-       * blend is now over the movement direction in the bot's OWN frame.
-       *
-       * Forward is (sin yaw, cos yaw) because yaw is measured from +Z, and the character's
-       * right is therefore (-cos yaw, sin yaw) — the same perpendicular combatMove() uses
-       * for strafing, so a positive lateral component here is the same direction it asked
-       * to move in.
-       */
-      const clips = this.mesh.userData.clips;
-      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
-      const moving = clamp((speed - 0.25) / 1.5, 0, 1);
-      const fwd = speed > 0.05 ? (vx * fx + vz * fz) / speed : 1;
-      const rgt = speed > 0.05 ? (vx * -fz + vz * fx) / speed : 0;
+    if (!mixer) { this.animateBlocky(speed, dt); return; }
 
-      // Split the movement weight between the four directional clips by how much of the
-      // travel each one accounts for.
-      const parts = {
-        fwd: Math.max(0, fwd),
-        back: Math.max(0, -fwd),
-        right: Math.max(0, rgt),
-        left: Math.max(0, -rgt),
-      };
-      const total = parts.fwd + parts.back + parts.right + parts.left || 1;
-      /**
-       * Walk-to-run crossfade, placed on the two clips' own speeds.
-       *
-       * Walk covers 1.74 m/s on this rig and Run covers 4.80 (CLIP_SPEED x CLIP_SCALE), so the
-       * honest midpoint is ~3.3. The old window started at 3.2 and ran to 5.7, which left a bot
-       * patrolling at 3.6 m/s playing 84% walk — a walk cycle driven at 2x to keep up with the
-       * ground, which reads as speed-walking rather than jogging.
-       */
-      const runBlend = clamp((speed - 2.0) / 2.6, 0, 1);
+    const clips = this.mesh.userData.clips;
+    const bones = this.mesh.userData.bones;
+    const clipSpeed = this.mesh.userData.clipSpeed;
 
-      const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0 };
-      // Any direction we have no clip for falls back to the forward walk/run pair, so a
-      // partial clip set degrades to the old behaviour instead of freezing mid-stride.
-      const put = (name, weight) => {
-        if (weight <= 0) return;
-        if (clips[name]) want[name] += weight;
-        else { want.Run += weight * runBlend; want.Walk += weight * (1 - runBlend); }
-      };
-      const share = (p) => (p / total) * moving;
-      want.Run += share(parts.fwd) * runBlend;
-      want.Walk += share(parts.fwd) * (1 - runBlend);
-      put('WalkBack', share(parts.back));
-      put('StrafeRight', share(parts.right));
-      put('StrafeLeft', share(parts.left));
+    /**
+     * Lower-body heading. A fast sideways move is drawn as the legs turning toward the way the
+     * bot is going while the torso twists back to face its target — how people actually move
+     * fast sideways with a rifle up — rather than a walking side-step clip played at 3-4x.
+     * Backpedalling turns the legs a little too, then uses the walk-back clip.
+     */
+    const travel = Math.atan2(vx, vz);
+    const rel = wrapAngle(travel - this.yaw);
+    const moving01 = clamp((speed - 1.2) / 1.3, 0, 1);
+    let legWant = 0;
+    if (speed > 0.6) {
+      legWant = Math.abs(rel) <= LEG_FWD_MAX
+        ? clamp(rel, -LEG_TURN_MAX, LEG_TURN_MAX)
+        : clamp(wrapAngle(rel - Math.PI), -LEG_BACK_MAX, LEG_BACK_MAX);
+      legWant *= moving01;
+    }
+    this.legYaw = (this.legYaw ?? 0) + wrapAngle(legWant - (this.legYaw ?? 0)) * Math.min(1, 9 * dt);
+    this.mesh.rotation.y = this.yaw + Math.PI + this.legYaw;
 
-      // Tucked into cover: hold a crouch rather than standing idle in the open.
-      const hiding = this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8;
-      if (hiding && clips.Crouch) {
-        for (const key of Object.keys(want)) want[key] = 0;
-        want.Crouch = 1;
-      } else {
-        let used = 0;
-        for (const key of Object.keys(want)) used += want[key];
-        want.Idle = Math.max(0, 1 - used);
-      }
+    /**
+     * Directional blend over the movement direction in the LEGS' frame. Forward is
+     * (sin h, cos h) for heading h, and the character's right is (-cos h, sin h) — the same
+     * perpendicular combatMove() uses, so a positive lateral component is the same direction
+     * it asked to move in.
+     */
+    const legHeading = this.yaw + this.legYaw;
+    const fx = Math.sin(legHeading), fz = Math.cos(legHeading);
+    const moving = clamp((speed - 0.25) / 1.2, 0, 1);
+    const fwd = speed > 0.05 ? (vx * fx + vz * fz) / speed : 1;
+    const rgt = speed > 0.05 ? (vx * -fz + vz * fx) / speed : 0;
+    const parts = {
+      fwd: Math.max(0, fwd), back: Math.max(0, -fwd),
+      right: Math.max(0, rgt), left: Math.max(0, -rgt),
+    };
+    const total = parts.fwd + parts.back + parts.right + parts.left || 1;
+    const speedOf = (name) => clipSpeed[name] ?? CLIP_SPEED[name] * CLIP_SCALE;
+    // Walk-to-run crossfade, placed between the two clips' measured speeds.
+    const walkV = speedOf('Walk'), runV = speedOf('Run');
+    const runBlend = clamp((speed - walkV * 1.15) / Math.max(0.1, runV * 0.9 - walkV * 1.15), 0, 1);
 
-      // Weights are lerped rather than switched so a bot changing pace or direction does
-      // not pop between clips.
-      const k = Math.min(1, 8 * dt);
-      for (const [name, target] of Object.entries(want)) {
-        const action = clips[name];
-        if (action) action.weight = lerp(action.weight, target, k);
-      }
+    const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0 };
+    const put = (name, weight) => {
+      if (weight <= 0) return;
+      if (clips[name]) want[name] += weight;
+      else { want.Run += weight * runBlend; want.Walk += weight * (1 - runBlend); }
+    };
+    const share = (x) => (x / total) * moving;
+    want.Run += share(parts.fwd) * runBlend;
+    want.Walk += share(parts.fwd) * (1 - runBlend);
+    put('WalkBack', share(parts.back));
+    put('StrafeRight', share(parts.right));
+    put('StrafeLeft', share(parts.left));
 
-      /**
-       * Playback rate per direction, so the feet cover the ground the bot covers.
-       *
-       * Each clip is paced by the component of travel it is actually responsible for, not by
-       * the total. Pacing everything off the total is what a playtest caught: a bot closing
-       * while side-stepping travels ~5.2 m/s in total but only ~3.5 m/s sideways, and feeding
-       * 5.2 to a strafe clip authored for 1.6 asks for 3.2x, which hit the old 1.8 ceiling and
-       * left the legs covering 56% of the ground the body did. Measured across a live match,
-       * 30% of all moving frames were pinned to that clamp. That is the skating.
-       *
-       * The ceiling is 2.6 because the fastest lateral speed in the game — an elite bot
-       * strafing at 4.6 * 1.22 * 0.75 — needs 2.56 to keep up. A side-step clip at 2.6x is a
-       * hurried shuffle, which looks far less wrong than feet skating over the floor. The floor
-       * of 0.6 is unchanged: a bot shoved by an explosion should not windmill its legs.
-       */
-      const hasStrafeClips = Boolean(clips.StrafeLeft || clips.StrafeRight);
-      // With no strafe clips the forward pair covers every direction (see put()), so it has to
-      // be paced by the whole travel instead of the forward part of it.
-      const fwdPace = hasStrafeClips ? speed * Math.abs(fwd) : speed;
-      const latPace = speed * Math.abs(rgt);
-      const paceOf = (authored, component) => clamp(component / (authored * CLIP_SCALE), 0.6, 2.6);
-      const pace = {
-        Walk: paceOf(CLIP_SPEED.Walk, fwdPace),
-        Run: paceOf(CLIP_SPEED.Run, fwdPace),
-        WalkBack: paceOf(CLIP_SPEED.WalkBack, fwdPace),
-        StrafeLeft: paceOf(CLIP_SPEED.StrafeLeft, latPace),
-        StrafeRight: paceOf(CLIP_SPEED.StrafeRight, latPace),
-      };
-      for (const [name, timeScale] of Object.entries(pace)) {
-        if (clips[name]) clips[name].timeScale = timeScale;
-      }
-      mixer.update(dt);
+    const hiding = this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8;
+    if (hiding && clips.Crouch) {
+      for (const key of Object.keys(want)) want[key] = 0;
+      want.Crouch = 1;
     } else {
-      const t = performance.now() * 0.001;
-      const swing = Math.sin(t * (4 + speed * 1.3)) * Math.min(0.6, speed * 0.13);
-      this.mesh.userData.legs[0].rotation.x = swing;
-      this.mesh.userData.legs[1].rotation.x = -swing;
-      this.mesh.userData.arms[0].rotation.x = -swing * 0.5;
+      let used = 0;
+      for (const key of Object.keys(want)) used += want[key];
+      want.Idle = Math.max(0, 1 - used);
+    }
+    const k = Math.min(1, 8 * dt);
+    for (const [name, target] of Object.entries(want)) {
+      const action = clips[name];
+      if (action) action.weight = lerp(action.weight, target, k);
     }
 
-    // Aim at whatever we are shooting at.
-    const engaging = this.target && (this.state === ST.SHOOT || this.state === ST.NADE
-                                     || (this.state === ST.COVER && this.peekTimer > 0));
+    // Playback rate: each clip paced by the part of the travel it accounts for, against its
+    // own measured ground speed on this character, so the planted foot stays planted.
+    const hasStrafeClips = Boolean(clips.StrafeLeft || clips.StrafeRight);
+    const fwdPace = hasStrafeClips ? speed * Math.abs(fwd) : speed;
+    const latPace = speed * Math.abs(rgt);
+    const paceOf = (name, component) => clamp(component / speedOf(name), 0.5, 2.2);
+    for (const [name, comp] of [['Walk', fwdPace], ['Run', fwdPace], ['WalkBack', fwdPace],
+      ['StrafeLeft', latPace], ['StrafeRight', latPace]]) {
+      if (clips[name]) clips[name].timeScale = paceOf(name, comp);
+    }
+    mixer.update(dt);
+
+    // Aim: raised whenever there is someone to point at, lowered to a ready carry otherwise.
+    const engaging = this.target && this.hasLOS && (this.state === ST.SHOOT || this.state === ST.NADE
+      || this.state === ST.CHASE || (this.state === ST.COVER && this.peekTimer > 0));
     let pitch = 0;
     if (engaging) {
       const dy = this.target.pos.y - this.eye.y;
-      const dh = Math.hypot(this.target.pos.x - this.body.position.x,
-                            this.target.pos.z - this.body.position.z);
+      const dh = Math.hypot(this.target.pos.x - this.body.position.x, this.target.pos.z - this.body.position.z);
       pitch = clamp(Math.atan2(dy, dh), -1.1, 1.1);
     }
     this.aimPitch = lerp(this.aimPitch ?? 0, pitch, Math.min(1, 9 * dt));
+    this.aimW = lerp(this.aimW ?? 0, engaging ? 1 : 0, Math.min(1, 7 * dt));
+
+    // Torso: undo the legs' turn up the spine, then pitch the chest with the aim. Both are
+    // applied after mixer.update, which rewrites every bound bone each frame.
+    const twist = -this.legYaw;
+    twistBone(bones.Spine, twist * 0.3);
+    twistBone(bones.Spine1, twist * 0.35);
+    twistBone(bones.Spine2, twist * 0.35);
+    addBonePitch(bones, 'Spine1', this.aimPitch * AIM_PITCH_SIGN * 0.30);
+    addBonePitch(bones, 'Spine2', this.aimPitch * AIM_PITCH_SIGN * 0.30);
+    addBonePitch(bones, 'Neck', this.aimPitch * AIM_PITCH_SIGN * 0.22);
+    addBonePitch(bones, 'Head', this.aimPitch * AIM_PITCH_SIGN * 0.18);
+
+    this.poseGun();
+    this.gripGun();
+    this.updateHitboxes();
+  }
+
+  /**
+   * Take the hit capsules off the posed skeleton, relative to where the mesh is drawn, so
+   * hitShapes() can put them wherever the physics body is when a round arrives.
+   */
+  updateHitboxes() {
     const bones = this.mesh.userData.bones;
-    // A hand-parented gun is posed by the animation; only the fallback mesh, whose gun
-    // hangs off the body, still needs its pitch written here.
-    if (!bones?.RightHand) this.gunMesh.rotation.x = this.aimPitch;
-    if (bones) {
-      // Split the aim down the spine the way a person does: most of it at the chest, the
-      // rest at the neck and head. Applied after mixer.update so it layers on top of the
-      // locomotion clip rather than being overwritten by it.
-      addBonePitch(bones, 'Spine1', this.aimPitch * AIM_PITCH_SIGN * 0.30);
-      addBonePitch(bones, 'Spine2', this.aimPitch * AIM_PITCH_SIGN * 0.30);
-      addBonePitch(bones, 'Neck', this.aimPitch * AIM_PITCH_SIGN * 0.22);
-      addBonePitch(bones, 'Head', this.aimPitch * AIM_PITCH_SIGN * 0.18);
-    } else if (this.mesh.userData.arms) {
-      this.mesh.userData.arms[1].rotation.x = -this.aimPitch;
+    if (!bones?.Head) return;
+    this.mesh.updateMatrixWorld(true);
+    const n = HIT_CAPSULES.length + 1;
+    if (!this.hitRel) {
+      this.hitRel = new Float32Array(n * 8);
+      this.hitWorld = new Float32Array(n * 8);
+      this.hitCentre = new THREE.Vector3();
+      this.hitStep = -1;
     }
+    const base = this.mesh.position;
+    const rel = this.hitRel;
+    const at = (name, out) => out.setFromMatrixPosition(bones[name].matrixWorld).sub(base);
+    let k = 0;
+    // Head: the midpoint of the Head bone and the top of the skull.
+    at('Head', _hb1);
+    if (bones.HeadTop_End) _hb1.lerp(at('HeadTop_End', _hb2), 0.5);
+    else _hb1.y += HEAD_R * 0.8;
+    rel.set([_hb1.x, _hb1.y, _hb1.z, _hb1.x, _hb1.y, _hb1.z, HEAD_R, 0], k); k += 8;
+    for (const [from, to, r, zone] of HIT_CAPSULES) {
+      if (!bones[from] || (to && !bones[to])) { rel.fill(0, k, k + 8); k += 8; continue; }
+      at(from, _hb1);
+      if (to) at(to, _hb2); else _hb2.copy(_hb1);
+      rel.set([_hb1.x, _hb1.y, _hb1.z, _hb2.x, _hb2.y, _hb2.z, r, zone], k);
+      k += 8;
+    }
+    this.hitStep = -1;              // world copy is stale now
+  }
+
+  /**
+   * The hit capsules in world space at the body's CURRENT physics position, or null for the
+   * blocky fallback (which uses the analytic HB_BOT). Called by the bullet sweep every step, so
+   * the world copy is rebuilt at most once per physics step.
+   */
+  hitShapes() {
+    if (!this.hitRel) return null;
+    if (this.hitStep !== world.stepnumber) {
+      const p = this.body.position;
+      const ox = p.x, oy = p.y + BOT_MESH_Y, oz = p.z;
+      const src = this.hitRel, dst = this.hitWorld;
+      for (let k = 0; k < src.length; k += 8) {
+        dst[k] = src[k] + ox; dst[k + 1] = src[k + 1] + oy; dst[k + 2] = src[k + 2] + oz;
+        dst[k + 3] = src[k + 3] + ox; dst[k + 4] = src[k + 4] + oy; dst[k + 5] = src[k + 5] + oz;
+        dst[k + 6] = src[k + 6]; dst[k + 7] = src[k + 7];
+      }
+      this.hitCentre.set(ox, oy + 0.3, oz);
+      this.hitStep = world.stepnumber;
+    }
+    return { data: this.hitWorld, count: this.hitWorld.length / 8, centre: this.hitCentre, radius: 1.6 };
+  }
+
+  /** Centre of the head in world space, for anyone aiming at it. */
+  headPoint(out) {
+    if (!this.hitRel) return out.set(this.pos.x, this.pos.y + HB_BOT.headY, this.pos.z);
+    const p = this.body.position;
+    return out.set(this.hitRel[0] + p.x, this.hitRel[1] + p.y + BOT_MESH_Y, this.hitRel[2] + p.z);
+  }
+
+  /** The procedural walk for the blocky fallback mesh, which has no skeleton. */
+  animateBlocky(speed) {
+    const t = performance.now() * 0.001;
+    const swing = Math.sin(t * (4 + speed * 1.3)) * Math.min(0.6, speed * 0.13);
+    this.mesh.userData.legs[0].rotation.x = swing;
+    this.mesh.userData.legs[1].rotation.x = -swing;
+    this.mesh.userData.arms[0].rotation.x = -swing * 0.5;
+    this.gunMesh.rotation.x = this.aimPitch ?? 0;
+  }
+
+  /**
+   * Where the gun is this frame, in world space, written into the gun's local matrix.
+   *
+   * Two poses, blended by aimW. Shouldered: the sight a hand's breadth in front of the eye and
+   * the barrel on the target, so the gun a bot shoots you with is pointing at you. Ready: held
+   * across the chest, muzzle forward and down. Both hang off the posed skeleton — the head and
+   * the chest — so the walk and run carry the gun with the body.
+   */
+  poseGun() {
+    const bones = this.mesh.userData.bones;
+    const gun = this.gunMesh;
+    const ud = gun.userData;
+    this.mesh.updateMatrixWorld(true);
+    const head = _g1.setFromMatrixPosition(bones.Head.matrixWorld);
+    const chest = _g2.setFromMatrixPosition(bones.Spine2.matrixWorld);
+    const facing = this.yaw;
+    const fwd = _g3.set(Math.sin(facing), 0, Math.cos(facing));
+    const right = _g4.set(-Math.cos(facing), 0, Math.sin(facing));
+
+    // Shouldered: aim direction from the eye to the target (or level ahead, pitched).
+    const aimDir = _g5;
+    if (this.target && this.aimW > 0.01) {
+      aimDir.copy(this.target.pos).sub(head);
+      if (aimDir.lengthSq() < 1e-6) aimDir.copy(fwd);
+      aimDir.normalize();
+    } else {
+      aimDir.copy(fwd).multiplyScalar(Math.cos(this.aimPitch ?? 0)).setY(Math.sin(this.aimPitch ?? 0));
+    }
+    const sightAt = _g6.copy(head).addScaledVector(fwd, ud.pistol ? 0.40 : 0.14)
+      .addScaledVector(right, ud.pistol ? 0.02 : 0.07).addScaledVector(UP, -0.09);
+    gunBasis(aimDir, _qAim);
+    const aimPos = _g7.copy(ud.sight).applyQuaternion(_qAim).negate().add(sightAt);
+
+    // Ready: muzzle forward and down across the body, grip by the right hip-chest.
+    const lowDir = _g8.copy(fwd).multiplyScalar(Math.cos(READY_DIP)).setY(-Math.sin(READY_DIP))
+      .addScaledVector(right, ud.pistol ? 0 : -0.18).normalize();
+    gunBasis(lowDir, _qLow);
+    const gripAt = _g9.copy(chest).addScaledVector(fwd, ud.pistol ? 0.30 : 0.22)
+      .addScaledVector(right, ud.pistol ? 0.02 : 0.08).addScaledVector(UP, ud.pistol ? -0.12 : -0.18);
+    const lowPos = _g10.copy(ud.grip).applyQuaternion(_qLow).negate().add(gripAt);
+
+    const w = this.aimW ?? 0;
+    _qGun.slerpQuaternions(_qLow, _qAim, w);
+    _gPos.lerpVectors(lowPos, aimPos, w);
+    // World transform -> the group's local frame (the group carries BOT_MESH_SCALE).
+    _mGun.compose(_gPos, _qGun, _gScale.setScalar(1));
+    _mInv.copy(this.mesh.matrixWorld).invert();
+    gun.matrix.multiplyMatrices(_mInv, _mGun);
+    gun.matrixWorldNeedsUpdate = true;
+    gun.updateMatrixWorld(true);
+  }
+
+  /** Solve both arms onto the gun: right hand on the grip, left hand on the support point. */
+  gripGun() {
+    const bones = this.mesh.userData.bones;
+    const gun = this.gunMesh;
+    const gm = gun.matrixWorld;
+    const grip = _h1.copy(gun.userData.grip).applyMatrix4(gm);
+    const support = _h2.copy(gun.userData.support).applyMatrix4(gm);
+    const gunFwd = _h3.set(0, 0, -1).transformDirection(gm);
+    const gunUp = _h4.set(0, 1, 0).transformDirection(gm);
+    const gunRight = _h5.crossVectors(gunFwd, gunUp).normalize();
+    // Elbows: the right one out and down, the left one down and in under the gun.
+    const rPole = _h6.setFromMatrixPosition(bones.RightArm.matrixWorld)
+      .addScaledVector(UP, -1).addScaledVector(gunRight, 0.7).addScaledVector(gunFwd, -0.3);
+    solveTwoBone(bones.RightArm, bones.RightForeArm, bones.RightHand, grip, rPole);
+    const lPole = _h7.setFromMatrixPosition(bones.LeftArm.matrixWorld)
+      .addScaledVector(UP, -1).addScaledVector(gunRight, -0.25);
+    solveTwoBone(bones.LeftArm, bones.LeftForeArm, bones.LeftHand, support, lPole);
+    // Hands: the right wraps the grip, fingers round its left side; the left cups the
+    // handguard from below, fingers up its right side.
+    orientHand(bones.RightHand, bones.RightHandMiddle1, bones.RightHandThumb1,
+      _h8.copy(gunRight).negate().addScaledVector(gunUp, -0.35).normalize(),
+      _h9.copy(gunFwd).addScaledVector(gunUp, 0.4).normalize());
+    orientHand(bones.LeftHand, bones.LeftHandMiddle1, bones.LeftHandThumb1,
+      _h8.copy(gunRight).addScaledVector(gunUp, 0.6).normalize(),
+      _h9.copy(gunFwd));
   }
 
   /* ------------------------------ death ------------------------------ */
@@ -1639,6 +1825,8 @@ class Bot {
     this.settleOnFloor();
     this.plate.root.style.display = 'none';
     this.blip.visible = false;
+    // The dropped pickup is the gun now; the hands no longer hold one.
+    if (this.mesh.userData.bones?.RightHand) this.gunMesh.visible = false;
     this.dropWeapon();
   }
 
@@ -1679,6 +1867,8 @@ class Bot {
     this.attachGun();
     this.mesh.rotation.x = 0;
     this.aimPitch = 0;
+    this.aimW = 0;
+    this.legYaw = 0;
     const respawnClips = this.mesh.userData.clips;
     if (respawnClips?.Death) {
       respawnClips.Death.stop();
@@ -1686,7 +1876,7 @@ class Bot {
       if (respawnClips.Idle) { respawnClips.Idle.weight = 1; respawnClips.Idle.play(); }
     }
     const bones = this.mesh.userData.bones;
-    if (bones) for (const name of Object.keys(bones)) applyBonePitch(this.mesh, bones, name, 0);
+    if (bones) for (const name of this.mesh.userData.restPitch.keys()) applyBonePitch(this.mesh, bones, name, 0);
     this.mesh.visible = true;
     this.mesh.traverse((o) => { if (o.isMesh) { o.material.opacity = 1; o.material.transparent = false; } });
     this.blip.visible = true;
@@ -1711,6 +1901,89 @@ class Bot {
  * the clip's own rotation about this axis away every frame: the forward lean of the run and the
  * hunch of the crouch never reached the chest, neck or head.
  */
+/** Wrap an angle into [-PI, PI]. */
+function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/** Twist a spine bone about its own long axis (+Y for a Mixamo bone), after the clip posed it. */
+function twistBone(bone, angle) {
+  if (!bone || !angle) return;
+  bone.quaternion.multiply(_tq.setFromAxisAngle(Y_AXIS, angle));
+}
+
+/** Rotation taking the gun frame (-Z forward, +Y up) onto `dir` with its top kept upright. */
+function gunBasis(dir, out) {
+  const z = _b1.copy(dir).negate().normalize();
+  const x = _b2.crossVectors(UP, z);
+  if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+  x.normalize();
+  const y = _b3.crossVectors(z, x);
+  _bm.makeBasis(x, y, z);
+  return out.setFromRotationMatrix(_bm);
+}
+
+/** Turn `bone` (in world space) so that the direction to `child` points at `target`. */
+function aimBone(bone, childPos, target) {
+  const origin = _a1.setFromMatrixPosition(bone.matrixWorld);
+  const from = _a2.subVectors(childPos, origin).normalize();
+  const to = _a3.subVectors(target, origin).normalize();
+  const delta = _aq1.setFromUnitVectors(from, to);
+  bone.getWorldQuaternion(_aq2);
+  _aq2.premultiply(delta);
+  bone.parent.getWorldQuaternion(_aq3).invert();
+  bone.quaternion.copy(_aq3.multiply(_aq2));
+  bone.updateMatrixWorld(true);
+}
+
+/**
+ * Analytic two-bone IK: bend upper -> fore -> hand so the hand reaches `target`, with the elbow
+ * swung toward `pole`. Out-of-reach targets are met with a straight arm pointing at them.
+ */
+function solveTwoBone(upper, fore, hand, target, pole) {
+  if (!upper || !fore || !hand) return;
+  const a = _k1.setFromMatrixPosition(upper.matrixWorld);
+  const b = _k2.setFromMatrixPosition(fore.matrixWorld);
+  const c = _k3.setFromMatrixPosition(hand.matrixWorld);
+  const l1 = a.distanceTo(b), l2 = b.distanceTo(c);
+  const toT = _k4.subVectors(target, a);
+  const d = clamp(toT.length(), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+  const u = toT.normalize();
+  const side = _k5.subVectors(pole, a);
+  side.addScaledVector(u, -side.dot(u));
+  if (side.lengthSq() < 1e-8) side.set(0, -1, 0);
+  side.normalize();
+  const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
+  const elbow = _k6.copy(a).addScaledVector(u, l1 * cosA).addScaledVector(side, l1 * Math.sqrt(1 - cosA * cosA));
+  aimBone(upper, b, elbow);
+  const reach = _k7.copy(a).addScaledVector(u, d);
+  aimBone(fore, _k3.setFromMatrixPosition(hand.matrixWorld), reach);
+}
+
+/**
+ * Point a hand's fingers along `fingers` with its thumb toward `thumb`, both in world space,
+ * using the hand's own finger and thumb bones to know which local axes those are.
+ */
+function orientHand(hand, middle, thumbBone, fingers, thumb) {
+  if (!hand || !middle || !thumbBone) return;
+  const lf = _o1.copy(middle.position).normalize();
+  const lt = _o2.copy(thumbBone.position);
+  lt.addScaledVector(lf, -lt.dot(lf)).normalize();
+  const ln = _o3.crossVectors(lf, lt);
+  _om1.makeBasis(lf, lt, ln);                  // local frame
+  const wf = _o4.copy(fingers).normalize();
+  const wt = _o5.copy(thumb).addScaledVector(wf, -thumb.dot(wf)).normalize();
+  const wn = _o6.crossVectors(wf, wt);
+  _om2.makeBasis(wf, wt, wn);                  // wanted world frame
+  _om2.multiply(_om1.transpose());             // world rotation = wanted * local^-1
+  _oq1.setFromRotationMatrix(_om2);
+  hand.parent.getWorldQuaternion(_oq2).invert();
+  hand.quaternion.copy(_oq2.multiply(_oq1));
+  hand.updateMatrixWorld(true);
+}
+
 function addBonePitch(bones, name, extra) {
   const bone = bones[name];
   if (bone) bone.rotation.x += extra;

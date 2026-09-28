@@ -170,9 +170,8 @@ test('a duel round opens with both sides on equal terms', async ({ page }) => {
  * numbers. Fires the bot's own shootAt() at a stationary dummy down a verified-clear lane
  * and counts what actually connects.
  *
- * Measured at 35 m, not 15 m: at 15 m both tiers saturate (hard already lands ~98% of AR
- * rounds on a settled, stationary target, because the limb volume is bodyR * 1.6 wide), so
- * a close-range test discriminates nothing. 35 m is where the cone widths separate — hard
+ * Measured at range, not 15 m: at 15 m both tiers saturate on a settled, stationary target,
+ * so a close-range test discriminates nothing. 35 m is where the cone widths separate — hard
  * carries ~0.056 rad there, about 1.9 m of error, while elite carries ~0.0043 rad, about
  * 15 cm, which is still inside the head.
  */

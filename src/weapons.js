@@ -61,7 +61,8 @@ export const WEAPONS = [
   },
   {
     id: 'sniper', name: 'SNIPER RIFLE', slot: 4, auto: false,
-    damage: 95, speed: 700, cooldown: 1.4, mag: 5, reserve: 25, reload: 2.8,
+    // 110 so a body shot kills an unarmoured target, which is the sniper's whole job.
+    damage: 110, speed: 700, cooldown: 1.4, mag: 5, reserve: 25, reload: 2.8,
     spread: 0.0015, pellets: 1, recoil: 0.075, kick: 0.2, zoom: true, zoomFov: 25,
     // The heaviest movement penalty in the game: a sniper that can be run-and-gunned makes
     // every other gun pointless.

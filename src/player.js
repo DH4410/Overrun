@@ -38,6 +38,9 @@ export function createPlayerState() {
   current: 'pistol',
   ammo: {},
   cooldown: 0, reloading: 0, reloadTotal: 0,
+  // Overshoot left over when the fire cooldown expired mid-frame, spent on the next shot so
+  // the rate of fire does not quantise to the render rate. See the weapon timers in frame().
+  fireCarry: 0,
   // Spray state: accumulated bloom in radians, how far into the recoil pattern we are, and
   // how long since the last round left the barrel. See playerSpread / recoilStep.
   bloom: 0, sprayIndex: 0, sinceShot: 99,
@@ -76,6 +79,8 @@ export function createPlayerRuntime({
   ejectBrass,
   addViewModelRecoil,
   losClear,
+  smokeBlocks,
+  getEnemies,
   explode,
   spawnSmoke,
   throwGrenade,
@@ -265,11 +270,9 @@ function stepPlayer(dt) {
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; b.velocity.y /= DAMP_PER_STEP; return; }
 
   playerGroundCheck();
-  // Crouch and sprint read from a latch when the player has chosen toggle-style bindings
-  // (see settings.toggleCrouch / toggleSprint), otherwise straight from the held key.
+  // Crouch reads from a latch when the player has chosen toggle-style bindings (see
+  // settings.toggleCrouch), otherwise straight from the held key.
   setCrouch(settings.toggleCrouch ? crouchLatch : !!keys.KeyC);
-  const wantSprint = settings.toggleSprint ? sprintLatch : !!keys.ShiftLeft;
-  player.sprinting = wantSprint && !player.crouching && !aiming;
 
   // Movement basis is camera yaw with the pitch stripped out.
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -280,6 +283,19 @@ function stepPlayer(dt) {
   if (keys.KeyS || keys.GpBack || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
   if (keys.KeyD || keys.GpRight || (settings.arrowKeys && keys.ArrowRight)) ix += 1;
   if (keys.KeyA || keys.GpLeft || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
+
+  /**
+   * Sprint: held, latched, or — with autoSprint — implied by walking forward.
+   *
+   * Holding Shift with the same hand that is covering WASD is genuinely awkward on a laptop
+   * keyboard, and toggle-sprint only half solves it because you still have to remember to turn
+   * it off. autoSprint needs the FORWARD key specifically, not just any movement, and stands
+   * down while aiming: strafing to peek an angle stays at walking pace, and walking pace stays
+   * reachable at all, which matters because sprinting is the widest accuracy cone in the game.
+   */
+  const wantSprint = (settings.toggleSprint ? sprintLatch : !!keys.ShiftLeft)
+    || (settings.autoSprint && iz > 0);
+  player.sprinting = wantSprint && !player.crouching && !aiming;
 
   let speed = CONFIG.WALK_SPEED;
   if (player.sprinting) speed *= CONFIG.SPRINT_MULT;
@@ -378,7 +394,8 @@ function tryFire() {
   if (a.mag <= 0) { startReload(); return; }
 
   a.mag--;
-  player.cooldown = w.cooldown;
+  player.cooldown = Math.max(0, w.cooldown - player.fireCarry);
+  player.fireCarry = 0;
 
   playerAimDirection(_aimDir);
   // Additive accuracy: a settled, standing tap is effectively pinpoint, while movement, air
@@ -626,6 +643,97 @@ function pollGamepad(dt) {
   }
 }
 
+/**
+ * Pointer-delta boost, for playing on a trackpad.
+ *
+ * A trackpad gives you a few centimetres of travel, so at a sensitivity that still allows fine
+ * aim a 180 turn takes three or four swipes — the single biggest reason a shooter is unpleasant
+ * on a laptop. A mouse solves this in hardware with a high CPI; this makes the same trade in
+ * software. Movement slower than KNEE passes through untouched, so small corrections keep the
+ * 1:1 feel the whole crosshair is tuned around, and faster movement is scaled up progressively
+ * to at most MAX, which is low enough that a palm brush cannot spin the camera.
+ *
+ * Rate is measured per 60 Hz frame rather than per frame, so the curve does not change when the
+ * player caps the frame rate and each frame's delta covers more time.
+ */
+const BOOST_KNEE = 5;            // px per 1/60 s
+const BOOST_RANGE = 35;          // px per 1/60 s of ramp above the knee
+const BOOST_MAX = 2.6;
+
+function trackpadBoost(delta, dt) {
+  const rate = Math.abs(delta) / 60 / Math.max(dt, 1 / 240);
+  if (rate <= BOOST_KNEE) return delta;
+  const ramp = Math.min((rate - BOOST_KNEE) / BOOST_RANGE, 1);
+  return delta * (1 + (BOOST_MAX - 1) * ramp);
+}
+
+/**
+ * Aim assist. Off at 0, friction-only up to half strength, a small pull above that.
+ *
+ * This exists for trackpad and keyboard play, where the hard part is not finding the target but
+ * stopping on it. Friction — slowing the crosshair while it is over someone — fixes exactly
+ * that and never moves your aim for you, which is why it is what the default strength buys.
+ */
+const ASSIST_CONE = 0.055;       // rad, ~3.2 degrees either side of the crosshair
+const ASSIST_FRICTION = 0.55;    // fraction of look speed removed dead centre at strength 1
+const ASSIST_PULL = 0.5;         // rad/s of pull dead centre at strength 1
+const _assistFwd = new THREE.Vector3();
+const _assistVec = new THREE.Vector3();
+
+/**
+ * The enemy nearest the crosshair, if assist is on and that enemy can actually be seen.
+ *
+ * Visibility is a real line-of-sight test plus the smoke check, deliberately NOT bot.spotted:
+ * spotting marks anything within 30 m as seen whether or not a wall is in the way, so keying
+ * assist off it would drag the crosshair over targets behind cover — an accidental wallhack.
+ */
+function assistTarget() {
+  if (!(settings.aimAssist > 0) || !player.alive || !getMatch().running) return null;
+
+  const cp = Math.cos(player.pitch);
+  _assistFwd.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
+
+  let best = null;
+  let bestAngle = ASSIST_CONE;
+  for (const e of getEnemies()) {
+    if (!e.alive) continue;
+    if (player.team !== TEAM.SOLO && e.team === player.team) continue;
+    _assistVec.subVectors(e.pos, player.eye);
+    const dist = _assistVec.length();
+    if (dist < 0.001) continue;
+    const angle = Math.acos(clamp(_assistVec.dot(_assistFwd) / dist, -1, 1));
+    if (angle >= bestAngle) continue;
+    bestAngle = angle;
+    best = e;
+  }
+  if (!best) return null;
+  // One ray, for the one candidate that matters.
+  if (!losClear(player.eye.x, player.eye.y, player.eye.z, best.pos.x, best.pos.y, best.pos.z)) {
+    return null;
+  }
+  if (smokeBlocks(player.eye, best.pos)) return null;
+  return { target: best, closeness: 1 - bestAngle / ASSIST_CONE };
+}
+
+/**
+ * A gentle pull toward the target, above half strength only.
+ *
+ * Bounded by rate rather than by distance, so it can help track someone crossing the screen but
+ * can never snap onto them: at full strength it closes 0.5 rad/s, slower than a person turns,
+ * and it fades to nothing as the crosshair arrives.
+ */
+function applyAssistPull(assist, dt) {
+  if (settings.aimAssist <= 0.5) return;
+  const rate = ASSIST_PULL * (settings.aimAssist - 0.5) * 2 * assist.closeness * dt;
+  _assistVec.subVectors(assist.target.pos, player.eye);
+  const len = _assistVec.length() || 1;
+  let dYaw = Math.atan2(-_assistVec.x, -_assistVec.z) - player.yaw;
+  while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+  while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+  player.yaw += clamp(dYaw, -rate, rate);
+  player.pitch += clamp(Math.asin(clamp(_assistVec.y / len, -1, 1)) - player.pitch, -rate, rate);
+}
+
 function applyLook(dt) {
   // Scope multiplier scales with adsSensitivity so the slider is predictable at all settings.
   // At the default (0.75) this equals the previous hardcoded 0.4.
@@ -633,9 +741,22 @@ function applyLook(dt) {
     ? settings.adsSensitivity * (0.4 / 0.75)
     : (aiming ? settings.adsSensitivity : 1);
   const sens = CONFIG.SENS * settings.sensitivity * adsMult;
+
+  if (settings.trackpadLook) {
+    mouseDX = trackpadBoost(mouseDX, dt);
+    mouseDY = trackpadBoost(mouseDY, dt);
+  }
+  const assist = assistTarget();
+  if (assist) {
+    const grip = 1 - ASSIST_FRICTION * settings.aimAssist * assist.closeness;
+    mouseDX *= grip;
+    mouseDY *= grip;
+  }
+
   player.yaw -= mouseDX * sens;
   player.pitch -= mouseDY * sens * (settings.invertY ? -1 : 1);
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
+  if (assist) applyAssistPull(assist, dt);
 
   // Weapon sway trails the mouse and settles back.
   player.sway.x = clamp(lerp(player.sway.x, -mouseDX * 0.0016, 0.35), -1, 1);

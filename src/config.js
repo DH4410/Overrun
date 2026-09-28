@@ -1,7 +1,31 @@
 export const CONFIG = {
   GRAVITY: -9.82,
   PHYSICS_HZ: 120,
-  MAX_SUBSTEPS: 4,  // 4 * 8.33 ms = 33.3 ms covers 30 fps without accumulator drift
+  /**
+   * Substeps one rendered frame may take before the loop gives up and throws the remainder
+   * away.
+   *
+   * 16 * 8.33 ms = 133 ms, so the simulation keeps real time down to 7.5 fps.
+   *
+   * This was 4, which covers 33.3 ms — exactly one frame at 30 fps and therefore no headroom
+   * at all there, let alone below it. Under that the loop silently discarded time (see the
+   * accumulator guard in frame()), which is the bug reported from a laptop: everything moved
+   * in slow motion, and the bots looked worst, because their leg animation is played back at
+   * a rate derived from body VELOCITY while the body itself only advanced a fraction of that
+   * per second. Feet cycling against ground they are not covering reads exactly as "the
+   * animation doesn't match the movement".
+   *
+   * Measured in the real game, loaded down to 10 fps with four bots: one fixed step costs
+   * 0.407 ms, so the worst case here is 6.5 ms of catch-up — on a frame that was already over
+   * 130 ms long. The frame rate was identical with 4, 8 and 16 (9.8-10.1 fps), which is the
+   * evidence that this cannot spiral: the cost is in drawing, not stepping. Measured simulation
+   * speed against real time at that frame rate: 0.32x with 4 substeps, 0.65x with 8, 1.00x with
+   * 16. A slow machine should run slowly, not in slow motion.
+   *
+   * MAX_FRAME_DT still bounds the worst case, so a genuine multi-second stall drops time
+   * rather than trying to simulate its way out of a hole.
+   */
+  MAX_SUBSTEPS: 16,
   MAX_FRAME_DT: 0.25,
 
   // Arena (metres). Outer shell is ARENA half-extent; the inner ring sits at RING.

@@ -20,8 +20,20 @@ export const QUALITY = {
   },
 };
 
+/**
+ * Render-rate caps offered in the settings panel; 0 means "as fast as the display".
+ *
+ * A cap is the bluntest battery lever there is. An uncapped loop on a 144 Hz laptop panel
+ * draws 2.4x the frames of a 60 Hz cap for a difference most players cannot see, and the
+ * simulation is untouched either way because it runs on its own fixed clock.
+ */
+export const FRAME_CAPS = [30, 60, 120, 0];
+
 export const DEFAULT_SETTINGS = {
   quality: 'medium',
+  frameCap: 60,
+  adaptiveRes: true,
+  powerSaver: false,
   sensitivity: 1.0,
   adsSensitivity: 0.75,
   fov: 68,
@@ -36,6 +48,9 @@ export const DEFAULT_SETTINGS = {
   toggleCrouch: true,
   toggleSprint: false,
   arrowKeys: false,
+  trackpadLook: false,
+  autoSprint: false,
+  aimAssist: 0.35,
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
@@ -46,6 +61,9 @@ export function loadSettings() {
     if (raw) Object.assign(settings, JSON.parse(raw));
   } catch { /* corrupt or unavailable storage just means defaults */ }
   if (!QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
+  // A cap that is not one of the offered values would be paced against nonsense, and a profile
+  // saved before the setting existed carries no cap at all.
+  if (!FRAME_CAPS.includes(settings.frameCap)) settings.frameCap = DEFAULT_SETTINGS.frameCap;
 }
 
 export function saveSettings() {

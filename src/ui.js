@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, QUALITY, settings } from './settings.js';
+import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
 export function createUiRuntime({
@@ -65,6 +65,25 @@ const SETTINGS_SCHEMA = [
     options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
     hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
   },
+  { group: 'LAPTOP & BATTERY' },
+  {
+    key: 'frameCap', type: 'choice', label: 'Frame rate cap',
+    options: FRAME_CAPS.map((v) => ({ value: v, label: v === 0 ? 'UNCAPPED' : String(v) })),
+    hint: 'Every frame drawn costs battery. 60 looks the same as uncapped on most laptops and '
+        + 'draws far less power; 30 stretches the charge furthest. The simulation runs on its '
+        + 'own clock, so the cap never slows the game down.',
+  },
+  {
+    key: 'adaptiveRes', type: 'toggle', label: 'Adaptive resolution',
+    hint: 'Quietly renders fewer pixels when frames run late, and puts them back when they '
+        + 'do not. The cheapest way out of a stutter.',
+  },
+  {
+    key: 'powerSaver', type: 'toggle', label: 'Battery saver',
+    hint: 'Halves the shadow refresh rate, and asks for the integrated GPU instead of the '
+        + 'discrete one. The GPU choice and anti-aliasing are fixed when the page loads, so '
+        + 'reload to apply those two.',
+  },
   { group: 'CONTROLS' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
@@ -75,6 +94,17 @@ const SETTINGS_SCHEMA = [
   { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
   { key: 'toggleSprint', type: 'toggle', label: 'Sprint: press to toggle' },
   { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
+  { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
+    hint: 'Fast swipes turn further, slow ones are untouched — so a trackpad can manage a 180 '
+        + 'without giving up fine aim.' },
+  { key: 'autoSprint', type: 'toggle', label: 'Sprint automatically',
+    hint: 'Runs whenever you hold forward, so Shift never has to be held down. Off while '
+        + 'aiming, and never while strafing, because sprinting is the widest accuracy cone in '
+        + 'the game.' },
+  { key: 'aimAssist', type: 'range', label: 'Aim assist', min: 0, max: 1, step: 0.05,
+    hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
+        + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
+        + 'also pulls, gently.' },
   { group: 'INTERFACE' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },

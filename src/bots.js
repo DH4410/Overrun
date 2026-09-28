@@ -204,6 +204,7 @@ const CLIP_SPEED = {
   StrafeRight: 1.5,
 };
 
+
 /** Where the weapon sits relative to the right hand bone, in metres. */
 const GUN_IN_HAND = new THREE.Vector3(0.0, 0.04, 0.10);
 
@@ -340,6 +341,17 @@ function rosterFor(team) {
 const SOLDIER_HEIGHT = 1.832;   // measured from the GLB's bounding box
 const BOT_TARGET_HEIGHT = 2.0;
 const BOT_FOOT_Y = -0.65;       // where feet sit in mesh-local space (x BOT_MESH_SCALE = -0.78)
+/**
+ * Correction for character scale.
+ *
+ * The rates above belong to the rig as Mixamo authored it, at SOLDIER_HEIGHT. Bots stand
+ * BOT_TARGET_HEIGHT, and scaling a skeleton scales its stride with it, so the same clip on a
+ * taller character covers proportionally more ground per cycle. Without this the legs cycle
+ * ~9% faster than the ground the bot is actually covering — a slide small enough to look like
+ * clumsy animation rather than a bug, which is exactly why it is worth writing down.
+ */
+const CLIP_SCALE = BOT_TARGET_HEIGHT / SOLDIER_HEIGHT;
+
 
 /**
  * Load every character in the roster. Each one is optional in exactly the way the props
@@ -1210,7 +1222,15 @@ class Bot {
         left: Math.max(0, -rgt),
       };
       const total = parts.fwd + parts.back + parts.right + parts.left || 1;
-      const runBlend = clamp((speed - 3.2) / 2.5, 0, 1);
+      /**
+       * Walk-to-run crossfade, placed on the two clips' own speeds.
+       *
+       * Walk covers 1.74 m/s on this rig and Run covers 4.80 (CLIP_SPEED x CLIP_SCALE), so the
+       * honest midpoint is ~3.3. The old window started at 3.2 and ran to 5.7, which left a bot
+       * patrolling at 3.6 m/s playing 84% walk — a walk cycle driven at 2x to keep up with the
+       * ground, which reads as speed-walking rather than jogging.
+       */
+      const runBlend = clamp((speed - 2.0) / 2.6, 0, 1);
 
       const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0 };
       // Any direction we have no clip for falls back to the forward walk/run pair, so a
@@ -1246,12 +1266,36 @@ class Bot {
         if (action) action.weight = lerp(action.weight, target, k);
       }
 
-      // Foot-sliding fix: the clips were playing at their authored rate no matter how fast
-      // the bot was actually moving, so the feet skated whenever the two disagreed. Drive
-      // playback rate from real planar speed against the speed each clip was authored for.
-      // Clamped because a bot shoved by an explosion should not windmill its legs.
-      for (const [name, authored] of Object.entries(CLIP_SPEED)) {
-        if (clips[name]) clips[name].timeScale = clamp(speed / authored, 0.6, 1.8);
+      /**
+       * Playback rate per direction, so the feet cover the ground the bot covers.
+       *
+       * Each clip is paced by the component of travel it is actually responsible for, not by
+       * the total. Pacing everything off the total is what a playtest caught: a bot closing
+       * while side-stepping travels ~5.2 m/s in total but only ~3.5 m/s sideways, and feeding
+       * 5.2 to a strafe clip authored for 1.6 asks for 3.2x, which hit the old 1.8 ceiling and
+       * left the legs covering 56% of the ground the body did. Measured across a live match,
+       * 30% of all moving frames were pinned to that clamp. That is the skating.
+       *
+       * The ceiling is 2.6 because the fastest lateral speed in the game — an elite bot
+       * strafing at 4.6 * 1.22 * 0.75 — needs 2.56 to keep up. A side-step clip at 2.6x is a
+       * hurried shuffle, which looks far less wrong than feet skating over the floor. The floor
+       * of 0.6 is unchanged: a bot shoved by an explosion should not windmill its legs.
+       */
+      const hasStrafeClips = Boolean(clips.StrafeLeft || clips.StrafeRight);
+      // With no strafe clips the forward pair covers every direction (see put()), so it has to
+      // be paced by the whole travel instead of the forward part of it.
+      const fwdPace = hasStrafeClips ? speed * Math.abs(fwd) : speed;
+      const latPace = speed * Math.abs(rgt);
+      const paceOf = (authored, component) => clamp(component / (authored * CLIP_SCALE), 0.6, 2.6);
+      const pace = {
+        Walk: paceOf(CLIP_SPEED.Walk, fwdPace),
+        Run: paceOf(CLIP_SPEED.Run, fwdPace),
+        WalkBack: paceOf(CLIP_SPEED.WalkBack, fwdPace),
+        StrafeLeft: paceOf(CLIP_SPEED.StrafeLeft, latPace),
+        StrafeRight: paceOf(CLIP_SPEED.StrafeRight, latPace),
+      };
+      for (const [name, timeScale] of Object.entries(pace)) {
+        if (clips[name]) clips[name].timeScale = timeScale;
       }
       mixer.update(dt);
     } else {

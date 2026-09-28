@@ -46,6 +46,7 @@ import {
   mapBodies,
   world,
 } from './physics.js';
+import { IDLE_FPS, createFrameGate, createResScaler } from './perf.js';
 import { markShared } from './rendering.js';
 import {
   ZONE_MULT,
@@ -116,11 +117,33 @@ const Audio = createAudio({
  * Renderer, scenes, cameras
  * ================================================================== */
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+/**
+ * Settings are read before the renderer exists because two of them cannot be changed
+ * afterwards: `antialias` and `powerPreference` are fixed when the WebGL context is created.
+ * Both matter most on the machine this is aimed at — MSAA at native resolution is expensive on
+ * an integrated GPU, and 'high-performance' asks a dual-GPU laptop to spin up its discrete card
+ * and keep it running. The settings panel says these two apply on reload.
+ */
+loadSettings();
+const bootQuality = QUALITY[settings.quality];
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: bootQuality.antialias,
+  powerPreference: settings.powerSaver ? 'low-power' : 'high-performance',
+});
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+/**
+ * Shadow maps are refreshed explicitly, once per frame, immediately before the world pass.
+ *
+ * Left on autoUpdate, three re-renders every shadow map on every render() call — and this game
+ * makes three of those per frame. The minimap is the expensive mistake: it renders the same
+ * `scene` from above through a layer mask, so it was paying for a second full shadow pass every
+ * frame to draw a 150 px floor plan that contains no shadows at all.
+ */
+renderer.shadowMap.autoUpdate = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -490,8 +513,11 @@ function applySettings() {
   renderer.shadowMap.needsUpdate = true;
 
   renderer.setPixelRatio(Math.min(devicePixelRatio, q.maxPixelRatio));
-  renderScale = q.renderScale;
-  resizeRenderer();
+  baseRenderScale = q.renderScale;
+  // A different preset is a different performance situation, so re-probe from the preset's own
+  // resolution instead of inheriting a scale the previous one needed.
+  resScaler.restore();
+  applyRenderScale();
 
   activeLightBudget = q.lights;
   CONFIG.MAX_DECALS = q.decals;
@@ -507,7 +533,21 @@ function applySettings() {
   saveSettings();
 }
 
+/**
+ * Effective render scale: the quality preset's own value times whatever the adaptive scaler has
+ * settled on. This single number is what resizeRenderer, the minimap rectangle and the particle
+ * point size all derive from, so the three cannot disagree.
+ */
 let renderScale = 1;
+let baseRenderScale = 1;
+
+const frameGate = createFrameGate();
+const resScaler = createResScaler();
+
+function applyRenderScale() {
+  renderScale = baseRenderScale * resScaler.scale;
+  resizeRenderer();
+}
 
 function resizeRenderer() {
   const w = Math.max(320, Math.round(innerWidth * renderScale));
@@ -789,6 +829,9 @@ const {
   ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   losClear,
+  smokeBlocks: (...args) => smokeBlocks(...args),
+  // Aim assist needs to know who is shootable. Bots only — there is one player.
+  getEnemies: () => bots,
   explode,
   spawnSmoke,
   throwGrenade,
@@ -927,12 +970,43 @@ function updateCamera(dt) {
   el.crosshair.classList.toggle('off', scoped || !player.alive);
 }
 
+/**
+ * Seconds per rendered frame being aimed at right now.
+ *
+ * Menus deliberately get IDLE_FPS. Nothing in the world updates while a menu is up — the whole
+ * update block below is skipped — so redrawing a frozen scene at the panel's refresh rate is
+ * pure battery burn, and 1/15 s is still instant to the eye.
+ */
+function frameBudget() {
+  if (appState !== APP_STATE.PLAYING) return 1 / IDLE_FPS;
+  return settings.frameCap > 0 ? 1 / settings.frameCap : 0;
+}
+
+let framesDrawn = 0;
+let shadowFrame = 0;
+
 function frame() {
   requestAnimationFrame(frame);
 
   const now = performance.now() / 1000;
-  let dt = Math.min(now - lastTime, CONFIG.MAX_FRAME_DT);
+  const budget = frameBudget();
+  // Under the cap for this refresh: draw nothing and, crucially, update nothing. lastTime is
+  // left alone, so the time this frame represented is still handed to the physics accumulator
+  // by the next frame that does run — capping the render rate must not slow the simulation.
+  if (!frameGate.shouldRun(now, budget)) return;
+  framesDrawn++;
+
+  const interval = now - lastTime;
+  let dt = Math.min(interval, CONFIG.MAX_FRAME_DT);
   lastTime = now;
+
+  // Dynamic resolution, measured on frames actually drawn. Only steady-state play is a fair
+  // sample: a menu frame, or the first frame after a pause, says nothing about cost.
+  if (settings.adaptiveRes && appState === APP_STATE.PLAYING) {
+    if (resScaler.sample(interval, budget || 1 / 60) !== null) applyRenderScale();
+  } else {
+    resScaler.reset();
+  }
 
   if (appState === APP_STATE.PLAYING) {
     pollGamepad(dt);
@@ -940,8 +1014,16 @@ function frame() {
 
     if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
 
-    // Weapon timers.
-    player.cooldown = Math.max(0, player.cooldown - dt);
+    // Weapon timers. The fire cooldown carries its overshoot past zero into the next shot,
+    // because it is polled once per rendered frame: without the carry, a 30 fps cap rounds the
+    // AR's 0.09 s cooldown up to 0.1 s and the player quietly loses a tenth of their rate of
+    // fire to a graphics setting, while the bots — which fire on the fixed clock — keep all of
+    // theirs. The carry is at most one frame, so it can never bank rounds.
+    if (player.cooldown > 0) {
+      player.cooldown -= dt;
+      player.fireCarry = player.cooldown < 0 ? -player.cooldown : 0;
+      if (player.cooldown < 0) player.cooldown = 0;
+    }
     if (player.reloading > 0) {
       player.reloading -= dt;
       if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
@@ -982,6 +1064,12 @@ function frame() {
     updateAllyMarkers();
     updateHudTimers(dt);
   }
+
+  // The one shadow refresh of the frame (see renderer.shadowMap.autoUpdate), halved in battery
+  // saver. A 30 Hz shadow update against walking bots is not something you can see, and shadows
+  // are the single most expensive thing in the frame.
+  shadowFrame++;
+  renderer.shadowMap.needsUpdate = !settings.powerSaver || (shadowFrame & 1) === 0;
 
   // --- render: world, then viewmodel on a cleared depth buffer, then the minimap ---
   renderer.setScissorTest(false);
@@ -1081,7 +1169,7 @@ async function loadBotAnimations() {
 }
 
 async function boot() {
-  loadSettings();
+  // Settings were already loaded at module scope, before the renderer was built.
   createPlayerBody();
   resetPlayerAmmo();
 
@@ -1151,6 +1239,14 @@ async function boot() {
       updateShake(dt); updateSpotting(dt); updateMatch(dt); updateLights();
     },
     forceUpdateConsumables: (dt) => updateConsumables(dt),
+    // Frame pacing, so a test can prove the cap actually skips frames and that the adaptive
+    // scaler actually moves. Functions rather than values: these change every frame.
+    perf: {
+      frames: () => framesDrawn,
+      budget: () => frameBudget(),
+      resScale: () => resScaler.scale,
+      renderScale: () => renderScale,
+    },
   };
 
   frame();

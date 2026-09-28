@@ -4,7 +4,9 @@ Say **"read HANDOFF.md"** to pick this up in a new session.
 
 Session 1 (2026-09-27) reworked bot AI, game modes, gunplay, physics, the map roster and the
 character/animation pipeline. Session 2 (2026-09-28) was laptop work: frame rate, battery, and
-the two bugs a real playtest turned up.
+the two bugs a real playtest turned up. Session 3 (2026-09-28) was a full playtest of every
+mode and map, then a code review after you reported movement and animation looking wrong and
+dead bots floating — it found the bots were being drawn backwards.
 
 ---
 
@@ -15,23 +17,76 @@ the two bugs a real playtest turned up.
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
 | Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 38 passed + 1 flaky of 39 Playwright (exit 0), 16/16 unit, lint 0 errors (16 warnings, all pre-existing) |
+| Tests | 45/45 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
 npm run lint && npm test && CI=1 npm run test:e2e
 ```
 
-**One test is flaky as of 2026-09-28:** `duel.spec.mjs:12 Duel starts one elite bot on a
-mirrored loadout` failed its first attempt and passed on retry, and the reason was not
-captured. The session-2 changes alter frame cadence (a 60 fps cap, 15 fps menus), so treat
-it as suspect rather than as noise: run that spec a few times and look at why.
+**The duel spec flaked once in session 2** (`duel.spec.mjs:12`, passed on retry, cause not
+captured) and did not recur in any of the four full runs in session 3. Still worth a look if
+it comes back.
 
 **Always run e2e with `CI=1`.** The Playwright config sets `reuseExistingServer: !CI`, and
 there are other checkouts of this repo on this machine — without `CI=1` a stale server on
 `:4173` can serve a different tree and give a false green.
 
 ---
+
+## Session 3: what was wrong with the bots, and why the tests never saw it
+
+Every one of these passed the whole suite, because a bot that is drawn wrong still fights,
+scores and dies correctly. `tests/e2e/bot-presentation.spec.mjs` now asserts each visible
+property directly, and each test was re-broken and confirmed red.
+
+1. **Every Mixamo-converted character was drawn facing backwards.** Bots are rotated
+   `yaw + PI` for a model that faces -Z (the old blocky mesh, the three.js soldier), and every
+   Mixamo export faces +Z. Toes pointed against the heading at a dot product of -0.97 on all of
+   them. A bot running at you moonwalked; a bot shooting at you had its back turned. This is
+   most of what "the animation doesn't match the movement" was. `facingCorrection()` now
+   measures each character's facing from its own skeleton — on the *posed* rig, because the
+   SWAT's rest pose faces the other way from its clips. The mesh rotation is also written
+   every frame now; before, only a turn wrote it, so a fresh spawn faced anywhere until it
+   moved.
+2. **The original three.js soldier was a heap on the floor.** Under the shared Mixamo clips it
+   stood with its head 0.3 m below its feet, with Idle at 0.99 weight. Every track bound, so
+   `characters.spec.mjs` was green. It is fallback-only now (`teams: []`). Ely is the same
+   Vanguard character, converted properly. Blue is SWAT-only until another character is added,
+   because the casts must stay disjoint (a test asserts it).
+3. **Corpses fell through the floor and then floated.** `die()` switched collisions off but
+   left the body dynamic, so gravity took it through the floor, and at y = -20 the fall-out
+   guard — which ran before the alive check — teleported it to a spawn point in mid-air while
+   it faded. Frags launched corpses through walls too, because the explosion impulse hit every
+   body with mass. Corpses are now kinematic and settled on the floor, and the impulse only
+   touches dynamic bodies.
+4. **Movement stuttered at every frame rate.** Nothing interpolated between the 120 Hz physics
+   steps, so the camera and every bot advanced 1, 2 or 3 steps' worth per frame. Drawn-speed
+   jitter on a bot held at a constant 3 m/s: 14.2% before, 3.0% after (`Bot.placeMesh`,
+   `renderAlpha` in main.js). Crouch used to drop the camera 0.77 m in one frame and step-ups
+   popped it; both are eased now.
+5. **The session-2 frame cap caused judder.** It aimed at exactly 60, which a 144 Hz panel can
+   only give by alternating 14 ms and 21 ms frames. It now runs every Nth refresh — evenly
+   spaced, landing at or a little above the cap (72 on 144 Hz).
+6. **Aim pitch overwrote the animation.** It assigned the spine, neck and head X rotation
+   instead of adding to it, throwing away the clips' torso lean. It also bent the wrong way
+   once the models faced forward — measured, and flipped (`AIM_PITCH_SIGN`).
+7. **Team kit** — the chest band and pads floated off the body. Now an armband on each upper
+   arm, fitted from that bone's own vertices and carried by the animation.
+
+UI fixed in the same pass: final standings on the menu after a match (there was no results
+screen), the result line no longer drawn over CALLSIGN in short windows, the HUD scales down
+below ~1280x720 (at 800x450 it covered half the screen), allies labelled once instead of
+twice, no "walk in to collect" when you are already full, pointer-lock rejection handled.
+
+**What the playtest found and did not fix — worth your call:**
+- **The guns are toy blasters.** The viewmodels are the Kenney Blaster Kit — bright orange,
+  green and white plastic. That clashes with "Valorant / professional shooter" more than
+  anything else on screen. Blender MCP is connected now; swapping in realistic weapon models is
+  an art task, and a good use of it.
+- The maps are functional but plain, and Foundry's ceiling lamps render as flat white discs.
+- The menu's player card is hard-coded ("DH4410 / LEVEL 12") and the loading status line
+  ("96 nav nodes · 8/8 prop models") is debug text shown to the player.
 
 ## Session 2: what the playtest found
 
@@ -142,13 +197,10 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 ## Open items
 
 - [ ] **Decide what to do with the branch** — push, open a PR, or keep local. Waiting on you.
-- [ ] **Bones for the team kit.** See session 2 above — the green blocks on every bot.
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.
-- [ ] **Blender MCP is not connected.** The addon's socket is listening on `localhost:9876`,
-      but Claude Code has no bridge to it, so there are no Blender tools. To fix, run this
-      and start a new session: `claude mcp add blender -- uvx blender-mcp`
+- [ ] **Realistic weapon viewmodels.** Blender MCP is connected as of session 3. See above.
 - [ ] **More animation, if wanted.** Hit reactions were discussed but not added — the bot has
       no hit-reaction hook yet, so it needs code as well as a clip.
 - [ ] **Clean up ~170 MB of source FBX in `C:\Users\dimah\Downloads`** (`Ch15_nonPBR`,
@@ -181,6 +233,10 @@ through that origin so stray rounds swept the target anyway. `duel.spec.mjs` now
 physics once before aiming, faces the bot so the muzzle is on the lane, checks line of sight
 from the real muzzle, and rejects lane endpoints that resolve inside geometry.
 
+**"Every track binds" is not "the pose is right".** The crushed soldier bound every track of
+every clip. Measure the pose itself — head above feet, toes along the heading — as
+`bot-presentation.spec.mjs` does.
+
 **A regression test that passes on the bug is worse than none.** The Foundry ramp test
 originally asserted "peak height > 1.3 m", which passed with the ramp mouth completely walled
 off, because the ramp already reaches 1.37 m before it meets the wall. Always re-break the
@@ -198,6 +254,9 @@ zero. To playtest through it, replace `requestAnimationFrame` with a `setTimeout
 re-registers through the shim and runs. Everything measured in session 2 was measured that way.
 Note that the shim pins every frame to >=16 ms, so it looks CPU-bound to the adaptive scaler;
 that is an artefact of the harness, not of the game.
+
+**The pane's screenshots lag one step.** A screenshot taken straight after a state change
+often shows the previous frame. Take a second one before believing anything odd.
 
 **To load the game in the pane at all**, `.claude/launch.json` now has an `overrun` entry, so
 `preview_start` with name `overrun` serves it on :4173. Stop that server before running e2e or

@@ -850,6 +850,7 @@ return {
   applyLook,
   cameraEuler: _camE,
   isAiming: () => aiming,
+  setAiming: (on) => { aiming = !!on; },      // test and debug hook
   isFiring: () => firing,
   isPointerLocked: () => pointerLocked,
   isGamepadActive: () => gamepadActive,

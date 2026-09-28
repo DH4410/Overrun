@@ -25,6 +25,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAudio } from './audio.js';
 import {
   AIM,
@@ -171,7 +172,18 @@ camera.layers.enable(L_CEIL);   // the player sees the roof; the minimap camera 
 // Viewmodel pass — its own scene/camera so the gun can never intersect the level.
 const vmScene = new THREE.Scene();
 const vmCamera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 12);
-vmScene.add(new THREE.AmbientLight(0x8fa6bd, 1.5));
+/**
+ * Image-based light for the guns. Blued steel and black polymer are nearly black under direct
+ * light alone — what makes them read as metal and plastic is what they reflect. A small studio
+ * environment, prefiltered once at boot, gives every edge a highlight to catch.
+ */
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  vmScene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  vmScene.environmentIntensity = 0.85;
+  pmrem.dispose();
+}
+vmScene.add(new THREE.AmbientLight(0x8fa6bd, 0.35));
 const vmKey = new THREE.DirectionalLight(0xfff0dd, 2.4);
 vmKey.position.set(1.6, 2.0, 1.2);
 vmScene.add(vmKey);
@@ -371,15 +383,15 @@ const combatants = [];
 const {
   vmRig,
   vmModels,
-  homePosition: VM_HOME,
-  adsPosition: VM_ADS,
-  loadBlasterViewModels,
+  homePositions: VM_HOME,
+  adsPosition,
+  loadViewModels,
   ejectBrass,
   updateBrass,
   clearBrass,
   triggerMuzzleFlash,
   updateMuzzleFlash,
-} = createWeaponPresentation({ scene, vmScene, modelLoader });
+} = createWeaponPresentation({ scene, vmScene });
 
 
 /* ================================================================== *
@@ -806,6 +818,7 @@ const {
   applyLook,
   cameraEuler: _camE,
   isAiming,
+  setAiming,
   isFiring,
   isPointerLocked,
   isGamepadActive,
@@ -918,40 +931,59 @@ function fixedStep(dt) {
   stepGrenades(dt);
 }
 
+/** 0 at the hip, 1 fully aimed. Eased, so the gun travels up to the eye rather than snapping. */
+let vmAds = 0;
+let vmReload = 0;
+const _vmHip = new THREE.Vector3();
+const _vmAim = new THREE.Vector3();
+
 function updateViewModel(dt) {
   const w = currentWeapon();
   for (const id in vmModels) vmModels[id].visible = (id === w.id) && player.alive;
 
   const aiming = isAiming();
   const scoped = aiming && w.zoom;
-  const home = aiming && !scoped ? VM_ADS : VM_HOME;
+  vmAds += ((aiming && !scoped ? 1 : 0) - vmAds) * (1 - Math.exp(-dt * 16));
+  const hip = 1 - vmAds;
 
-  _vmTarget.copy(home);
-  // Sway from mouse movement (+/- 0.02 m), plus a walking bob.
-  _vmTarget.x += player.sway.x * 0.02;
-  _vmTarget.y += player.sway.y * 0.02;
+  // Hip and aimed positions, blended. The aimed one puts this gun's own sight on the axis.
+  _vmHip.copy(VM_HOME[w.id] ?? VM_HOME.ar);
+  adsPosition(w.id, _vmAim);
+  _vmTarget.lerpVectors(_vmHip, _vmAim, vmAds);
+
+  // Sway from mouse movement and a walking bob — both mostly gone when aimed, or the sight
+  // would wander off the thing you are aiming at.
+  const swayK = 0.02 * (0.25 + 0.75 * hip);
+  _vmTarget.x += player.sway.x * swayK;
+  _vmTarget.y += player.sway.y * swayK;
   const planar = Math.hypot(player.body.velocity.x, player.body.velocity.z);
-  const bob = settings.viewBob ? Math.min(planar / CONFIG.WALK_SPEED, 1.6) : 0;
+  const bob = (settings.viewBob ? Math.min(planar / CONFIG.WALK_SPEED, 1.6) : 0) * (0.15 + 0.85 * hip);
   const t = performance.now() * 0.001;
-  _vmTarget.x += Math.sin(t * 7) * 0.012 * bob;
-  _vmTarget.y += Math.abs(Math.cos(t * 7)) * 0.010 * bob;
+  _vmTarget.x += Math.sin(t * 7) * 0.008 * bob;
+  _vmTarget.y += Math.abs(Math.cos(t * 7)) * 0.007 * bob;
+  // Landing: the gun dips with the camera and comes back a beat later.
+  if (player.landTime < 0.35) _vmTarget.y -= player.landKick * 0.35 * Math.sin(Math.PI * player.landTime / 0.35);
 
-  // Reload dip: down 0.3 m, hold, back up — driven off reloadProgress 0..1.
+  // Reload: down and rolled in, held, back up — driven off the reload's progress.
+  let dip = 0;
   if (player.reloading > 0) {
-    const p = 1 - player.reloading / player.reloadTotal;         // reloadProgress
-    const dip = p < 0.25 ? p / 0.25 : (p > 0.75 ? (1 - p) / 0.25 : 1);
-    _vmTarget.y -= 0.30 * dip;
-    vmRig.rotation.z = -0.5 * dip;
-    vmRig.rotation.x = 0.35 * dip;
-  } else {
-    vmRig.rotation.z = lerp(vmRig.rotation.z, 0, Math.min(1, 14 * dt));
-    vmRig.rotation.x = lerp(vmRig.rotation.x, 0, Math.min(1, 14 * dt));
+    const p = 1 - player.reloading / player.reloadTotal;
+    dip = p < 0.25 ? p / 0.25 : (p > 0.75 ? (1 - p) / 0.25 : 1);
   }
+  vmReload += (dip - vmReload) * (1 - Math.exp(-dt * 14));
+  _vmTarget.y -= 0.12 * vmReload;
 
+  // Recoil: straight back into the shoulder, muzzle up, decaying fast.
   vmRecoil *= Math.pow(0.0005, dt);
-  _vmTarget.z += vmRecoil;                     // kick straight back toward the eye
-  vmRig.rotation.x -= vmRecoil * 1.6;
-  vmRig.position.lerp(_vmTarget, Math.min(1, 18 * dt));
+  _vmTarget.z += vmRecoil * 0.6;
+  vmRig.position.copy(_vmTarget);
+  // The three-quarter hip presentation, which must be exactly zero when aimed so the sight
+  // line stays on the axis.
+  vmRig.rotation.set(
+    -0.02 * hip + 0.35 * vmReload - vmRecoil * 1.1,
+    0.07 * hip,
+    0.03 * hip - 0.5 * vmReload,
+  );
   vmRig.visible = !scoped && player.alive;     // the scope replaces the model entirely
 
   updateMuzzleFlash(dt);
@@ -1223,7 +1255,7 @@ async function boot() {
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
-  const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadBlasterViewModels()]);
+  const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadViewModels()]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
@@ -1268,7 +1300,7 @@ async function boot() {
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,
-    settings, applySettings, QUALITY, vmCamera,
+    settings, applySettings, QUALITY, vmCamera, vmScene, vmRig, vmModels, setAiming,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, throwGrenade, clearGrenades,

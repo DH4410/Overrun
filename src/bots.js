@@ -7,6 +7,7 @@ import { G_BODY, MAT_BODY, RAY_OPTS, world } from './physics.js';
 import { HB_BOT } from './projectiles.js';
 import { matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
+import { buildGunModel, gunMaterials } from './gunmodels.js';
 import { BOT_GUN_IDS, WEAPON_BY_ID } from './weapons.js';
 
 /**
@@ -155,12 +156,6 @@ function boxPart(w, h, d, x, y, z, material) {
   return mesh;
 }
 
-function cylPart(r1, r2, h, x, y, z, material, axis = 'z') {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, 12), material);
-  mesh.position.set(x, y, z);
-  if (axis === 'z') mesh.rotation.x = Math.PI / 2;
-  return mesh;
-}
 
 /* ================================================================== *
  * === BOTS ===
@@ -682,26 +677,13 @@ function buildBlockyBotMesh(teamColor) {
   return g;
 }
 
-/** A stubby gun so you can tell at a glance what a bot is carrying. */
+/**
+ * The gun a bot carries: the same model the player holds, without the first-person hands.
+ * Fresh materials per gun, because the death fade writes their opacity.
+ */
 function buildBotGun(id) {
-  const w = WEAPON_BY_ID[id];
-  const g = new THREE.Group();
-  const len = id === 'sniper' ? 1.0 : id === 'ar' ? 0.72 : id === 'shotgun' ? 0.8 : 0.34;
-  // Fresh materials per gun: the death fade mutates opacity, and sharing would fade every bot.
-  const barrelMat = matte(0x1b1e23, 0.55, 0.5);
-  g.add(boxPart(0.09, 0.11, len * 0.55, 0, 0, -len * 0.22, matte(w.color, 0.6, 0.4)));
-  g.add(cylPart(0.024, 0.024, len * 0.6, 0, 0.012, -len * 0.62, barrelMat));
-  if (id === 'sniper') g.add(cylPart(0.04, 0.04, 0.26, 0, 0.10, -0.22, barrelMat));
-  const mz = new THREE.Object3D();
-  mz.position.set(0, 0.012, -len * 0.92);
-  g.add(mz);
-  g.userData.muzzle = mz;
-  // Where the hands go and where the eye looks along it, in the gun's own frame (-Z forward).
-  const pistol = id === 'pistol';
-  g.userData.grip = new THREE.Vector3(0, -0.07, 0.0);
-  g.userData.support = pistol ? new THREE.Vector3(-0.02, -0.09, 0.02) : new THREE.Vector3(0, -0.05, -Math.min(0.30, len * 0.36));
-  g.userData.sight = new THREE.Vector3(0, 0.075, pistol ? -0.06 : 0.02);
-  g.userData.pistol = pistol;
+  const g = buildGunModel(id, { materials: gunMaterials() });
+  g.userData.pistol = id === 'pistol';
   return g;
 }
 

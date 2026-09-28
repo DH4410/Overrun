@@ -117,6 +117,9 @@ export function createAudio({ getCamera, getPlayer }) {
     bounce(d)   { const v = this.atten(d); this.tone({ f0: 900, f1: 420, dur: 0.06, gain: 0.16 * v, type: 'square' }); },
     step()      { this.burst({ dur: 0.07, gain: 0.09, type: 'lowpass', freq: 420, decay: 0.06 }); },
     hit()       { this.tone({ f0: 1500, f1: 900, dur: 0.05, gain: 0.2, type: 'sine' }); },
+    // A headshot has to be told apart from a body hit by ear alone: a bright metallic tink.
+    headshot()  { this.tone({ f0: 3200, f1: 2600, dur: 0.07, gain: 0.2, type: 'triangle' });
+                  this.burst({ dur: 0.03, gain: 0.16, type: 'highpass', freq: 5000, decay: 0.025 }); },
     hurt()      { this.burst({ dur: 0.14, gain: 0.3, type: 'lowpass', freq: 500, decay: 0.12 });
                   this.tone({ f0: 160, f1: 70, dur: 0.16, gain: 0.2, type: 'sine' }); },
     kill()      { this.tone({ f0: 880, f1: 880, dur: 0.09, gain: 0.22, type: 'triangle' });

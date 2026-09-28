@@ -770,6 +770,7 @@ const {
   getElement: $,
   el,
   showHitMarker,
+  showKillBanner,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,
@@ -838,6 +839,7 @@ const {
   showDamageDirection,
   addShake,
   showHitMarker,
+  showKillBanner,
   showDamageNumber,
   updateAmmoHud,
   showBoard,
@@ -1271,9 +1273,9 @@ async function boot() {
   // first time each material happens to appear mid-fight.
   warmUpShaders();
 
-  el.loading.textContent = ok > 0
-    ? `${waypoints.length} nav nodes · ${ok}/${results.length} prop models · ready`
-    : `${waypoints.length} nav nodes · procedural props · ready`;
+  // Ready. (This line used to print nav-node and prop-model counts — debug output, shown to
+  // the player. The same numbers are on window.__game for anyone who needs them.)
+  el.loading.textContent = '';
   el.play.disabled = false;
   el.play.textContent = 'DEPLOY';
 

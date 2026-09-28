@@ -32,14 +32,33 @@ const el = {
   nameInput: $('nameinput'), menuResult: $('menuresult'),
   dmgNums: $('dmgnums'), ammoPrompt: $('ammo-prompt'), allies: $('allies'),
   hitflash: $('hitflash'), vitals: $('vitals'), ammoPromptLabel: $('ammo-prompt-label'),
+  killbanner: $('killbanner'), kbName: $('kb-name'),
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
 
-function showHitMarker(kill) {
-  el.hitmarker.classList.toggle('kill', !!kill);
+/**
+ * The hitmarker, in three weights: a hit, a headshot, a kill. `kind` is 'body', 'head' or
+ * 'kill' (true is accepted for 'kill'). Each has its own colour and size, so a headshot that
+ * did not kill reads differently from one that did — which was the whole of the "I headshot
+ * him and he didn't die, why?" confusion.
+ */
+function showHitMarker(kind) {
+  const k = kind === true ? 'kill' : (kind || 'body');
+  el.hitmarker.classList.toggle('kill', k === 'kill');
+  el.hitmarker.classList.toggle('head', k === 'head');
   el.hitmarker.style.opacity = '1';
-  hitmarkerTimer = 0.15;
+  hitmarkerTimer = k === 'kill' ? 0.35 : 0.18;
+}
+
+/** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
+function showKillBanner(target, headshot) {
+  if (!el.killbanner) return;
+  el.kbName.textContent = target.name;
+  el.killbanner.classList.toggle('headshot', !!headshot);
+  el.killbanner.classList.remove('show');
+  void el.killbanner.offsetWidth;            // restart the animation for back-to-back kills
+  el.killbanner.classList.add('show');
 }
 
 function showToast(text) {
@@ -81,12 +100,12 @@ function applyCrosshairStyle() {
 const _dmgProj = new THREE.Vector3();
 
 /** Float the damage dealt above the point of impact, projected to screen space. */
-function showDamageNumber(worldPos, amount, headshot, zone = 'body', armored = false) {
+function showDamageNumber(worldPos, amount, headshot, zone = 'body', armored = false, lethal = false) {
   if (!el.dmgNums || amount <= 0 || !settings.showDamageNumbers) return;
   _dmgProj.copy(worldPos).project(camera);
   if (_dmgProj.z > 1) return;                       // behind the camera
   const d = document.createElement('div');
-  d.className = `dmg-num ${headshot ? 'head' : zone}${armored ? ' armored' : ''}`;
+  d.className = `dmg-num ${headshot ? 'head' : zone}${armored ? ' armored' : ''}${lethal ? ' kill' : ''}`;
   // Round up, never down: a hit that landed must never print as 0, and printing 8 for 8.6
   // made weapons feel weaker than they are.
   d.textContent = Math.max(1, Math.ceil(amount));
@@ -223,7 +242,10 @@ function updatePlates(dt) {
     // big information advantage, and the floating damage numbers already say how hard you hit.
     // Teammates still show a bar, because coordinating with them needs it.
     const friendly = player.team !== TEAM.SOLO && b.team === player.team;
-    const showBar = friendly || settings.showEnemyHealth;
+    // An enemy you have just hit shows its health for a moment, so a hit that did not kill
+    // says how close it came. It reveals nothing about anyone you have not shot.
+    const justHit = b.lastHurtBy === player && match.time - (b.lastHurtAt ?? -99) < 2.5;
+    const showBar = friendly || settings.showEnemyHealth || justHit;
     p.bar.style.display = showBar ? '' : 'none';
     if (showBar) p.fill.style.transform = `scaleX(${clamp(b.health / 100, 0, 1)})`;
     p.root.classList.toggle('hurt', showBar && b.health < 35);
@@ -282,10 +304,12 @@ function kfSpan(c, label) {
 
 function addKillFeed(source, target, headshot) {
   const row = document.createElement('div');
-  row.className = 'kf';
+  row.className = source === player || target === player ? 'kf mine' : 'kf';
   const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
     : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
-  const arrow = Object.assign(document.createElement('span'), { className: 'arrow', textContent: headshot ? '✦' : '›' });
+  const arrow = Object.assign(document.createElement('span'), {
+    className: headshot ? 'arrow hs' : 'arrow', textContent: headshot ? 'HEADSHOT' : '›',
+  });
   const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
   row.append(sSpan, arrow, tSpan);
   el.feed.appendChild(row);
@@ -381,6 +405,7 @@ return {
   getElement: $,
   el,
   showHitMarker,
+  showKillBanner,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,

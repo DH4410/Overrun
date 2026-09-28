@@ -72,6 +72,7 @@ export function createPlayerRuntime({
   showDamageDirection,
   addShake,
   showHitMarker,
+  showKillBanner,
   showDamageNumber,
   updateAmmoHud,
   showBoard,
@@ -171,12 +172,15 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
     addShake(0.035);
   } else {
     if (source === player) {
-      showHitMarker(false);
-      Audio.hit();
+      const lethal = target.health <= 0;
+      if (!lethal) {
+        showHitMarker(headshot ? 'head' : 'body');
+        if (headshot) Audio.headshot?.(); else Audio.hit();
+      }
       // zone was being dropped here, so every number rendered with the plain body style and a
       // headshot looked exactly like a graze. soaked tells the player *why* a centre-mass hit
       // landed for single digits — armour ate the rest — instead of it reading as a weak gun.
-      showDamageNumber(hitPos || target.pos, dmg, headshot, zone, soaked > 0.5);
+      showDamageNumber(hitPos || target.pos, dmg, headshot, zone, soaked > 0.5, lethal);
     }
     target.lastHurtBy = source;
     target.lastHurtAt = match.time;
@@ -185,7 +189,12 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
   if (target.health <= 0) {
     target.health = 0;
     killCombatant(target, source, headshot);
-    if (source === player) { showHitMarker(true); Audio.kill(); }
+    if (source === player) {
+      showHitMarker('kill');
+      showKillBanner(target, headshot);
+      if (headshot) Audio.headshot?.();
+      Audio.kill();
+    }
   }
 }
 

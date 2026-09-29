@@ -451,14 +451,17 @@ let soldierGltf = null;
  * ITS FEET — a crumpled heap on the floor while its Idle weight read 0.99. Its own three clips
  * pose it correctly, but it has no strafe, back-pedal, crouch or death of its own, so any bot
  * using it spent most of a fight mangled. Ely is the same Vanguard character, converted through
- * Mixamo properly. The two sides' casts stay disjoint, so blue is SWAT only until another
- * character is added (tests/e2e/characters.spec.mjs asserts no model appears on both sides).
+ * Mixamo properly. The two sides' casts stay disjoint (tests/e2e/characters.spec.mjs asserts no
+ * model appears on both sides): blue is police tactical, red is military and mercenary.
  */
 const CHARACTERS = [
   { id: 'soldier', file: './assets/bots/soldier.glb', teams: [] },
   { id: 'swat', file: './assets/bots/swat.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
+  { id: 'trooper', file: './assets/bots/trooper.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
+  { id: 'gasmask', file: './assets/bots/gasmask.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
   { id: 'crypto', file: './assets/bots/crypto.glb', teams: [TEAM.SOLO, TEAM.RED] },
   { id: 'ely', file: './assets/bots/ely.glb', teams: [TEAM.SOLO, TEAM.RED] },
+  { id: 'steve', file: './assets/bots/steve.glb', teams: [TEAM.SOLO, TEAM.RED] },
 ];
 
 /** Loaded character GLBs, keyed by id. Missing entries simply drop out of the roster. */
@@ -1996,6 +1999,8 @@ return {
   characters: CHARACTERS,
   loadedCharacters: () => Object.entries(characterGltf)
     .filter(([, v]) => Boolean(v)).map(([k]) => k),
+  /** A rigged mesh of one roster character, for tests that must cover every character. */
+  buildCharacterMesh: (id) => (characterGltf[id] ? buildSoldierMesh(0xffffff, characterGltf[id]) : null),
   registerBotClips,
   botClipNames: BOT_CLIP_NAMES,
   buildBotGun,

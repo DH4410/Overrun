@@ -234,10 +234,27 @@ window.convert = async (url, maxTexture) => {
    * 'mixamorigHips_1', '_2' and so on. Clip tracks only name 'mixamorigHips', so exactly
    * one copy animates and every other part of the character stands frozen in bind pose.
    * Better to refuse the asset than ship a character that T-poses from the waist up.
+   *
+   * Not every duplicate is a copy of the skeleton, though. When two meshes of one character
+   * share a bone, FBXLoader gives the second mesh its own bone of the same name, parented to
+   * the first at the identity transform, so it moves with it exactly (measured in a live match:
+   * 0 mm apart while animating). Those nested twins are harmless; only a detached duplicate,
+   * one that is not the child of its namesake, means a second skeleton.
    */
   const boneNames = [];
-  root.traverse((o) => { if (o.isBone) boneNames.push(o.name); });
-  const duplicateBones = boneNames.length - new Set(boneNames).size;
+  const detached = [];
+  root.traverse((o) => {
+    if (!o.isBone) return;
+    if (boneNames.includes(o.name)) {
+      const nested = o.parent?.name === o.name && o.position.lengthSq() < 1e-10
+        && Math.abs(Math.abs(o.quaternion.w) - 1) < 1e-6;
+      if (!nested) detached.push(o.name);
+    }
+    boneNames.push(o.name);
+  });
+  const duplicateBones = detached.length;
+  const duplicateNames = [...new Set(detached)];
+  const nestedTwins = boneNames.length - new Set(boneNames).size - detached.length;
 
   const textures = collectTextures(root);
   const stillPending = await awaitTextureImages(textures, 60000);
@@ -245,7 +262,7 @@ window.convert = async (url, maxTexture) => {
 
   const report = { meshes: 0, triangles: 0, textures: [], pending: stillPending, geometry,
                    renamedBones: renamed, rawHeight, targetHeight: TARGET_HEIGHT,
-                   bones: boneNames.length, duplicateBones };
+                   bones: boneNames.length, duplicateBones, duplicateNames, nestedTwins };
   root.traverse((o) => {
     if (!o.isMesh && !o.isSkinnedMesh) return;
     report.meshes++;
@@ -323,9 +340,9 @@ async function main() {
     console.log(`  bones renamed to mixamorig:* ${report.renamedBones}`);
     console.log(`  height ${report.rawHeight.toFixed(2)} source units -> ${report.targetHeight} m`);
     if (!report.renamedBones) console.warn('  WARNING: no mixamorig bones -- clips will not bind');
-    console.log(`  bones ${report.bones}, duplicate names ${report.duplicateBones}`);
+    console.log(`  bones ${report.bones}, nested twins ${report.nestedTwins} (harmless), detached duplicates ${report.duplicateBones}`);
     if (report.duplicateBones) {
-      console.error(`  REJECTED: ${report.duplicateBones} duplicate bone names — this character`);
+      console.error(`  REJECTED: ${report.duplicateBones} duplicate bone names (${report.duplicateNames.join(', ')}) — this character`);
       console.error('  carries several copies of its skeleton, so only one part would animate.');
       process.exitCode = 1;
     }

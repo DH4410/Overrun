@@ -19,7 +19,7 @@ test('every roster character and animation clip loads', async ({ page }) => {
 
   expect(assets.soldier).toBe(true);
   expect(assets.characters).toEqual(
-    expect.arrayContaining(['soldier', 'swat', 'crypto', 'ely']),
+    expect.arrayContaining(['soldier', 'swat', 'trooper', 'gasmask', 'crypto', 'ely', 'steve']),
   );
   expect(assets.anims).toEqual(
     expect.arrayContaining(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'Death']),
@@ -73,6 +73,51 @@ test('clips bind to the skeleton of whichever character a bot got', async ({ pag
     // Every track must bind. A partial match means a retarget regression.
     expect(bot.matched).toBe(bot.wanted);
     expect(bot.aimBones).toBe(4);
+  }
+});
+
+/**
+ * Characters made of several skinned meshes (Trooper's head, Steve's gear) come out of
+ * FBXLoader with a second bone of the same name wherever two meshes share one, parented to the
+ * first. If those twins ever stopped following, that part of the character would stand frozen
+ * in its bind pose while the rest ran — a floating head. Play a clip on every character and
+ * check each twin stays on its namesake.
+ */
+test('every part of a split character moves with the one skeleton', async ({ page }) => {
+  await bootGame(page);
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const a = new g.THREE.Vector3(), b = new g.THREE.Vector3();
+    return g.assets.characters.filter((id) => id !== 'soldier').map((id) => {
+      const mesh = g.buildCharacterMesh(id);
+      const { mixer, clips } = mesh.userData;
+      const bones = new Map();
+      mesh.traverse((o) => { if (o.isBone) bones.set(o.name, o); });
+      mesh.updateMatrixWorld(true);
+      const before = new Map([...bones].map(([n, o]) => [n, o.getWorldPosition(new g.THREE.Vector3())]));
+      // Every clip is already playing at weight 0 except Idle; switch the pose to a run.
+      clips.Idle.weight = 0;
+      clips.Run.weight = 1;
+      mixer.update(0.37);
+      mesh.updateMatrixWorld(true);
+      let twins = 0, worst = 0;
+      for (const [name, bone] of bones) {
+        const base = /^(.*)_\d+$/.exec(name)?.[1];
+        if (!base || !bones.has(base)) continue;
+        twins++;
+        worst = Math.max(worst, bone.getWorldPosition(a).distanceTo(bones.get(base).getWorldPosition(b)));
+      }
+      // The clip really posed it: some limb has moved well away from where Idle held it.
+      let moved = 0;
+      for (const [n, o] of bones) moved = Math.max(moved, o.getWorldPosition(a).distanceTo(before.get(n)));
+      return { id, twins, worst, moved };
+    });
+  });
+  expect(r.length).toBeGreaterThanOrEqual(6);
+  expect(r.some((c) => c.twins > 0)).toBe(true);        // the case this test is for is present
+  for (const c of r) {
+    expect(c.worst, c.id).toBeLessThan(1e-4);
+    expect(c.moved, c.id).toBeGreaterThan(0.15);
   }
 });
 

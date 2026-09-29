@@ -20,7 +20,7 @@ two: **PORT**, a new default map modelled in Blender, and **three more Mixamo ch
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
 | Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 65/65 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
+| Tests | 68/68 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -69,6 +69,10 @@ wall: stacked containers, sheds, a quay, a ship and ship-to-shore cranes (visual
   (`bot-movement.spec.mjs`); no nav node sits in a solid or on a roof or container.
 - `ceilY` is 6.0 (the spawn sheds' roof underside) so spawn and pickup casts start under the
   roofs — the Foundry bug from session 1 would otherwise have put the spawns on the roof.
+- TDM, Survival and Duel each start cleanly on PORT, nobody on a roof. **A duel opens 114 m
+  apart** — the duel takes the two furthest spawns, which on a 100 x 76 m map are opposite
+  corners. Playable, but a long walk; a duel-only spawn pair (the two sheds, 62 m apart) would
+  fix it if it feels slow.
 
 **Characters.** Added from Mixamo: **Trooper** (Mixamo "Swat", blue camo) and **Gas Mask** to
 blue, **Steve** (army fatigues) to red. Blue is now police tactical (SWAT, Trooper, Gas Mask),
@@ -363,8 +367,9 @@ lines disagreed on PORT because both grazed a box corner. The layout's edges are
 numbers, so the specs' probe grids sit at 3-decimal offsets. Keep them off-grid.
 
 **The built-in browser does download, but leaves the file as a GUID `.tmp`** in Downloads
-(apparently waiting on a save prompt). The file is complete (FBX ends with the magic footer
-`f85a8c6adef5d97eece90ce3758f290b`), so copy it under a proper name and convert.
+(apparently waiting on a save prompt), and the app deletes it later. The file is complete (an
+FBX ends with the magic footer `f85a8c6adef5d97eece90ce3758f290b`): copy it under a proper name
+straight away, then convert.
 
 **Blender's glTF exporter with `export_vertex_color='ACTIVE'` writes an extra all-white COLOR_0**
 ahead of the real set, and three reads COLOR_0: every container came out white. The script

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { bootGame, startMatch } from './helpers/game.mjs';
+import { bootGame, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
 
 /**
  * PORT is modelled in Blender (scripts/blender/build_port.py): the meshes come from
@@ -124,6 +124,40 @@ test('PORT is symmetric under a 180 degree rotation', async ({ page }) => {
   expect(symmetry.mismatchCount, `un-mirrored geometry near ${JSON.stringify(symmetry.sample)}`).toBe(0);
   expect(symmetry.spawnsPaired).toBe(true);
 });
+
+/**
+ * PORT is the default map, so every mode lands on it; the route and height tests above only
+ * run deathmatch. Each mode must start cleanly with nobody spawned on a roof, and a duel must
+ * open with the two sides apart.
+ */
+for (const mode of ['tdm', 'sv', 'duel']) {
+  test(`a ${mode} match on PORT starts cleanly`, async ({ page }) => {
+    const errors = watchRuntimeErrors(page);
+    await bootGame(page);
+    await startMatch(page, { mode, map: 'port', diff: 'medium' });
+    const r = await page.evaluate(() => {
+      const g = globalThis.__game;
+      globalThis.__testClock.pump(30, 1000 / 60);
+      const bodies = [g.player, ...g.bots].map((c) => c.body.position.y);
+      return {
+        running: g.match.running,
+        map: g.currentMapId(),
+        highest: Math.max(...bodies),
+        bots: g.bots.length,
+        separation: g.bots.length ? g.bots[0].pos.distanceTo(g.player.pos) : null,
+      };
+    });
+    expect(r.running).toBe(true);
+    expect(r.map).toBe('port');
+    expect(r.bots).toBeGreaterThan(0);
+    expect(r.highest).toBeLessThan(3);
+    if (mode === 'duel') {
+      expect(r.separation).toBeGreaterThan(30);
+      console.log(`duel opening separation on PORT: ${r.separation.toFixed(1)} m`);
+    }
+    expect(errors).toEqual([]);
+  });
+}
 
 /**
  * The heights are the point of the layout: a 1.0 m crate is a hop, the 1.4 m dock is not

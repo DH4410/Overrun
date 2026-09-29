@@ -29,7 +29,29 @@ Baseline browser coverage currently verifies:
 - Warehouse Deathmatch starts and supports movement, firing, reload, and weapon switching;
 - a dead Deathmatch bot respawns through the split `simStep()` / `renderStep()` API;
 - Deathmatch HUD and time-limit results agree on the canonical `dmLeader()` outcome;
-- Survival advances from wave one to wave two.
+- Survival advances from wave one to wave two;
+- Duel starts one ELITE bot on a mirrored loadout and ends at `CONFIG.DUEL_ROUNDS`;
+- Foundry is symmetric under a 180-degree rotation (~5800 mirrored line-of-sight pairs);
+- Port is the default map; its colliders sit exactly where its meshes are (every collider top,
+  plus a 2,000-point grid with no invisible walls or walk-through props), it is symmetric, its
+  heights work as designed (crate a hop, dock via a crate, container a wall), and bots path
+  onto the dock, through the yard and into the warehouse;
+- every part of a split-mesh character moves with its one skeleton;
+- every animation track of every clip binds to every roster character's skeleton;
+- the player's firing cone widens with movement, air time and spray, and recovers;
+- thrown grenades inherit the thrower's velocity and come to rest.
+
+Several of these guard failures that are otherwise **silent**. A clip whose track names do
+not match the skeleton is not an error — AnimationMixer binds what it can and ignores the
+rest — so a fully broken retarget looks exactly like a working one until you watch a bot
+stand frozen in its T-pose. Likewise, an un-mirrored crate on Foundry quietly hands one
+spawn a better angle and nothing else would notice.
+
+Measurement specs (`duel.spec.mjs`) validate their own fixture before trusting it: they step
+physics once so `player.pos` is live, face the bot so the muzzle is on the firing lane, check
+line of sight from the real muzzle, and reject lane endpoints that resolve inside geometry.
+Each of those was a false positive first — without them the harness reported a 98% hit rate
+for every difficulty tier, from bullets that merely swept past a stale origin.
 
 `tests/e2e/known-regressions.spec.mjs` executes the integrated P0 regressions as ordinary,
 permanent assertions:

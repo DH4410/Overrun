@@ -128,14 +128,48 @@ export function watchRuntimeErrors(page) {
 export async function bootGame(page) {
   await installDependencyRoutes(page);
   await installDeterministicSettingsAndGamepad(page);
+
+  // Fail immediately on any JS exception or unhandled promise rejection during boot.
+  // Without this, a crash before 'DEPLOY' is set would only surface as a 45-second timeout,
+  // obscuring the actual error. Any pageerror rejects the waitForFunction below.
+  const pageErrorPromise = new Promise((_, reject) => {
+    page.once('pageerror', (err) => reject(new Error(`Page error during boot: ${err.message}`)));
+  });
+
   await page.goto('/');
-  await expect(page.locator('#play')).toBeEnabled({ timeout: 45_000 });
+
+  // Verify that the modular entry point is being served, not the old monolithic game.js.
+  // A stale server (e.g. reuseExistingServer with a server from a different branch) would
+  // serve the monolithic file which lacks the module check below, causing a false green.
+  const gameJsContent = await page.evaluate(async () => {
+    const r = await fetch('/game.js');
+    return r.text();
+  });
+  if (!gameJsContent.includes('src/main.js')) {
+    throw new Error(
+      'game.js does not import src/main.js — test server is serving stale or monolithic code'
+    );
+  }
+
+  await Promise.race([
+    expect(page.locator('#play')).toBeEnabled({ timeout: 45_000 }),
+    pageErrorPromise,
+  ]);
   await expect(page.locator('#play')).toHaveText('DEPLOY');
   await page.waitForFunction(() => Boolean(globalThis.__game));
   await page.evaluate(() => {
     // Boot has already compiled and drawn the real scene once. Subsequent smoke assertions are
     // state-focused, so keep software-rendered CI responsive while explicitly pumped frames run.
     const { renderer } = globalThis.__game;
+    // Stash the real methods before stubbing. WebGLRenderer assigns these as own
+    // properties, so `delete` removes them outright rather than exposing a prototype
+    // version — a test that wants real pixels (a visual check) needs them back.
+    renderer.__real = {
+      compile: renderer.compile.bind(renderer),
+      render: renderer.render.bind(renderer),
+      clear: renderer.clear.bind(renderer),
+      clearDepth: renderer.clearDepth.bind(renderer),
+    };
     renderer.compile = () => {};
     renderer.render = () => {};
     renderer.clear = () => {};

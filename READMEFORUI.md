@@ -14,10 +14,15 @@ keep this file honest.
 | `index.html` | **Shared** | Structure only. See §2 before editing. |
 | `game.js` | **Gameplay** | UI work must never touch this file. |
 
-`ui-overhaul.css` is loaded *after* the inline `<style>` in `index.html` and uses `!important`
-throughout, so it wins every conflict. That is deliberate: **you can restyle essentially
-anything without editing `index.html` at all.** Please do that wherever possible — it is the
-single biggest thing that keeps branches mergeable.
+`ui-overhaul.css` is the ONLY stylesheet. (Until session 4 there was also a large inline
+`<style>` block in `index.html` with this file layered over it using `!important`; both were
+replaced by one rewrite — the neon/glass/scanline look read as generic and AI-made.) Restyle
+here; you should rarely need to touch `index.html`.
+
+The look, so a later change keeps it: text straight over the game with a text-shadow, not text
+in panels; Barlow Condensed for everything numeric or labelled, Barlow for prose; one accent
+(amber `--accent`) for "selected / yours"; team colours `--self`, `--ally`, `--enemy` mean the
+same thing everywhere. No glows, gradients on text, scanlines or emoji icons.
 
 ### Editing `index.html`
 
@@ -62,7 +67,9 @@ Style these freely — just don't rename them.
 `.hidden` (on `#hud`, `#menu`, `#settings`) · `.on` (`#board`, `#scope`, `#slots div`) ·
 `.off` (`#crosshair`, `.ally-mark`) · `.low` (`#vitals`, health critical) ·
 `.hurt` (`.plate`) · `.kill` (`#hitmarker`) · `.active` (`.pill`, `.mode-btn`, `.set-choice button`) ·
-`.empty` (`#slots div`) · `.head` / `.body` / `.limb` (`.dmg-num`, hit zone)
+`.empty` (`#slots div`) · `.head` / `.body` / `.arm` / `.leg` / `.kill` / `.armored` (`.dmg-num`) ·
+`.head` / `.kill` (`#hitmarker`) · `.show` / `.headshot` (`#killbanner`) · `.mine` (`.kf`) ·
+`.hs` (`.kf .arrow`) · `.locked` (`#diffgrp`)
 
 ---
 
@@ -82,7 +89,8 @@ several of them are how the player reads the game state.
 | `#topbar` | top-centre | auto | Mode, score, match clock. |
 | `#feed` | top-right | 300 px wide | Kill feed; rows are `.kf`, added/removed by JS. |
 | `#crosshair` | exact centre | 0 x 0 anchor | Arms positioned from centre via `--xhair-gap`. |
-| `#hitmarker` | exact centre | 22 x 22 px | Fades in on hit. |
+| `#hitmarker` | exact centre | 0 x 0 anchor | Four ticks round a gap. `.head` / `.kill` variants. |
+| `#killbanner` | centre, ~64% down | auto | Kill confirmation; JS fills `#kb-name` and toggles `.show`. |
 | `#ammo-prompt` | centre, ~58% down | auto | Shows `AMMO` / `HEALTH` / `SHIELD` near a pickup. |
 | `#toast` | centre-ish | auto | Transient one-line messages. |
 

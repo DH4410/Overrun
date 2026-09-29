@@ -8,8 +8,8 @@ the two bugs a real playtest turned up. Session 3 (2026-09-28) was a full playte
 mode and map, then a code review after you reported movement and animation looking wrong and
 dead bots floating — it found the bots were being drawn backwards. Session 4 (2026-09-28)
 worked through your ten-point list: bot jitter, animation, weapons, jumping through ramps, stuck
-bots, hitboxes and damage feedback, the UI, and movement. **The map and more characters are
-still to do** — see "Next session" below.
+bots, hitboxes and damage feedback, the UI, and movement. Session 5 (2026-09-29) did the last
+two: **PORT**, a new default map modelled in Blender, and **three more Mixamo characters**.
 
 ---
 
@@ -20,7 +20,7 @@ still to do** — see "Next session" below.
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
 | Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 58/58 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
+| Tests | 65/65 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -39,25 +39,57 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ## Next session — start here
 
-1. **The map (your item 10).** You offered to connect Blender MCP, which is the plan. A
-   complete code-built draft is parked at `docs/drafts/mapPort.draft.js` — PORT, a daylight
-   container port with rotational symmetry, three lanes and a raised dock. It is NOT wired in
-   (it needs a `tint` option on `pbrMat` in `src/maps.js` and a `MAPS` entry). Its header
-   explains the design rules, which still apply whichever way the map is built: colliders equal
-   visuals, 1.0 m crates are jumpable and 2.59 m containers are not, daylight for readability,
-   `both()` symmetry for the duel. Poly Haven slugs confirmed to exist: `asphalt_floor`,
-   `container_side`, `corrugated_iron_02`, `factory_wall`, `concrete_block_wall`,
-   `hangar_concrete_floor`, `rough_concrete`, `plywood`, `metal_plate`.
-   Whatever is built: its own lights, `ceilY` for the spawn/pickup/nav casts, spawn candidates,
-   and the nav graph (`buildWaypoints`) finds walkable surfaces by raycasting, so it needs no
-   hand-placed nodes.
-2. **More characters (your item 4).** Needs you: Mixamo requires your login. Download 3-4
-   human characters in tactical/combat gear as **FBX, T-pose, with skin**, to Downloads. Then:
-   `node scripts/fbx-to-glb.mjs "<file>.fbx" assets/bots/<name>.glb --max-texture=512` and add
-   to `CHARACTERS` in `src/bots.js` (blue currently has only SWAT; casts must stay disjoint).
-   Exo Gray is on disk but rejected (896 bones, duplicated skeletons) — Blender could merge it.
-3. Playtest everything below in a real browser (`node scripts/serve-tests.mjs`, then
-   http://localhost:4173, Ctrl+Shift+R once).
+1. **Playtest PORT and the new characters** in a real browser (`node scripts/serve-tests.mjs`,
+   then http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v14`). Everything
+   visual was checked headless; see "Session 5" for what that did and did not cover.
+2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below.
+
+---
+
+## Session 5: the map, and more characters
+
+**PORT** (`scripts/blender/build_port.py` -> `assets/maps/port.glb` + `port.json`, loaded by
+`src/mapPort.js`) is now the map the game boots into and the first one in the menu; the other
+three are unchanged. A container port in daylight: a raised concrete dock in the middle with a
+ramp up each end, a spawn shed at each end, a container yard with a gantry crane on one flank
+and a warehouse with racking on the other, mirrored by 180 degrees for the duel. Beyond the
+wall: stacked containers, sheds, a quay, a ship and ship-to-shore cranes (visual only).
+
+- **Built for movement.** Crates are 1.0 m (a hop), the dock is 1.4 m (reached by the ramp, or by
+  hopping off the crate beside it), containers are 2.59 m (walls). All pinned by
+  `tests/e2e/port-map.spec.mjs`, which stands the player against each and jumps.
+- **Colliders equal meshes, by construction.** Every piece function in the Blender script emits
+  its mesh and its collider together. The spec checks both directions: every collider top shows
+  a mesh within 3 cm, and a 2,000-point grid finds no invisible wall and no walk-through prop
+  (re-broken by deleting one crate's collider: both checks and the hop test went red).
+- **Textures** are Poly Haven, loaded at runtime like the other maps; the GLB (3 MB, 16 draw
+  calls, 38k triangles) carries world-scaled UVs only. Containers share one rusty-metal photo
+  used as luminance (`pbrMat({ detail: true })`) and take their colour from vertex colours.
+- Bots path onto the dock, through the yard and into the warehouse
+  (`bot-movement.spec.mjs`); no nav node sits in a solid or on a roof or container.
+- `ceilY` is 6.0 (the spawn sheds' roof underside) so spawn and pickup casts start under the
+  roofs — the Foundry bug from session 1 would otherwise have put the spawns on the roof.
+
+**Characters.** Added from Mixamo: **Trooper** (Mixamo "Swat", blue camo) and **Gas Mask** to
+blue, **Steve** (army fatigues) to red. Blue is now police tactical (SWAT, Trooper, Gas Mask),
+red military/mercenary (Crypto, Ely, Steve). The converter used to reject Trooper and Steve for
+"duplicate bones": measured in a live match, those are FBXLoader's nested twins (a second bone
+of the same name, parented to the first at identity, wherever two meshes share a bone) and move
+with it exactly. `scripts/fbx-to-glb.mjs` now rejects only detached duplicates, and
+`characters.spec.mjs` plays a clip on every character and checks each twin stays on its bone.
+Exo Gray passes the new check too (all 784 duplicates are nested twins) but is left out: 896
+bones per bot is a lot of skinning for a laptop.
+
+### Changing PORT
+
+1. Edit `scripts/blender/build_port.py` (layout functions at the bottom: `dock()`, `approach()`,
+   `container_yard()`, ...; wrap a piece in `both()` to keep the symmetry).
+2. In Blender (Scripting tab, or via the Blender MCP):
+   `OVERRUN_REPO = r"<repo>"; exec(open(OVERRUN_REPO + "/scripts/blender/build_port.py").read())`
+3. `CI=1 npx playwright test tests/e2e/port-map.spec.mjs`, and bump `CACHE` in `sw.js`.
+
+Spawns, pickups and interior lamps are gameplay, not geometry: they live in `src/mapPort.js`.
+Spawn candidates must clear `buildSpawnPoints`' 2 m blocker pad — 14 of the first 18 did not.
 
 ---
 
@@ -282,7 +314,9 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.
-- [ ] **The map** and **more characters** — see "Next session" at the top.
+- [ ] **Scene lighting from the sky** (a PMREM environment for PORT) would make metal and paint
+      read better in daylight. Left out for now: it costs every fragment, and battery was the
+      point of session 2.
 - [ ] **More animation, if wanted.** Hit reactions were discussed but not added — the bot has
       no hit-reaction hook yet, so it needs code as well as a clip.
 - [ ] **Clean up ~170 MB of source FBX in `C:\Users\dimah\Downloads`** (`Ch15_nonPBR`,
@@ -324,6 +358,18 @@ wrong, because a Run cycle's forward drift averages more than the hip height.
 never passes for a click inside a match: use `element.click()` in `page.evaluate`. Its fake
 gamepad also rewrites `aiming` every frame — hold LT (button 6) to aim in a test.
 
+**A ray exactly along a face or through a corner can go either way.** Two symmetric sight
+lines disagreed on PORT because both grazed a box corner. The layout's edges are all at round
+numbers, so the specs' probe grids sit at 3-decimal offsets. Keep them off-grid.
+
+**The built-in browser does download, but leaves the file as a GUID `.tmp`** in Downloads
+(apparently waiting on a save prompt). The file is complete (FBX ends with the magic footer
+`f85a8c6adef5d97eece90ce3758f290b`), so copy it under a proper name and convert.
+
+**Blender's glTF exporter with `export_vertex_color='ACTIVE'` writes an extra all-white COLOR_0**
+ahead of the real set, and three reads COLOR_0: every container came out white. The script
+exports the colour set by name.
+
 **"Every track binds" is not "the pose is right".** The crushed soldier bound every track of
 every clip. Measure the pose itself — head above feet, toes along the heading — as
 `bot-presentation.spec.mjs` does.
@@ -353,7 +399,7 @@ often shows the previous frame. Take a second one before believing anything odd.
 `preview_start` with name `overrun` serves it on :4173. Stop that server before running e2e or
 Playwright cannot bind the port.
 
-**Bump `CACHE` in `sw.js` whenever assets change.** It is at `overrun-v13`. The fetch handler
+**Bump `CACHE` in `sw.js` whenever assets change.** It is at `overrun-v14`. The fetch handler
 matches by extension: `.fbx` and `.json` had to be added to `ASSET_RE` or the precached clips
 and manifest were never actually served offline.
 
@@ -374,6 +420,11 @@ draw groups and re-encodes textures — typically 115 MB → under 4 MB. It **re
 characters whose parts each carry their own copy of the skeleton (Exo Gray: 896 bones, 784
 duplicates), because only one part of those would animate. Then add the file to `CHARACTERS`
 in `src/bots.js`.
+
+**Add a map made in Blender:** follow PORT — a generator script that emits meshes and colliders
+together, a GLB named by material key plus a collider JSON, and a `src/map*.js` that loads both
+at boot (`loadPort` in `main.js` runs alongside the character loads) and is marked `available`
+in `MAPS` only once they arrive.
 
 **Add an animation:** download as FBX **Without Skin**, with **In Place** ticked for anything
 locomotive (bots are physics-driven, so root motion makes them slide). Drop it in

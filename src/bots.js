@@ -1056,8 +1056,8 @@ class Bot {
    * Every tier before the elite one aimed at `target.pos`, which is the chest — so a bot
    * could only ever headshot you by accident. `headBias` is the share of shots aimed at the
    * head instead. It reads the target's live hitbox rather than a constant, so crouching
-   * genuinely moves the aim point down: HB_PLAYER.headY is 0.78 standing and
-   * HB_PLAYER_CROUCH.headY is 0.45, and `player.hb` is swapped as you crouch.
+   * genuinely moves the aim point down: HB_PLAYER.headY is 0.6 standing and
+   * HB_PLAYER_CROUCH.headY is 0.37, and `player.hb` is swapped as you crouch.
    */
   aimPoint(target, out) {
     out.copy(target.pos);

@@ -44,6 +44,7 @@ export function createMatchRuntime({
   getCurrentMapId,
   setAppState,
   resetPlayerAmmo,
+  syncPlayerPoints,
   clearEffects,
   resetAmmoChests,
   resetConsumables,
@@ -197,6 +198,9 @@ function respawnPlayer(immediate = false, at = null) {
   player.body.position.set(sp.x, sp.y + 0.6, sp.z);
   player.body.velocity.set(0, 0, 0);
   player.body.wakeUp();
+  // Eye and chest follow the body only when the player steps, so until then they still said
+  // where you died: a grenade thrown on the first frame of a life left from your corpse.
+  syncPlayerPoints();
   player.alive = true;
   player.health = CONFIG.MAX_HEALTH;
   player.armor = CONFIG.START_ARMOR;
@@ -204,6 +208,7 @@ function respawnPlayer(immediate = false, at = null) {
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
+  player.cookSource = null;
   player.reloading = 0;
   player.cooldown = 0.4;
   resetPlayerAmmo();                  // includes the one-smoke-per-life reset

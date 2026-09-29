@@ -84,3 +84,32 @@ test('jumps are a quick committed hop, and movement has weight', async ({ page }
   expect(r.tStop).toBeGreaterThan(0.1);
   expect(r.tStop).toBeLessThan(0.35);
 });
+
+test('you stand as tall as the bots you fight, and a respawn moves your eye with you', async ({ page }) => {
+  // The eye was 2.1 m up and the hitbox 2.3 m tall, a head above the 2 m bots, so up close
+  // every opponent looked a size smaller than you.
+  await setup(page);
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const { player, keys } = g;
+    player.body.position.set(-30, 0.6, -30);
+    player.body.velocity.set(0, 0, 0);
+    g.step(60);
+    const floor = player.body.position.y - 0.5;
+    const top = (p) => p.pos.y + p.hb.headY + p.hb.headR;
+    const stand = { eye: player.eye.y - floor, top: top(player) - floor };
+    g.settings.toggleCrouch = false;
+    keys.KeyC = true; g.step(30);
+    const crouch = { eye: player.eye.y - floor, top: top(player) - floor };
+    keys.KeyC = false; g.step(30);
+    g.respawnPlayer(true, { x: 12, y: 0, z: -24 });
+    return { stand, crouch, respawnEye: [player.eye.x, player.eye.z] };
+  });
+  expect(r.stand.eye).toBeCloseTo(1.8, 1);
+  expect(r.stand.top).toBeGreaterThan(1.9);
+  expect(r.stand.top).toBeLessThan(2.1);
+  expect(r.crouch.eye).toBeCloseTo(1.15, 1);
+  expect(r.crouch.top).toBeLessThan(r.stand.top - 0.5);
+  expect(r.respawnEye[0]).toBeCloseTo(12, 5);
+  expect(r.respawnEye[1]).toBeCloseTo(-24, 5);
+});

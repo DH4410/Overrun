@@ -45,7 +45,9 @@ export function createPlayerState() {
   // how long since the last round left the barrel. See playerSpread / recoilStep.
   bloom: 0, sprayIndex: 0, sinceShot: 99,
   fragCount: 3, smokeCount: 1,
-  cooking: null, cookTime: 0,
+  // cookSource is the input that started the cook ('key', 'mouse' or 'pad'): only that input's
+  // release throws it, or an idle controller would throw every keyboard cook on the next frame.
+  cooking: null, cookTime: 0, cookSource: null,
   respawnTimer: 0,
   invulnTimer: 0,                    // spawn protection — see SPAWN_INVULN
   stepTimer: 0,
@@ -100,9 +102,15 @@ let pointerLocked = false;
 // own vectors so future player and bot work cannot mutate a bullet step in progress.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
-const PLAYER_CHEST = 0.75;
-const PLAYER_CHEST_CROUCH = 0.52;  // lowers bots' aim point to match crouching camera height
-const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
+/**
+ * Chest (hitbox centre, what bots aim at) and eye, above the body centre, which is the centre of
+ * the foot sphere. Standing puts the eye 1.8 m above the floor and crouching 1.15 m. The eye used
+ * to sit 2.1 m up, a head above the 2 m bots, so up close every opponent looked a size smaller
+ * than you. The eye heights match the camera's (CONFIG.EYE_HEIGHT / CROUCH_HEIGHT), so what you
+ * see down the barrel and where your rounds and line of sight start are the same point.
+ */
+const PLAYER_CHEST = 0.65;
+const PLAYER_CHEST_CROUCH = 0.37;  // lowers bots' aim point to match crouching camera height
 
 /**
  * The player's collider: a wide sphere at the feet and two narrow ones up the body to the top
@@ -115,8 +123,8 @@ const PLAYER_EYE_OFF = CONFIG.EYE_HEIGHT;
  * hoist the body onto one — and they only come into play against something overhead.
  */
 const BODY_R = 0.3;
-const BODY_OFFSETS = { stand: [0.75, 1.35], crouch: [0.45, 0.8] };
-const HEAD_TOP = { stand: 1.35 + BODY_R, crouch: 0.8 + BODY_R };
+const BODY_OFFSETS = { stand: [0.7, 1.2], crouch: [0.4, 0.72] };
+const HEAD_TOP = { stand: 1.2 + BODY_R, crouch: 0.72 + BODY_R };
 
 function createPlayerBody() {
   const b = new CANNON.Body({
@@ -334,7 +342,7 @@ function stepPlayer(dt) {
   player.landTime += dt;
   // Crouch reads from a latch when the player has chosen toggle-style bindings (see
   // settings.toggleCrouch), otherwise straight from the held key.
-  setCrouch(settings.toggleCrouch ? crouchLatch : !!keys.KeyC);
+  setCrouch(settings.toggleCrouch ? crouchLatch : !!(keys.KeyC || keys.GpCrouch));
 
   // Movement basis is camera yaw with the pitch stripped out.
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -355,7 +363,7 @@ function stepPlayer(dt) {
    * down while aiming: strafing to peek an angle stays at walking pace, and walking pace stays
    * reachable at all, which matters because sprinting is the widest accuracy cone in the game.
    */
-  const wantSprint = (settings.toggleSprint ? sprintLatch : !!keys.ShiftLeft)
+  const wantSprint = (settings.toggleSprint ? sprintLatch : !!(keys.ShiftLeft || keys.GpSprint))
     || (settings.autoSprint && iz > 0);
   player.sprinting = wantSprint && !player.crouching && !aiming;
 
@@ -380,7 +388,7 @@ function stepPlayer(dt) {
   // current foot, lift the body onto it. Cheap (one ray, only while actually walking).
   if (player.grounded && _wish.lengthSq() > 0) stepOver(b);
 
-  if (keys.Space && player.grounded) {
+  if ((keys.Space || keys.GpJump) && player.grounded) {
     b.velocity.y = CONFIG.JUMP_SPEED;
     player.grounded = false;
   }
@@ -399,11 +407,17 @@ function stepPlayer(dt) {
   }
 
   player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
-  player.pos.set(b.position.x, b.position.y + (player.crouching ? PLAYER_CHEST_CROUCH : PLAYER_CHEST), b.position.z);
-  player.eye.set(b.position.x, b.position.y + PLAYER_EYE_OFF - (player.crouching ? 0.55 : 0), b.position.z);
+  syncPlayerPoints();
 
   // Fall out of the world guard.
   if (b.position.y < -20) respawnPlayer();
+}
+
+/** Chest and eye from the body. Also run on respawn, before the first step moves anything. */
+function syncPlayerPoints() {
+  const p = player.body.position;
+  player.pos.set(p.x, p.y + (player.crouching ? PLAYER_CHEST_CROUCH : PLAYER_CHEST), p.z);
+  player.eye.set(p.x, p.y + (player.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT), p.z);
 }
 
 /* ------------------------- aiming and firing ------------------------- */
@@ -502,11 +516,12 @@ function tryFire() {
 
 /* --------------------------- thrown ordnance --------------------------- */
 
-function startCook(kind) {
+function startCook(kind, source = 'key') {
   if (!player.alive || player.cooking) return;
   if (kind === 'frag' && player.fragCount <= 0) return;
   if (kind === 'smoke' && player.smokeCount <= 0) return;
   player.cooking = kind;
+  player.cookSource = source;
   player.cookTime = kind === 'frag' ? CONFIG.FRAG_FUSE : CONFIG.SMOKE_FUSE;
   Audio.pinPull();
 }
@@ -515,6 +530,7 @@ function releaseCook(exploded = false) {
   const kind = player.cooking;
   if (!kind) return;
   player.cooking = null;
+  player.cookSource = null;
 
   if (kind === 'frag') player.fragCount--;
   else player.smokeCount--;
@@ -559,7 +575,7 @@ function bindInput() {
     if (!pointerLocked) { requestLock(); return; }
     // With the frag selected, LMB cooks and releases exactly like G does.
     if (e.button === 0) {
-      if (currentWeapon().thrown) startCook('frag');
+      if (currentWeapon().thrown) startCook('frag', 'mouse');
       else { firing = true; tryFire(); }
     }
     if (e.button === 2) aiming = settings.toggleAim ? !aiming : true;
@@ -567,7 +583,7 @@ function bindInput() {
   addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       firing = false;
-      if (player.cooking === 'frag' && !keys.KeyG) releaseCook();
+      if (player.cookSource === 'mouse') releaseCook();
     }
     if (e.button === 2 && !settings.toggleAim) aiming = false;
   });
@@ -604,8 +620,10 @@ function bindInput() {
 
   addEventListener('keyup', (e) => {
     keys[e.code] = false;
-    if (e.code === 'KeyG' && player.cooking === 'frag') releaseCook();
-    if (e.code === 'KeyF' && player.cooking === 'smoke') releaseCook();
+    if (player.cookSource === 'key') {
+      if (e.code === 'KeyG' && player.cooking === 'frag') releaseCook();
+      if (e.code === 'KeyF' && player.cooking === 'smoke') releaseCook();
+    }
     if (e.code === 'Tab') showBoard(false);
   });
 
@@ -693,13 +711,16 @@ function pollGamepad(dt) {
   if (down(7)) { if (!firing) { firing = true; tryFire(); } }
   else firing = false;
 
-  keys.Space = down(0);                                     // A
-  // B: gate on toggleCrouch so only one of crouchLatch or KeyC is driven at a time.
+  // Buttons get their own flags, like the stick does. Writing the keyboard's (keys.Space,
+  // KeyC, ShiftLeft) meant any connected pad reset them every frame before the player stepped,
+  // so with a controller plugged in the keyboard could not jump, crouch or sprint.
+  keys.GpJump = down(0);                                    // A
+  // B: gate on toggleCrouch so only one of crouchLatch or GpCrouch is driven at a time.
   if (settings.toggleCrouch) { if (pressed(1)) crouchLatch = !crouchLatch; }
-  else { keys.KeyC = down(1); }
-  keys.ShiftLeft = down(11);                                // right stick click sprints
-  if (pressed(4)) startCook('frag');                        // LB
-  if (!down(4) && player.cooking === 'frag') releaseCook();
+  else { keys.GpCrouch = down(1); }
+  keys.GpSprint = down(11);                                 // right stick click sprints
+  if (pressed(4)) startCook('frag', 'pad');                 // LB
+  if (!down(4) && player.cookSource === 'pad') releaseCook();
   if (pressed(2)) startReload();                            // X
   if (pressed(3)) switchWeapon('frag');                     // Y
   if (pressed(12)) switchWeapon('pistol');
@@ -846,6 +867,7 @@ return {
   resetPlayerAmmo,
   applyDamage,
   stepPlayer,
+  syncPlayerPoints,
   currentWeapon,
   startReload,
   finishReload,

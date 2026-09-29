@@ -7,8 +7,11 @@ import { matte } from './rendering.js';
 import { rand } from './utils.js';
 
 /** Combatant hitbox profiles. Offsets are relative to the combatant chest position. */
-export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.58, headR: 0.27, headY: 0.78, legLen: 0.67 };
-export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.38, headR: 0.27, headY: 0.45, legLen: 0.52 };
+// The player stands 2.0 m tall, as tall as the bots: legs to 0.73 m, torso to 1.57 m, and the
+// head centred at 1.75 m, just under the 1.8 m eye. Crouched it is 1.39 m. It used to top out at
+// 2.3 m, which only made you easier to hit than anyone you were fighting.
+export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.42, headR: 0.27, headY: 0.6, legLen: 0.73 };
+export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.28, headR: 0.27, headY: 0.37, legLen: 0.47 };
 export const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
 
 /**
@@ -402,6 +405,10 @@ function explode(pos, owner) {
     // Dynamic bodies only. Corpses are kinematic (see Bot.die) and keep their mass, so without
     // the type check a frag would hand one a velocity that nothing ever takes away again.
     if (body.mass <= 0 || body.type !== CANNON.Body.DYNAMIC) continue;
+    // Nor other grenades. The impulse is sized to shove an 80 kg player; a 0.4 kg grenade given
+    // the same took off at 200 m/s, through the floor or off the map, so of three frags thrown
+    // in a row only the first ever went off where it landed.
+    if (body.collisionFilterGroup === G_NADE) continue;
     _v2.set(body.position.x - pos.x, body.position.y - pos.y, body.position.z - pos.z);
     const d = _v2.length();
     if (d > CONFIG.FRAG_RADIUS * 1.6 || d < 1e-3) continue;

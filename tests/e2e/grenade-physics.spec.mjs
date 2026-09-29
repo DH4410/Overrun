@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { bootGame, startMatch } from './helpers/game.mjs';
+import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
 
 /**
  * Thrown ordnance physics. These assert behaviour a player can feel — a running throw goes
@@ -134,4 +134,52 @@ test('grenades still explode and still damage through the fuse', async ({ page }
   expect(outcome.botY).toBeLessThan(2.0);
 
   expect(outcome.after).toBeLessThan(outcome.before);
+});
+
+test('three frags thrown in a row each go off where they landed', async ({ page }) => {
+  // The first blast gave the other two the impulse sized for an 80 kg player. On a 0.4 kg
+  // grenade that is 200 m/s: they left through the floor or the map edge and "only one worked".
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+
+  const at = await openOrigin(page, 22);
+  expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
+
+  const r = await page.evaluate((o) => {
+    const g = globalThis.__game;
+    for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); }
+    const owner = { body: { velocity: { x: 0, y: 0, z: 0 } }, team: 1 };
+    const nades = [0, 1, 2].map((i) => g.throwGrenade(owner,
+      new g.THREE.Vector3(o.x, 0.4, o.z + 4 + i * 3), new g.THREE.Vector3(0, -1, 0), 0.1, 'frag', 0.8 + i * 0.4));
+    for (let i = 0; i < 60; i++) g.fixedStep(1 / 120);
+    const settled = nades.map((n) => n.body.position.clone());
+    const last = settled.map((p) => p.clone());
+    const exploded = [false, false, false];
+    for (let i = 0; i < 360; i++) {
+      nades.forEach((n, k) => { if (n.fuse > 0) last[k].copy(n.body.position); });
+      g.fixedStep(1 / 120);
+      nades.forEach((n, k) => { if (n.fuse <= 0) exploded[k] = true; });
+    }
+    return { exploded, drift: nades.map((_, k) => last[k].distanceTo(settled[k])) };
+  }, at);
+
+  expect(r.exploded).toEqual([true, true, true]);
+  for (const d of r.drift) expect(d).toBeLessThan(1.0);
+});
+
+test('an idle controller does not throw a grenade the keyboard is cooking', async ({ page }) => {
+  // The test pad is always connected with nothing held, exactly like a controller left
+  // plugged in. It used to release the cook on the next frame, before G was let go.
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  const frags = () => page.evaluate(() => globalThis.__game.player.fragCount);
+  const before = await frags();
+
+  await page.keyboard.down('g');
+  await pumpFrames(page, 12);
+  expect(await page.evaluate(() => globalThis.__game.player.cooking)).toBe('frag');
+  expect(await frags()).toBe(before);
+
+  await page.keyboard.up('g');
+  expect(await frags()).toBe(before - 1);
 });

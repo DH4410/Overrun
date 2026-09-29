@@ -125,6 +125,9 @@ button { font: inherit; color: inherit; }
   100% { transform: translate(-50%, -46px) scale(.95); opacity: 0; }
 }
 
+/* ---- inside a smoke: the game sets opacity by how deep the camera is ---- */
+#smokeveil { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at 50% 50%, rgba(190, 195, 200, .9), rgba(172, 177, 183, .98)); }
+
 /* ---- being hit ---- */
 #dmgwrap { position: absolute; inset: 0; }
 .dmg { position: absolute; left: 50%; top: 50%; width: 360px; height: 360px; margin: -180px 0 0 -180px; transition: opacity .5s ease-out; }

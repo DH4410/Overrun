@@ -335,6 +335,10 @@ const smokeTexture = (() => {
 })();
 
 const smokeClouds = [];
+const SMOKE_PUFFS = 38;
+const SMOKE_GROW = 1.4;       // seconds to full size
+const SMOKE_FADE = 2.5;       // seconds of fade at the end of its life
+let smokeVeil = null;
 
 function spawnSmoke(pos, owner) {
   Audio.smokePop(pos.distanceTo(camera.position));
@@ -342,18 +346,21 @@ function spawnSmoke(pos, owner) {
   group.position.copy(pos);
   scene.add(group);
 
+  // Dense and low: most puffs sit between the ankles and the top of a head, where a smoke has
+  // to hide people, and fill the middle as well as the edge. Twenty puffs spread over a sphere
+  // left gaps you could see a bot through, which is not a smoke.
   const puffs = [];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < SMOKE_PUFFS; i++) {
     const mat = new THREE.SpriteMaterial({
-      map: smokeTexture, color: 0xd0d4d9, transparent: true,
+      map: smokeTexture, color: i % 3 ? 0xc9cdd2 : 0xb4b9bf, transparent: true,
       opacity: 0, depthWrite: false, rotation: rand(0, Math.PI * 2),
     });
     const s = new THREE.Sprite(mat);
-    const dir = new THREE.Vector3(rand(-1, 1), rand(-0.35, 1), rand(-1, 1)).normalize();
+    const dir = new THREE.Vector3(rand(-1, 1), rand(-0.15, 0.6), rand(-1, 1)).normalize();
     s.position.copy(dir).multiplyScalar(rand(0.1, 0.6));
     s.scale.setScalar(0.8);
     group.add(s);
-    puffs.push({ sprite: s, dir, spin: rand(-0.5, 0.5), target: rand(0.55, 1.0) });
+    puffs.push({ sprite: s, dir, spin: rand(-0.5, 0.5), target: rand(0.15, 1.0) });
   }
 
   smokeClouds.push({
@@ -366,19 +373,20 @@ function updateSmoke(dt) {
   for (let i = smokeClouds.length - 1; i >= 0; i--) {
     const c = smokeClouds[i];
     c.t += dt;
-    // Expand to a full 4 m sphere over 2 s, hold, then fade across the final 2 s.
-    const grow = clamp(c.t / 2.0, 0, 1);
-    const fade = c.t > CONFIG.SMOKE_LIFE - 2
-      ? clamp(1 - (c.t - (CONFIG.SMOKE_LIFE - 2)) / 2, 0, 1)
+    // Expand to full size quickly, hold, then fade across the end of its life.
+    const grow = clamp(c.t / SMOKE_GROW, 0, 1);
+    const fade = c.t > CONFIG.SMOKE_LIFE - SMOKE_FADE
+      ? clamp(1 - (c.t - (CONFIG.SMOKE_LIFE - SMOKE_FADE)) / SMOKE_FADE, 0, 1)
       : 1;
+    c.opacity = grow * fade;
     c.radius = CONFIG.SMOKE_RADIUS * (0.25 + 0.75 * grow);
     for (const p of c.puffs) {
       const spread = c.radius * p.target;
       p.sprite.position.copy(p.dir).multiplyScalar(spread);
-      p.sprite.position.y += grow * 0.8;                     // drift upward
-      p.sprite.scale.setScalar(1.4 + grow * c.radius * 0.95);
+      p.sprite.position.y += grow * 0.6;                     // drift upward
+      p.sprite.scale.setScalar(1.6 + grow * c.radius * 0.9);
       p.sprite.material.rotation += p.spin * dt;
-      p.sprite.material.opacity = 0.62 * grow * fade;
+      p.sprite.material.opacity = 0.92 * grow * fade;
     }
     c.group.position.y = c.center.y + grow * 0.5;
     if (c.t >= CONFIG.SMOKE_LIFE) {
@@ -387,6 +395,24 @@ function updateSmoke(dt) {
       smokeClouds.splice(i, 1);
     }
   }
+  updateSmokeVeil();
+}
+
+/**
+ * Standing in a smoke greys the screen out, the deeper the thicker. Sprites alone cannot do it:
+ * from inside the cloud they are billboards around you with clear air between them, so a smoke
+ * you had walked into was the one place you could see out of.
+ */
+function updateSmokeVeil() {
+  smokeVeil ??= document.getElementById('smokeveil');
+  if (!smokeVeil) return;
+  let depth = 0;
+  for (const c of smokeClouds) {
+    _v1.set(c.center.x, c.center.y + 0.5, c.center.z);
+    const d = camera.position.distanceTo(_v1) / Math.max(0.01, c.radius);
+    depth = Math.max(depth, clamp((1 - d) / 0.45, 0, 1) * (c.opacity ?? 0));
+  }
+  smokeVeil.style.opacity = depth.toFixed(3);
 }
 
 /** True when the segment passes through any smoke that has actually built up. */
@@ -397,9 +423,9 @@ function smokeBlocks(from, to) {
   if (len < 1e-4) return false;
   _v3.divideScalar(len);
   for (const c of smokeClouds) {
-    if (c.t < 0.5) continue;                     // still deploying — not opaque yet
+    if (c.t < 0.4 || (c.opacity ?? 1) < 0.35) continue;   // deploying or fading: not opaque
     _v1.set(c.center.x, c.center.y + 0.5, c.center.z);
-    if (segmentSphere(from, _v3, len, _v1, c.radius * 0.85) >= 0) return true;
+    if (segmentSphere(from, _v3, len, _v1, c.radius * 0.9) >= 0) return true;
   }
   return false;
 }
@@ -407,6 +433,7 @@ function smokeBlocks(from, to) {
 function clearSmoke() {
   for (const c of smokeClouds) { for (const p of c.puffs) p.sprite.material.dispose(); scene.remove(c.group); }
   smokeClouds.length = 0;
+  updateSmokeVeil();
 }
 
 function clearEffectPools() {

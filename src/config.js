@@ -35,8 +35,9 @@ export const CONFIG = {
   CEIL: 10,
 
   // Player
-  EYE_HEIGHT: 1.6,
-  CROUCH_HEIGHT: 0.95,
+  // Eye above the body centre (the foot sphere's centre): 1.8 m and 1.15 m above the floor.
+  EYE_HEIGHT: 1.3,
+  CROUCH_HEIGHT: 0.77,
   PLAYER_RADIUS: 0.5,
   CROUCH_RADIUS: 0.38,
   PLAYER_MASS: 80,
@@ -79,8 +80,8 @@ export const CONFIG = {
   FRAG_RADIUS: 8,
   FRAG_IMPULSE: 900,
   SMOKE_FUSE: 2.0,
-  SMOKE_LIFE: 8.0,
-  SMOKE_RADIUS: 4.0,
+  SMOKE_LIFE: 13.0,
+  SMOKE_RADIUS: 5.5,
 
   // Match rules
   DM_TARGET: 20,

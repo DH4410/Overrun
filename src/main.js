@@ -329,6 +329,9 @@ const {
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
+  loadPort,
+  buildPortMap,
+  portReady,
   buildWaypoints,
   buildMapLayer,
 } = createMapRuntime({
@@ -350,6 +353,7 @@ const {
   buildMap,
   switchMap,
   currentMapId: getCurrentMapId,
+  defaultMapId,
 } = createMapController({
   scene,
   mapCamera,
@@ -364,6 +368,8 @@ const {
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
+  buildPortMap,
+  portReady,
   buildWaypoints,
   buildMapLayer,
   clearMap,
@@ -436,6 +442,7 @@ const {
   Bot,
   loadSoldier,
   loadedCharacters,
+  buildCharacterMesh,
   registerBotClips,
   botClipNames,
   buildBotGun,
@@ -1174,6 +1181,7 @@ const {
   elements: el,
   getElement: $,
   maps: MAPS,
+  defaultMap: defaultMapId,
   audio: Audio,
   startMatch,
   applySettings,
@@ -1257,7 +1265,7 @@ async function boot() {
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
-  const [soldierOk, blasters] = await Promise.all([loadSoldier(), loadViewModels()]);
+  const [soldierOk, blasters, portOk] = await Promise.all([loadSoldier(), loadViewModels(), loadPort()]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
@@ -1266,7 +1274,7 @@ async function boot() {
   // file exists and its primitive when it does not — a missing file costs one crate, never
   // the arena. Spawns, nav graph and minimap plan are all carved out of the finished
   // blocker set inside buildMap().
-  buildMap('warehouse');
+  buildMap(defaultMapId());
   const spawnStats = { accepted: spawnPoints.length };
 
   // Force every shader to compile now, while a loading screen is on screen, instead of the
@@ -1297,8 +1305,8 @@ async function boot() {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims,
-              characters: loadedCharacters() },
-    registerBotClips, botClipNames,
+              characters: loadedCharacters(), port: portOk },
+    registerBotClips, botClipNames, buildCharacterMesh,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,

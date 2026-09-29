@@ -26,13 +26,14 @@ test('boot reaches DEPLOY without runtime errors', async ({ page }) => {
 
 // Clean-boot coverage for Warehouse and Dungeon: verifies the full production path
 // (game.js → src/main.js → boot() → buildMap() → buildWaypoints()) succeeds for both
-// maps and that losClear() returns valid nav-graph data.
+// maps and that losClear() returns valid nav-graph data. PORT, the default boot map, has
+// its own coverage in port-map.spec.mjs.
 test('Warehouse clean boot: reaches DEPLOY and has valid nav graph', async ({ page }) => {
   const errors = watchRuntimeErrors(page);
   await bootGame(page);
 
   const stats = await page.evaluate(() => {
-    // Default boot loads Warehouse — inspect without switchMap to confirm real boot path.
+    globalThis.__game.switchMap('warehouse');
     return {
       mapId: globalThis.__game.currentMapId(),
       spawns: globalThis.__game.spawnPoints.length,

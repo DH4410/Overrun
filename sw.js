@@ -11,20 +11,23 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v13';
+const CACHE = 'overrun-v14';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
   './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hud.js',
-  './src/main.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js',
+  './src/main.js', './src/mapPort.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js',
   './src/pickups.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
   './assets/bots/anim/manifest.json',
   // Characters and their clips are cache-first assets; listing them here means the
   // first offline load has a full roster rather than falling back to blocky humanoids.
-  './assets/bots/soldier.glb', './assets/bots/swat.glb',
-  './assets/bots/crypto.glb', './assets/bots/ely.glb',
+  './assets/bots/soldier.glb', './assets/bots/swat.glb', './assets/bots/trooper.glb',
+  './assets/bots/gasmask.glb', './assets/bots/crypto.glb', './assets/bots/ely.glb',
+  './assets/bots/steve.glb',
+  // The default map: without these an offline boot falls back to the warehouse.
+  './assets/maps/port.glb', './assets/maps/port.json',
 ];
 
 // .fbx is here because the bot animation clips are FBX; without it the fetch handler fell

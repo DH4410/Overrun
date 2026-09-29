@@ -162,6 +162,20 @@ test('bots get round Foundry mid instead of pressing into it', async ({ page }) 
   for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
 });
 
+test('bots cross PORT: onto the dock, through the yard, into the warehouse', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
+  const results = await runRoutes(page, [
+    { name: 'spawn shed to spawn shed', from: [0, 0.8, 31], to: [0, 0.9, -31] },
+    { name: 'up the ramp onto the dock', from: [4.5, 0.8, 14], to: [-2, 2.3, 0] },
+    { name: 'round the approach container', from: [-5, 0.8, 22.5], to: [-5, 0.9, 16.5] },
+    { name: 'yard to far yard', from: [25, 0.8, 21], to: [44, 0.9, 30] },
+    { name: 'into the warehouse through a door', from: [-17, 0.8, 21], to: [-40, 0.9, 20] },
+    { name: 'flank to flank', from: [-44, 0.8, -16], to: [44, 0.9, 16] },
+  ]);
+  for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
+});
+
 test('bots cross the dungeon corridor maze end to end', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'dm', map: 'dungeon', diff: 'medium' });
@@ -200,4 +214,24 @@ test('no navigation node sits inside a solid, and raised floors get nodes of the
   expect(r.inside).toBe(0);
   expect(r.underMid).toBe(0);
   expect(r.onMid).toBeGreaterThan(4);
+});
+
+test('PORT: no node inside a solid, the dock has nodes, none on a roof or a container', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const inside = g.waypoints.filter((w) => (
+      !g.losClear(w.pos.x, w.floor + 0.2, w.pos.z, w.pos.x, w.floor + 1.8, w.pos.z)
+      || !g.losClear(w.pos.x, w.floor + 1.8, w.pos.z, w.pos.x, w.floor + 0.2, w.pos.z)
+    )).length;
+    const onDock = g.waypoints.filter((w) => Math.abs(w.pos.x) < 8 && Math.abs(w.pos.z) < 5 && w.floor > 1.3).length;
+    // Walkable floors are the ground, the ramps and the 1.4 m dock; nothing a bot cannot reach.
+    const tooHigh = g.waypoints.filter((w) => w.floor > 1.45).length;
+    return { inside, onDock, tooHigh, total: g.waypoints.length };
+  });
+  expect(r.total).toBeGreaterThan(300);
+  expect(r.inside).toBe(0);
+  expect(r.onDock).toBeGreaterThan(4);
+  expect(r.tooHigh).toBe(0);
 });

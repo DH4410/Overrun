@@ -32,6 +32,11 @@ Baseline browser coverage currently verifies:
 - Survival advances from wave one to wave two;
 - Duel starts one ELITE bot on a mirrored loadout and ends at `CONFIG.DUEL_ROUNDS`;
 - Foundry is symmetric under a 180-degree rotation (~5800 mirrored line-of-sight pairs);
+- Port is the default map; its colliders sit exactly where its meshes are (every collider top,
+  plus a 2,000-point grid with no invisible walls or walk-through props), it is symmetric, its
+  heights work as designed (crate a hop, dock via a crate, container a wall), and bots path
+  onto the dock, through the yard and into the warehouse;
+- every part of a split-mesh character moves with its one skeleton;
 - every animation track of every clip binds to every roster character's skeleton;
 - the player's firing cone widens with movement, air time and spray, and recovers;
 - thrown grenades inherit the thrower's velocity and come to rest.

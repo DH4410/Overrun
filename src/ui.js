@@ -5,6 +5,7 @@ export function createUiRuntime({
   elements: el,
   getElement: $,
   maps: MAPS,
+  defaultMap = () => 'warehouse',
   audio: Audio,
   startMatch,
   applySettings,
@@ -15,10 +16,16 @@ export function createUiRuntime({
   endMatch,
 }) {
 function bindMenu() {
-  let mode = 'dm', diff = 'medium', map = 'warehouse';
+  let mode = 'dm', diff = 'medium', map = defaultMap();
 
   const blurb = $('map-blurb');
   for (const b of document.querySelectorAll('#maps .pill')) {
+    // A map whose files failed to load cannot be picked; switchMap would ignore it anyway.
+    if (MAPS[b.dataset.map]?.available?.() === false) {
+      b.disabled = true;
+      b.title = 'This map failed to load';
+    }
+    b.classList.toggle('active', b.dataset.map === map);
     b.addEventListener('click', () => {
       map = b.dataset.map;
       document.querySelectorAll('#maps .pill').forEach((x) => x.classList.toggle('active', x === b));

@@ -10,6 +10,7 @@ import {
   mapBodies,
   world,
 } from './physics.js';
+import { PORT_CEIL, PORT_HALF_X, createPortMap } from './mapPort.js';
 import { disposeTree, markShared, matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
 
@@ -40,11 +41,30 @@ texLoader.setCrossOrigin('anonymous');
  * The ARM map feeds roughnessMap/metalnessMap only. aoMap is skipped on purpose: in three
  * r169 it samples the `uv1` attribute, which none of these primitives have, so wiring it up
  * would render everything fully occluded.
+ *
+ * `detail` keeps `fallback` as the surface colour and uses the albedo only for its luminance,
+ * normalised to average 1: scratches and grime without the photo's own paint colour. It is how
+ * one rusty-metal photo paints ten differently coloured containers (tinted by vertex colour).
  */
-function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.0, extra = {} } = {}) {
+function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.0, detail = false, extra = {} } = {}) {
   const mat = new THREE.MeshStandardMaterial({
     color: fallback, roughness: rough, metalness: metal, ...extra,
   });
+  if (detail) {
+    const gain = { value: 1 };
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.detailGain = gain;
+      shader.fragmentShader = `uniform float detailGain;\n${shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#ifdef USE_MAP
+          vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+          diffuseColor.rgb *= clamp( dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ) * detailGain, 0.0, 1.5 );
+        #endif`,
+      )}`;
+    };
+    mat.customProgramCacheKey = () => 'pbr-detail';
+    mat.userData.detailGain = gain;
+  }
   const base = `${PH}/${slug}/${slug}`;
   texLoader.load(
     `${base}_diff_1k.jpg`,
@@ -54,7 +74,8 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
       t.anisotropy = MAX_ANISO;
       t.colorSpace = THREE.SRGBColorSpace;
       mat.map = t;
-      mat.color.setHex(0xffffff);
+      if (detail) mat.userData.detailGain.value = 1 / Math.max(0.05, meanLuminance(t.image));
+      else mat.color.setHex(0xffffff);
       mat.needsUpdate = true;
     },
     undefined,
@@ -86,6 +107,23 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
     undefined, () => {},
   );
   return mat;
+}
+
+/** Average linear luminance of an image, read from a 32 px downsample; 0.5 if unreadable. */
+function meanLuminance(img) {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0, 32, 32);
+    const px = g.getImageData(0, 0, 32, 32).data;
+    const lin = (v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4) sum += 0.2126 * lin(px[i]) + 0.7152 * lin(px[i + 1]) + 0.0722 * lin(px[i + 2]);
+    return sum / (px.length / 4);
+  } catch {
+    return 0.5;
+  }
 }
 
 const MATS = {
@@ -158,6 +196,19 @@ function addSolid(w, h, d, x, y, z, mat, { block = true, uvScale = null, cast = 
  * started by bumping over a lip.
  */
 function addRamp(x0, y0, z0, x1, y1, z1, width, mat) {
+  addRampCollider(x0, y0, z0, x1, y1, z1, width);
+  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+  const run = Math.hypot(dx, dz);
+  const m = new THREE.Mesh(wedgeGeometry(width, run, dy, UV_SCALE.get(mat) ?? 0.15), mat);
+  m.position.set(x0, y0, z0);
+  m.rotation.y = Math.atan2(dx, dz);
+  m.castShadow = true; m.receiveShadow = true;
+  mapGroup.add(m);
+  return m;
+}
+
+/** addRamp's physics and footprint without its mesh: PORT's ramps are modelled in Blender. */
+function addRampCollider(x0, y0, z0, x1, y1, z1, width) {
   const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
   const run = Math.hypot(dx, dz);
   const len = Math.hypot(run, dy);
@@ -187,17 +238,10 @@ function addRamp(x0, y0, z0, x1, y1, z1, width, mat) {
     addStaticBox(width / 2, h / 2, (b - a) / 2, { x: x0 + ux * mid, y: y0 + h / 2, z: z0 + uz * mid }, yawQ);
   }
 
-  const m = new THREE.Mesh(wedgeGeometry(width, run, dy, UV_SCALE.get(mat) ?? 0.15), mat);
-  m.position.set(x0, y0, z0);
-  m.rotation.y = yaw;
-  m.castShadow = true; m.receiveShadow = true;
-  mapGroup.add(m);
-
   // Footprint of the rotated ramp, for spawn validation and the minimap plan.
   addBlocker((x0 + x1) / 2, (z0 + z1) / 2,
     Math.abs(ux) * run / 2 + Math.abs(uz) * width / 2,
     Math.abs(uz) * run / 2 + Math.abs(ux) * width / 2);
-  return m;
 }
 
 /**
@@ -1688,6 +1732,11 @@ function canWalk(a, b) {
   return walkable(a.x, floorUnder(a), a.z, b.x, floorUnder(b), b.z, 0.6);
 }
 
+const port = createPortMap({
+  mapGroup, pbrMat, addStaticBox, addRampCollider, addBlocker, addLightEmitter,
+  buildSpawnPoints, spawnAmmoChests, spawnConsumables,
+});
+
 return {
   arenaExtent: A,
   PROP_FILES,
@@ -1712,6 +1761,9 @@ return {
   buildFoundryMap,
   foundryHalf: FOUNDRY_HALF,
   foundryCeil: FOUNDRY_CEIL,
+  loadPort: port.loadPort,
+  buildPortMap: port.buildPortMap,
+  portReady: port.portReady,
   buildWaypoints,
   buildMapLayer,
 };
@@ -1731,6 +1783,8 @@ export function createMapController({
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
+  buildPortMap,
+  portReady,
   buildWaypoints,
   buildMapLayer,
   clearMap,
@@ -1744,6 +1798,26 @@ export function createMapController({
    * is a 4 m corridor grid, so it needs a much finer graph than the open warehouse).
    */
   const MAPS = {
+    port: {
+      name: 'PORT',
+      blurb: 'Container port in daylight. A raised dock in the middle, a yard and a warehouse on each flank.',
+      // Only offered once its GLB and collider table have loaded; see loadPort().
+      available: portReady,
+      background: 0xc9dcea,
+      fog: { color: 0xc3d2dd, near: 50, far: 300 },
+      mapView: 46,
+      ceilY: PORT_CEIL,
+      nav: { extent: PORT_HALF_X - 0.5, step: 3, coverPad: 2.6 },
+      layerExtent: PORT_HALF_X + 2,
+      plates: { ground: 0x2c3238, solid: 0x9aa7b3 },
+      lighting: {
+        ambient: { color: 0xc4d7ea, intensity: 0.5 },
+        hemi: { sky: 0xbcd6f0, ground: 0x6d675b, intensity: 0.95 },
+        // Where the sky dome draws the sun, (-0.45, 0.72, 0.52), so shadows agree with it.
+        sun: { color: 0xfff0d8, intensity: 2.4, pos: [-40, 64, 46], extent: PORT_HALF_X + 6, far: 200 },
+      },
+      build() { buildPortMap(); },
+    },
     warehouse: {
       name: 'WAREHOUSE',
       blurb: 'Open industrial plaza, long sight lines, four ramps to the hub.',
@@ -1820,6 +1894,9 @@ export function createMapController({
 
   let currentMapId = 'warehouse';
 
+  /** The map to open on: PORT when its files loaded, otherwise the warehouse. */
+  const defaultMapId = () => (MAPS.port.available() ? 'port' : 'warehouse');
+
   /** Build a level from scratch. Assumes clearMap() has already run if one was loaded. */
   function buildMap(id) {
     const m = MAPS[id];
@@ -1854,9 +1931,9 @@ export function createMapController({
     buildMapLayer(m.layerExtent, m.plates);
   }
 
-  /** Swap levels. No-op when the requested map is already loaded. */
+  /** Swap levels. No-op when the requested map is already loaded, or its files are not. */
   function switchMap(id) {
-    if (id === currentMapId || !MAPS[id]) return;
+    if (id === currentMapId || !MAPS[id] || MAPS[id].available?.() === false) return;
     clearMap();
     buildMap(id);
   }
@@ -1866,5 +1943,6 @@ export function createMapController({
     buildMap,
     switchMap,
     currentMapId: () => currentMapId,
+    defaultMapId,
   };
 }

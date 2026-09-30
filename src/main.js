@@ -341,9 +341,8 @@ const {
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
-  loadPort,
-  buildPortMap,
-  portReady,
+  glbMaps,
+  loadGlbMaps,
   buildWaypoints,
   buildMapLayer,
 } = createMapRuntime({
@@ -369,6 +368,7 @@ const {
   defaultMapId,
 } = createMapController({
   scene,
+  renderer,
   mapCamera,
   rigAmbient,
   rigHemi,
@@ -381,8 +381,7 @@ const {
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
-  buildPortMap,
-  portReady,
+  glbMaps,
   buildWaypoints,
   buildMapLayer,
   clearMap,
@@ -1314,7 +1313,7 @@ async function boot() {
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
-  const [soldierOk, blasters, portOk] = await Promise.all([loadSoldier(), loadViewModels(), loadPort()]);
+  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier(), loadViewModels(), loadGlbMaps()]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
@@ -1354,7 +1353,7 @@ async function boot() {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims,
-              characters: loadedCharacters(), port: portOk },
+              characters: loadedCharacters(), port: glbOk.port, maps: glbOk },
     registerBotClips, botClipNames, buildCharacterMesh, emotes, Audio,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,

@@ -10,8 +10,10 @@ import {
   mapBodies,
   world,
 } from './physics.js';
-import { PORT_CEIL, PORT_HALF_X, createPortMap } from './mapPort.js';
+import { createGlbMap, skyEnvironment } from './mapGlb.js';
+import { PORT } from './mapPort.js';
 import { disposeTree, markShared, matte } from './rendering.js';
+import { settings } from './settings.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
 
 /** Warehouse/Dungeon construction, navigation, presentation, and teardown runtime. */
@@ -28,7 +30,13 @@ export function createMapRuntime({
   spawnConsumables,
   clearMapItems,
 }) {
-const PH = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k';
+/** The Blender maps, in menu order. The first one that loads is the map the game opens on. */
+const GLB_MAPS = [PORT];
+
+// 2k maps on the QUALITY preset only: four times the texels, and on a laptop four times the
+// memory traffic, for detail you only see with your nose against a wall. Read once at boot.
+const PH_RES = settings.quality === 'high' ? '2k' : '1k';
+const PH = `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/${PH_RES}`;
 const texLoader = new THREE.TextureLoader();
 texLoader.setCrossOrigin('anonymous');
 
@@ -38,15 +46,15 @@ texLoader.setCrossOrigin('anonymous');
  * colour is neutralised so the texture shows through. If the network or CORS kills the
  * request the material simply stays the flat colour — the arena is never left untextured.
  *
- * The ARM map feeds roughnessMap/metalnessMap only. aoMap is skipped on purpose: in three
- * r169 it samples the `uv1` attribute, which none of these primitives have, so wiring it up
- * would render everything fully occluded.
+ * The ARM map feeds roughnessMap and metalnessMap, and with `ao` the aoMap too (three reads
+ * AO from red, roughness from green, metalness from blue: exactly Poly Haven's ARM packing).
+ * AO is opt-in because it only helps where the UVs are world-scaled, as in the Blender maps.
  *
  * `detail` keeps `fallback` as the surface colour and uses the albedo only for its luminance,
  * normalised to average 1: scratches and grime without the photo's own paint colour. It is how
  * one rusty-metal photo paints ten differently coloured containers (tinted by vertex colour).
  */
-function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.0, detail = false, extra = {} } = {}) {
+function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.0, detail = false, ao = false, extra = {} } = {}) {
   const mat = new THREE.MeshStandardMaterial({
     color: fallback, roughness: rough, metalness: metal, ...extra,
   });
@@ -67,7 +75,7 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
   }
   const base = `${PH}/${slug}/${slug}`;
   texLoader.load(
-    `${base}_diff_1k.jpg`,
+    `${base}_diff_${PH_RES}.jpg`,
     (t) => {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.repeat.set(repeat, repeat);
@@ -82,7 +90,7 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
     () => { mat.color.setHex(fallback); },
   );
   texLoader.load(
-    `${base}_nor_gl_1k.jpg`,
+    `${base}_nor_gl_${PH_RES}.jpg`,
     (t) => {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.repeat.set(repeat, repeat);
@@ -94,13 +102,14 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
     undefined, () => {},
   );
   texLoader.load(
-    `${base}_arm_1k.jpg`,
+    `${base}_arm_${PH_RES}.jpg`,
     (t) => {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.repeat.set(repeat, repeat);
       t.anisotropy = MAX_ANISO;
       mat.roughnessMap = t;
       mat.metalnessMap = t;
+      if (ao) mat.aoMap = t;
       mat.metalness = Math.max(metal, 0.35);   // metalnessMap multiplies, so give it headroom
       mat.needsUpdate = true;
     },
@@ -1732,10 +1741,10 @@ function canWalk(a, b) {
   return walkable(a.x, floorUnder(a), a.z, b.x, floorUnder(b), b.z, 0.6);
 }
 
-const port = createPortMap({
-  mapGroup, pbrMat, addStaticBox, addRampCollider, addBlocker, addLightEmitter,
+const glbMaps = GLB_MAPS.map((def) => createGlbMap(def, {
+  mapGroup, pbrMat, addStaticBox, addStaticCylinder, addRampCollider, addBlocker, addLightEmitter,
   buildSpawnPoints, spawnAmmoChests, spawnConsumables,
-});
+}));
 
 return {
   arenaExtent: A,
@@ -1761,9 +1770,9 @@ return {
   buildFoundryMap,
   foundryHalf: FOUNDRY_HALF,
   foundryCeil: FOUNDRY_CEIL,
-  loadPort: port.loadPort,
-  buildPortMap: port.buildPortMap,
-  portReady: port.portReady,
+  glbMaps,
+  /** Fetch every Blender map at once; resolves to { id: loaded } once they have all settled. */
+  loadGlbMaps: async () => Object.fromEntries(await Promise.all(glbMaps.map(async (m) => [m.def.id, await m.load()]))),
   buildWaypoints,
   buildMapLayer,
 };
@@ -1771,6 +1780,7 @@ return {
 /** Map selection, shared lighting configuration, and level lifecycle. */
 export function createMapController({
   scene,
+  renderer,
   mapCamera,
   rigAmbient,
   rigHemi,
@@ -1783,8 +1793,7 @@ export function createMapController({
   buildFoundryMap,
   foundryHalf,
   foundryCeil,
-  buildPortMap,
-  portReady,
+  glbMaps,
   buildWaypoints,
   buildMapLayer,
   clearMap,
@@ -1797,27 +1806,29 @@ export function createMapController({
    * geometry is built, the sky/fog treatment, and the nav-graph and minimap tuning (the dungeon
    * is a 4 m corridor grid, so it needs a much finer graph than the open warehouse).
    */
+  /** A Blender map's menu entry, from its definition (see mapGlb.js). */
+  const glbEntry = (m) => {
+    const d = m.def, [HX, HZ] = d.half, L = d.look.lighting;
+    return {
+      name: d.name,
+      blurb: d.blurb,
+      // Only offered once its GLB and collider table have loaded.
+      available: m.ready,
+      background: d.look.background,
+      fog: d.look.fog,
+      sky: d.look.sky,
+      env: d.look.env,
+      mapView: d.mapView,
+      ceilY: d.ceilY,
+      nav: { extent: Math.max(HX, HZ) - 0.5, step: 3, coverPad: 2.6 },
+      layerExtent: Math.max(HX, HZ) + 2,
+      plates: d.plates,
+      lighting: { ...L, sun: { ...L.sun, extent: Math.max(HX, HZ) + 6, far: 200 } },
+      build() { m.build(); },
+    };
+  };
   const MAPS = {
-    port: {
-      name: 'PORT',
-      blurb: 'Container port in daylight. A raised dock in the middle, a yard and a warehouse on each flank.',
-      // Only offered once its GLB and collider table have loaded; see loadPort().
-      available: portReady,
-      background: 0xc9dcea,
-      fog: { color: 0xc3d2dd, near: 50, far: 300 },
-      mapView: 46,
-      ceilY: PORT_CEIL,
-      nav: { extent: PORT_HALF_X - 0.5, step: 3, coverPad: 2.6 },
-      layerExtent: PORT_HALF_X + 2,
-      plates: { ground: 0x2c3238, solid: 0x9aa7b3 },
-      lighting: {
-        ambient: { color: 0xc4d7ea, intensity: 0.5 },
-        hemi: { sky: 0xbcd6f0, ground: 0x6d675b, intensity: 0.95 },
-        // Where the sky dome draws the sun, (-0.45, 0.72, 0.52), so shadows agree with it.
-        sun: { color: 0xfff0d8, intensity: 2.4, pos: [-40, 64, 46], extent: PORT_HALF_X + 6, far: 200 },
-      },
-      build() { buildPortMap(); },
-    },
+    ...Object.fromEntries(glbMaps.map((m) => [m.def.id, glbEntry(m)])),
     warehouse: {
       name: 'WAREHOUSE',
       blurb: 'Open industrial plaza, long sight lines, four ramps to the hub.',
@@ -1894,9 +1905,10 @@ export function createMapController({
 
   let currentMapId = 'warehouse';
   let currentPlan = null;          // what the minimap draws; a new object per map build
+  const environments = new Map();  // sky light per map, prefiltered on first visit
 
-  /** The map to open on: PORT when its files loaded, otherwise the warehouse. */
-  const defaultMapId = () => (MAPS.port.available() ? 'port' : 'warehouse');
+  /** The map to open on: the first Blender map that loaded, otherwise the warehouse. */
+  const defaultMapId = () => glbMaps.find((m) => m.ready())?.def.id ?? 'warehouse';
 
   /** Build a level from scratch. Assumes clearMap() has already run if one was loaded. */
   function buildMap(id) {
@@ -1907,6 +1919,9 @@ export function createMapController({
 
     scene.background = new THREE.Color(m.background);
     scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
+    if (m.sky && !environments.has(id)) environments.set(id, skyEnvironment(renderer, m.sky));
+    scene.environment = environments.get(id) ?? null;
+    scene.environmentIntensity = m.env ?? 1;
 
     mapCamera.left = -m.mapView / 2; mapCamera.right = m.mapView / 2;
     mapCamera.top = m.mapView / 2; mapCamera.bottom = -m.mapView / 2;

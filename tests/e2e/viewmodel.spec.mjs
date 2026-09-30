@@ -54,7 +54,7 @@ const CEILING = { ar: -0.06, smg: -0.06, pistol: 0.0, shotgun: 0.0 };
 for (const id of ['ar', 'smg', 'pistol', 'shotgun']) {
   test(`aiming the ${id} centres its sight and keeps the gun below the middle`, async ({ page }) => {
     await bootGame(page);
-    await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+    await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
     const b = await aimedBounds(page, id);
     // The sight line is on the axis.
     expect(Math.abs(b.ref.x)).toBeLessThan(0.01);

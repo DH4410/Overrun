@@ -28,12 +28,6 @@ export const CONFIG = {
   MAX_SUBSTEPS: 16,
   MAX_FRAME_DT: 0.25,
 
-  // Arena (metres). Outer shell is ARENA half-extent; the inner ring sits at RING.
-  ARENA: 50,          // outer wall at +/- 50  => 100 x 100 floor
-  RING: 34,           // inner ring wall at +/- 34 => ~68 x 68 plaza
-  GAP: 9,             // half-width of the doorway in the middle of each ring wall
-  CEIL: 10,
-
   // Player
   // Eye above the body centre (the foot sphere's centre): 1.8 m and 1.15 m above the floor.
   EYE_HEIGHT: 1.3,
@@ -103,10 +97,6 @@ export const CONFIG = {
   MAX_DECALS: 90,
   SENS: 0.0022,
 };
-
-/** Dungeon grid pitch and ceiling, measured from the Kenney Modular Dungeon Kit. */
-export const DUNGEON_TILE = 4;
-export const DUNGEON_CEIL = 4.15;
 
 /** Seconds of spawn protection. Bots would otherwise have LOS before the player can move. */
 export const SPAWN_INVULN = 3.0;

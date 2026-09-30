@@ -52,7 +52,7 @@ test('a bot in a firefight strafes, instead of vibrating on the spot', async ({ 
   // physics step: 17-26 reversals a second, standing nearly still 74% of the time. Through an
   // ADS zoom that is exactly what lag and rubber-banding look like.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   const r = await runCombat(page, 15);
   expect(r.shootFrames).toBeGreaterThan(1000);
   expect(r.flipsPerBotSec).toBeLessThan(2.5);
@@ -65,7 +65,7 @@ test('two bots that bunch up ease apart instead of being flung', async ({ page }
   // The separation push was added to the body velocity after the acceleration limit and read
   // back as the next step's starting velocity, so it compounded: ~+1 m/s per step at 1.5 m.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   const peak = await page.evaluate(() => {
     const [a, b] = globalThis.__game.bots;
     a.body.position.set(20, 0.8, 20);
@@ -133,31 +133,17 @@ async function runRoutes(page, routes) {
   }, routes);
 }
 
-test('bots get round low walls, crates and ramps instead of running into them (warehouse)', async ({ page }) => {
+test('bots get round low walls and crates instead of running into them (DESERT)', async ({ page }) => {
   // Paths were straightened with rays ~1.7 m up, over every low wall and crate, so straightened
   // routes ran straight into them; and a path's first node was the nearest by distance even on
   // the far side of a wall. A bot on the wrong side of a low wall pressed into it forever.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'desert', diff: 'medium' });
   const results = await runRoutes(page, [
-    { name: 'across the low wall', from: [-16, 0.8, -3], to: [-16, 0.9, -10] },
-    { name: 'through the crate stack', from: [-7, 0.8, -16.5], to: [-7, 0.9, -25] },
-    { name: 'round the tank', from: [-16.5, 0.8, 6], to: [-24.5, 0.9, 6] },
-    { name: 'up a ramp onto the hub', from: [0, 0.8, -19], to: [0, 4.1, -3] },
-    { name: 'plaza to corridor', from: [18, 0.8, -12], to: [-40, 0.9, 30] },
-  ]);
-  for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
-});
-
-test('bots get round Foundry mid instead of pressing into it', async ({ page }) => {
-  // The mid platform is not a blocker, so the old grid put nodes INSIDE it.
-  await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'foundry', diff: 'medium' });
-  const results = await runRoutes(page, [
-    { name: 'south of mid to north of mid', from: [-3, 0.8, -9.5], to: [-3, 0.9, 9.5] },
-    { name: 'onto mid', from: [2.6, 0.8, -16], to: [0, 2.4, 0] },
-    { name: 'spawn to spawn', from: [0, 0.8, -27], to: [0, 0.9, 27] },
-    { name: 'lane to lane', from: [-22, 0.8, 18], to: [22, 0.9, -18] },
+    { name: 'past the crate', from: [3.6, 0.8, 18.8], to: [3.6, 0.9, 15.4] },
+    { name: 'past the well', from: [-8.5, 0.8, 7.0], to: [-8.5, 0.9, 3.0] },
+    { name: 'round the approach house', from: [-9, 0.8, 19.6], to: [-18.5, 0.9, 10.6] },
+    { name: 'spawn yard to spawn yard', from: [0, 0.8, 26.5], to: [0, 0.9, -26.5] },
   ]);
   for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
 });
@@ -176,29 +162,31 @@ test('bots cross PORT: onto the dock, through the yard, into the warehouse', asy
   for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
 });
 
-test('bots cross the dungeon corridor maze end to end', async ({ page }) => {
-  await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'dungeon', diff: 'medium' });
-  const routes = await page.evaluate(() => {
-    const w = globalThis.__game.waypoints;
-    // The pairs furthest apart along each axis: the longest walks the maze offers.
-    const by = (f) => [...w.keys()].sort((a, b) => f(w[a].pos) - f(w[b].pos));
-    const x = by((p) => p.x), z = by((p) => p.z), d = by((p) => p.x + p.z);
-    return [
-      { name: 'west to east', fromNode: x[0], toNode: x[x.length - 1] },
-      { name: 'north to south', fromNode: z[0], toNode: z[z.length - 1] },
-      { name: 'corner to corner', fromNode: d[0], toNode: d[d.length - 1] },
-    ];
+for (const map of ['port', 'desert']) {
+  test(`bots cross ${map.toUpperCase()} end to end`, async ({ page }) => {
+    await bootGame(page);
+    await startMatch(page, { mode: 'dm', map, diff: 'medium' });
+    const routes = await page.evaluate(() => {
+      const w = globalThis.__game.waypoints;
+      // The pairs furthest apart along each axis: the longest walks the map offers.
+      const by = (f) => [...w.keys()].sort((a, b) => f(w[a].pos) - f(w[b].pos));
+      const x = by((p) => p.x), z = by((p) => p.z), d = by((p) => p.x + p.z);
+      return [
+        { name: 'west to east', fromNode: x[0], toNode: x[x.length - 1] },
+        { name: 'north to south', fromNode: z[0], toNode: z[z.length - 1] },
+        { name: 'corner to corner', fromNode: d[0], toNode: d[d.length - 1] },
+      ];
+    });
+    const results = await runRoutes(page, routes);
+    for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
   });
-  const results = await runRoutes(page, routes);
-  for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
-});
+}
 
-test('no navigation node sits inside a solid, and raised floors get nodes of their own', async ({ page }) => {
-  // Foundry's mid platform is not a blocker, so the old flat grid put nodes INSIDE it and bots
-  // pressed themselves against its side trying to reach them.
+test('DESERT: no node inside a solid, and none up on a roof', async ({ page }) => {
+  // A node inside a solid that is not flagged as a blocker had bots pressing themselves against
+  // its side trying to reach it.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'foundry', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'desert', diff: 'medium' });
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     // A standing body's column must be open: nothing between the node's floor and head height.
@@ -206,14 +194,13 @@ test('no navigation node sits inside a solid, and raised floors get nodes of the
       !g.losClear(w.pos.x, w.floor + 0.2, w.pos.z, w.pos.x, w.floor + 1.8, w.pos.z)
       || !g.losClear(w.pos.x, w.floor + 1.8, w.pos.z, w.pos.x, w.floor + 0.2, w.pos.z)
     )).length;
-    const onMid = g.waypoints.filter((w) => Math.abs(w.pos.x) < 6 && Math.abs(w.pos.z) < 6 && w.floor > 1.2).length;
-    const underMid = g.waypoints.filter((w) => Math.abs(w.pos.x) < 6 && Math.abs(w.pos.z) < 5.5 && w.floor < 0.5).length;
-    return { inside, onMid, underMid, total: g.waypoints.length };
+    // Everything a bot can walk on is the ground or a hop off it.
+    const tooHigh = g.waypoints.filter((w) => w.floor > 1.05).length;
+    return { inside, tooHigh, total: g.waypoints.length };
   });
-  expect(r.total).toBeGreaterThan(100);
+  expect(r.total).toBeGreaterThan(250);
   expect(r.inside).toBe(0);
-  expect(r.underMid).toBe(0);
-  expect(r.onMid).toBeGreaterThan(4);
+  expect(r.tooHigh).toBe(0);
 });
 
 test('PORT: no node inside a solid, the dock has nodes, none on a roof or a container', async ({ page }) => {

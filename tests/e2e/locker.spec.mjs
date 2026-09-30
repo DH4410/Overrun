@@ -33,7 +33,7 @@ test('the locker changes the loadout, saves it, and keys 1-4 follow it', async (
     .toEqual([...want, 'frag']);
   await page.click('#locker-close');
 
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const current = () => page.evaluate(() => globalThis.__game.player.current);
   expect(await current()).toBe('shotgun');            // you spawn on slot 1
   await page.keyboard.press('Digit2');
@@ -50,7 +50,7 @@ test('the locker changes the loadout, saves it, and keys 1-4 follow it', async (
 
 test('taking the gun in your hands out of the loadout mid-match hands you slot 1', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.keyboard.press('Digit2');                 // the rifle, in the default loadout
   await pumpFrames(page, 2);
   expect(await page.evaluate(() => globalThis.__game.player.current)).toBe('ar');

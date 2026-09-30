@@ -12,7 +12,7 @@ import { bootGame, startMatch } from './helpers/game.mjs';
 test('Duel starts one elite bot on a mirrored loadout', async ({ page }) => {
   await bootGame(page);
   // Pick HARD deliberately: the duel must override the menu difficulty, not inherit it.
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'hard' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'hard' });
 
   const state = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -38,7 +38,7 @@ test('Duel starts one elite bot on a mirrored loadout', async ({ page }) => {
 
 test('Duel: a bot death scores a round and the bot does not respawn mid-reset', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
   const afterKill = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -79,7 +79,7 @@ test('Duel: a bot death scores a round and the bot does not respawn mid-reset', 
 
 test('Duel: a player death scores the bot, and a timed-out round scores neither', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
   const scored = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -101,7 +101,7 @@ test('Duel: a player death scores the bot, and a timed-out round scores neither'
 
 test('Duel ends at DUEL_ROUNDS and returns to the menu', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
   const ended = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -141,7 +141,7 @@ test('Duel ends at DUEL_ROUNDS and returns to the menu', async ({ page }) => {
  */
 test('a duel round opens with both sides on equal terms', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'foundry', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'desert', diff: 'medium' });
 
   const opening = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -305,11 +305,10 @@ async function measureAim(page, { tier, range, botSpeed = 0, rounds = 60 }) {
 
 test('elite out-shoots hard, and does it with headshots', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
-  // 20 m. Longer lanes exist on paper but the warehouse has no unobstructed 35 m corridor
-  // whose endpoints are both on the floor — the search there lands on a roof, and a
-  // measurement taken against a target standing on a crate is not a measurement.
+  // 20 m. A longer lane's search can land an endpoint on a roof or a crate, and a measurement
+  // taken against a target standing on a crate is not a measurement.
   const hard = await measureAim(page, { tier: 'hard', range: 20 });
   const elite = await measureAim(page, { tier: 'elite', range: 20 });
 
@@ -342,7 +341,7 @@ test('elite out-shoots hard, and does it with headshots', async ({ page }) => {
  */
 test('elite accuracy collapses while it is moving', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
   const planted = await measureAim(page, { tier: 'elite', range: 20, botSpeed: 0 });
   const running = await measureAim(page, { tier: 'elite', range: 20, botSpeed: 4.6 });
@@ -360,7 +359,7 @@ test('elite accuracy collapses while it is moving', async ({ page }) => {
 
 test('elite plants itself to shoot rather than firing on the move', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'duel', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'duel', map: 'port', diff: 'medium' });
 
   const behaviour = await page.evaluate(() => {
     const g = globalThis.__game;

@@ -14,14 +14,16 @@ import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
  * The arena centre is not open — it has props — so throwing from (0, 2, 0) and measuring
  * how far the grenade travelled measured how far away the nearest crate was. The scan
  * checks the throw corridor at two heights so neither a low crate nor an overhead catwalk
- * can quietly truncate the flight.
+ * can quietly truncate the flight, and checks straight down onto the start, since a line
+ * of sight that starts inside a container is clear too.
  */
 async function openOrigin(page, reach = 20) {
   return page.evaluate((r) => {
     const g = globalThis.__game;
     for (let x = -30; x <= 30; x += 2) {
       for (let z0 = -32; z0 + r <= 32; z0 += 2) {
-        const ok = g.losClear(x, 2.0, z0, x, 2.0, z0 + r)
+        const ok = g.losClear(x, 6.0, z0, x, 0.3, z0)
+          && g.losClear(x, 2.0, z0, x, 2.0, z0 + r)
           && g.losClear(x, 0.5, z0, x, 0.5, z0 + r)
           && g.losClear(x, 2.0, z0, x, 0.5, z0 + r);
         if (ok) return { x, y: 2.0, z: z0 };
@@ -58,12 +60,13 @@ async function throwFrom(page, { dir, power, throwerVel = [0, 0, 0], steps = 420
 
 test('a grenade inherits the thrower velocity', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
-  const at = await openOrigin(page, 22);
-  expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
+  // A running throw with the roll after it goes over 30 m.
+  const at = await openOrigin(page, 45);
+  expect(at, 'needs an open 45 m throwing corridor').not.toBeNull();
 
-  const still = await throwFrom(page, { dir: [0, 0.18, 1], power: 14, at });
+  const still =await throwFrom(page, { dir: [0, 0.18, 1], power: 14, at });
   const running = await throwFrom(page, { dir: [0, 0.18, 1], power: 14, throwerVel: [0, 0, 6], at });
   const backing = await throwFrom(page, { dir: [0, 0.18, 1], power: 14, throwerVel: [0, 0, -6], at });
 
@@ -102,7 +105,7 @@ async function throwWithG(page, at, frames) {
 
 test('a tap of G lobs a grenade short, and holding it throws it far', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
 
@@ -117,7 +120,7 @@ test('a tap of G lobs a grenade short, and holding it throws it far', async ({ p
 
 test('the arc drawn while charging is where the grenade first lands', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
 
@@ -153,7 +156,7 @@ test('the arc drawn while charging is where the grenade first lands', async ({ p
 
 test('a spent grenade comes to rest instead of rolling forever', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   // A flat, weak throw: it lands almost immediately and then does nothing but roll.
   const at = await openOrigin(page, 22);
@@ -167,7 +170,7 @@ test('a spent grenade comes to rest instead of rolling forever', async ({ page }
 
 test('grenades still explode and still damage through the fuse', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
@@ -202,7 +205,7 @@ test('three frags thrown in a row each go off where they landed', async ({ page 
   // The first blast gave the other two the impulse sized for an 80 kg player. On a 0.4 kg
   // grenade that is 200 m/s: they left through the floor or the map edge and "only one worked".
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
@@ -232,7 +235,7 @@ test('three frags thrown in a row each go off where they landed', async ({ page 
 test('three quick taps of G throw three frags, and all three go off', async ({ page }) => {
   // The player's own report, through the real keys rather than throwGrenade().
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
   await page.evaluate((o) => {
@@ -265,7 +268,7 @@ test('an idle controller does not throw a grenade the keyboard is cooking', asyn
   // The test pad is always connected with nothing held, exactly like a controller left
   // plugged in. It used to release the cook on the next frame, before G was let go.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const frags = () => page.evaluate(() => globalThis.__game.player.fragCount);
   const before = await frags();
 

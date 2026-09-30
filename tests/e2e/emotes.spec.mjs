@@ -4,7 +4,7 @@ import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
 
 test('hold B, point at an emote, let go: the player dances in third person until they move', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => { for (const b of globalThis.__game.bots) b.fireCd = Infinity; });
   await pumpFrames(page, 20);
 
@@ -65,7 +65,7 @@ test('hold B, point at an emote, let go: the player dances in third person until
 
 test('the match ending mid-dance stops it without bringing the match music back', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => { for (const b of globalThis.__game.bots) b.fireCd = Infinity; });
   await pumpFrames(page, 5);
   await page.keyboard.down('KeyB');

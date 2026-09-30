@@ -11,7 +11,7 @@ import { bootGame, startMatch } from './helpers/game.mjs';
  */
 test('paths are straightened, never lengthened', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'foundry', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'desert', diff: 'easy' });
 
   const result = await page.evaluate(() => {
     const g = globalThis.__game;

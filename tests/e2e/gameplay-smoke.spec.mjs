@@ -7,9 +7,9 @@ import {
   tapGamepadButton,
 } from './helpers/game.mjs';
 
-test('Warehouse DM supports movement, weapon switching, automatic fire, and reload', async ({ page }) => {
+test('PORT DM supports movement, weapon switching, automatic fire, and reload', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const started = await page.evaluate(() => ({
     botCount: globalThis.__game.bots.length,

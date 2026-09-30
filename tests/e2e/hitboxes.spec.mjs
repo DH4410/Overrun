@@ -69,7 +69,7 @@ async function shootParts(page, { vx = 0, vz = 0, aiming = false } = {}) {
 
 test('rounds score the part of the model they hit, and a rifle headshot kills', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   await pumpFrames(page, 5);
   const r = await shootParts(page);
   const AR = 26;
@@ -84,7 +84,7 @@ test('rounds score the part of the model they hit, and a rifle headshot kills', 
 
 test('hit zones follow the animation: a running, aiming bot is hit where it is drawn', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   await pumpFrames(page, 5);
   const r = await shootParts(page, { vx: 4.5, vz: 0, aiming: true });
   expect(r.head.killed).toBe(true);

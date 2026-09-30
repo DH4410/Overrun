@@ -23,7 +23,7 @@ async function scrollbarOffenders(page) {
 
 test('winning plays a slowed outro under VICTORY, then the podium with you on top', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const start = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -68,7 +68,7 @@ test('winning plays a slowed outro under VICTORY, then the podium with you on to
 
 test('leaving from the pause screen skips the outro', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => document.getElementById('quit-match').click());
   await expect(page.locator('#menu')).not.toHaveClass(/\bhidden\b/);
   await expect(page.locator('#outro')).not.toHaveClass(/\bon\b/);
@@ -77,7 +77,7 @@ test('leaving from the pause screen skips the outro', async ({ page }) => {
 
 test('while you wait to respawn, the standings show your place', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => {
     const g = globalThis.__game;
     g.bots[0].kills = 3; g.bots[1].kills = 1;
@@ -108,7 +108,7 @@ for (const [w, h] of [[1280, 720], [800, 450]]) {
     expect(await scrollbarOffenders(page)).toEqual([]);
     await page.click('#locker-close');
 
-    await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'hard' });
+    await startMatch(page, { mode: 'dm', map: 'port', diff: 'hard' });
     await page.evaluate(() => {
       const g = globalThis.__game;
       g.bots.forEach((b, i) => { b.kills = 10 - i; b.deaths = i; });

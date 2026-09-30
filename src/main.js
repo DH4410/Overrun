@@ -18,9 +18,8 @@
  *                it needs an authored navmesh we do not have. The spec's documented
  *                fallback — a hand-placed waypoint graph with breadth-first search — is
  *                used instead. See === BOTS ===.
- *  - Props:      loaded from the Kenney Factory Kit GLBs in assets/models/. Every prop has
- *                a procedural fallback, so a missing file degrades one crate rather than
- *                blanking the arena.
+ *  - Maps:       modelled in Blender (scripts/blender/) and loaded as a GLB plus a collider
+ *                table each, by src/mapGlb.js.
  */
 
 import * as THREE from 'three';
@@ -93,14 +92,12 @@ const modelLoader = new GLTFLoader();
  * Height the ground-finding raycasts in spawnAmmoChests / spawnConsumables start from.
  *
  * These cast straight down with raycastClosest and place the item on the first thing they
- * hit. That only finds the floor if the ray starts *below* the map's roof. The dungeon has a
- * full-map lid collider spanning y=4.15..5.15 (see buildDungeonMap), so a ray starting at the
- * warehouse's CONFIG.CEIL-0.5 = 9.5 hit the lid instead and every chest and consumable was
- * placed on top of the roof — visible from inside the level whenever you jumped.
+ * hit. That only finds the floor if the ray starts *below* the map's roofs: a ray from above
+ * one puts the chest on top of the roof, visible from inside whenever you jump.
  *
- * buildMap() sets this per level from MAPS[id].ceilY.
+ * buildMap() sets this per level from MAPS[id].ceilY, before anything is spawned.
  */
-let spawnCastY = CONFIG.CEIL - 0.5;
+let spawnCastY = 0;
 
 
 /* ================================================================== *
@@ -233,20 +230,6 @@ addEventListener('resize', () => resizeRenderer());
  */
 const MAX_POINT_LIGHTS = 12;
 
-/** Soft radial falloff, shared by every glow sprite (torches, chests, pickups). */
-const glowTexture = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0.0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
-  grad.addColorStop(1.0, 'rgba(255,255,255,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-})();
-
 const rigAmbient = new THREE.AmbientLight(0x8ea6c0, 0.4);
 const rigHemi = new THREE.HemisphereLight(0x7f9bb8, 0x232830, 0.75);
 const rigSun = new THREE.DirectionalLight(0xfff1dc, 1.7);
@@ -320,27 +303,15 @@ function updateLights() {
  * ================================================================== */
 
 const {
-  arenaExtent: A,
-  PROP_FILES,
-  loadProp,
   mapGroup,
   blockers,
   inBlocker,
   spawnPoints,
-  sniperPerches,
-  updateDungeonFx,
   waypoints,
   mapLights,
   clearMap,
   losClear,
   findPath,
-  buildArena,
-  placeArenaProps,
-  buildSpawnPoints,
-  buildDungeonMap,
-  buildFoundryMap,
-  foundryHalf,
-  foundryCeil,
   glbMaps,
   loadGlbMaps,
   buildWaypoints,
@@ -348,9 +319,7 @@ const {
 } = createMapRuntime({
   scene,
   maxAnisotropy: MAX_ANISO,
-  ceilingLayer: L_CEIL,
   mapLayer: L_MAP,
-  glowTexture,
   addLightEmitter,
   lightEmitters,
   lightSlots,
@@ -373,20 +342,10 @@ const {
   rigAmbient,
   rigHemi,
   rigSun,
-  arenaExtent: A,
-  buildArena,
-  placeArenaProps,
-  buildSpawnPoints,
-  buildDungeonMap,
-  buildFoundryMap,
-  foundryHalf,
-  foundryCeil,
   glbMaps,
   buildWaypoints,
   buildMapLayer,
   clearMap,
-  spawnAmmoChests: (...args) => spawnAmmoChests(...args),
-  spawnConsumables: (...args) => spawnConsumables(...args),
   setSpawnCastY: (value) => { spawnCastY = value; },
 });
 
@@ -1133,7 +1092,6 @@ function frame() {
     updatePickups(dt);
     updateAmmoChests(dt);
     updatePickupPrompt(updateConsumables(dt));
-    if (getCurrentMapId() === 'dungeon') updateDungeonFx(dt);
     updateLights();          // after every emitter has had its chance to move or flicker
     updateShake(dt);
     updateSpotting(dt);
@@ -1253,7 +1211,7 @@ $('locker-open-pause')?.addEventListener('click', () => locker.open());
  * serves FBX, which needs its own loader, so that is imported lazily — there is no point
  * paying for FBXLoader on a machine that has no clips to load.
  *
- * Every failure path here is non-fatal and silent by design, exactly like loadProp: no
+ * Every failure path here is non-fatal and silent by design: no
  * manifest, an unreadable file or an unknown clip name each cost one animation, never the
  * match. The names that did load are reported on window.__game.assets.anims.
  */
@@ -1307,9 +1265,7 @@ async function boot() {
   createPlayerBody();
   resetPlayerAmmo();
 
-  el.loading.textContent = 'loading props…';
-  const results = await Promise.all(Object.keys(PROP_FILES).map(loadProp));
-  const ok = results.filter(Boolean).length;
+  el.loading.textContent = 'loading maps…';
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
@@ -1318,11 +1274,15 @@ async function boot() {
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
 
-  // The level is built only after the GLBs resolve, so every prop uses its model when the
-  // file exists and its primitive when it does not — a missing file costs one crate, never
-  // the arena. Spawns, nav graph and minimap plan are all carved out of the finished
-  // blocker set inside buildMap().
-  buildMap(defaultMapId());
+  // The maps are the one asset with no fallback: with none loaded there is nothing to play on,
+  // so say so and leave DEPLOY disabled. Spawns, nav graph and minimap plan are all carved out
+  // of the finished blocker set inside buildMap().
+  const firstMap = defaultMapId();
+  if (!firstMap) {
+    el.loading.textContent = 'could not load the maps — check your connection and reload';
+    return;
+  }
+  buildMap(firstMap);
   const spawnStats = { accepted: spawnPoints.length };
 
   // Force every shader to compile now, while a loading screen is on screen, instead of the
@@ -1352,7 +1312,7 @@ async function boot() {
   if (isLocal) window.__game = {
     player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
-    assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims,
+    assets: { soldier: soldierOk, blasters, anims: extraAnims,
               characters: loadedCharacters(), port: glbOk.port, maps: glbOk },
     registerBotClips, botClipNames, buildCharacterMesh, emotes, Audio,
     ammoChests, particlesAdd, particlesNorm,

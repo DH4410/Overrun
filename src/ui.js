@@ -5,7 +5,7 @@ export function createUiRuntime({
   elements: el,
   getElement: $,
   maps: MAPS,
-  defaultMap = () => 'warehouse',
+  defaultMap = () => 'port',
   audio: Audio,
   startMatch,
   applySettings,

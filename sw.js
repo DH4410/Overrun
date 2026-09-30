@@ -26,7 +26,7 @@ const PRECACHE = [
   './assets/bots/soldier.glb', './assets/bots/swat.glb', './assets/bots/trooper.glb',
   './assets/bots/gasmask.glb', './assets/bots/crypto.glb', './assets/bots/ely.glb',
   './assets/bots/steve.glb',
-  // The default map: without these an offline boot falls back to the warehouse.
+  // The default map: without these an offline boot has nothing to play on.
   './assets/maps/port.glb', './assets/maps/port.json',
 ];
 

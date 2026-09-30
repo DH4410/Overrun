@@ -36,6 +36,7 @@ test('DESERT loads, with a usable spawn set and nav graph', async ({ page }) => 
 test('DESERT colliders sit exactly where their meshes are', async ({ page }) => {
   await bootGame(page);
   await page.evaluate(() => globalThis.__game.switchMap('desert'));
+  expect(await page.evaluate(() => globalThis.__game.currentMapId())).toBe('desert');
   const r = await page.evaluate(async () => {
     const g = globalThis.__game;
     const T = g.THREE;
@@ -107,6 +108,7 @@ test('DESERT colliders sit exactly where their meshes are', async ({ page }) => 
 test('DESERT is symmetric under a 180 degree rotation', async ({ page }) => {
   await bootGame(page);
   await page.evaluate(() => globalThis.__game.switchMap('desert'));
+  expect(await page.evaluate(() => globalThis.__game.currentMapId())).toBe('desert');
   const symmetry = await page.evaluate(() => {
     const g = globalThis.__game;
     const probes = [];

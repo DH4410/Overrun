@@ -9,7 +9,7 @@ import { bootGame, startMatch } from './helpers/game.mjs';
  */
 async function setup(page, diff = 'easy') {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff });
+  await startMatch(page, { mode: 'dm', map: 'port', diff });
   await page.evaluate(() => {
     const g = globalThis.__game;
     for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); b.state = 'SPAWN'; b.stateTime = -1e9; }
@@ -23,7 +23,7 @@ test('sprinting into a crouch slides you past sprint speed, then settles to a cr
     const g = globalThis.__game;
     const { player, keys, CONFIG } = g;
     g.settings.toggleCrouch = false;
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     player.yaw = Math.PI / 2;                      // forward is -x, along the open floor
     g.step(30);
@@ -52,7 +52,7 @@ test('a weapon swap keeps you crouched, and a respawn stands you up', async ({ p
     const g = globalThis.__game;
     const { player } = g;
     g.settings.toggleCrouch = true;
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     g.step(30);
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyC' }));
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyC' }));
@@ -61,7 +61,7 @@ test('a weapon swap keeps you crouched, and a respawn stands you up', async ({ p
     g.switchWeapon(player.current === 'ar' ? 'pistol' : 'ar');
     g.step(10);
     const afterSwap = player.crouching;
-    g.respawnPlayer(true, { x: -30, y: 0, z: -30 });
+    g.respawnPlayer(true, { x: -18, y: 0, z: 3 });
     g.step(10);
     return { crouched, afterSwap, afterRespawn: player.crouching };
   });
@@ -78,7 +78,7 @@ test('a bot aims where you were for a beat after you crouch, then finds you', as
     g.settings.toggleCrouch = false;
     const bot = bots[0];
     bot.aim.headBias = 0;                          // aim at the chest, so the offset is exact
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     player.invulnTimer = 0;
     g.step(30);

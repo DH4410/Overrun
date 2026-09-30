@@ -5,7 +5,7 @@ import { bootGame, startMatch } from './helpers/game.mjs';
 /** Park the bots and run the simulation directly, so only the player and the level move. */
 async function setup(page) {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => {
     const g = globalThis.__game;
     for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); b.state = 'SPAWN'; b.stateTime = -1e9; }
@@ -20,7 +20,7 @@ test('the head collides: jumping under an overhang cannot put the camera through
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     const { player, keys } = g;
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     g.step(30);
     const floor = player.body.position.y - 0.5;
@@ -29,7 +29,7 @@ test('the head collides: jumping under an overhang cannot put the camera through
       const h = b.shapes[0]?.halfExtents;
       return h && h.y <= 0.21 && h.x >= 1.4 && h.z >= 1.4 && b.position.y > 3;
     });
-    slab.position.set(-30, floor + 2.7 + slab.shapes[0].halfExtents.y, -30);
+    slab.position.set(-18, floor + 2.7 + slab.shapes[0].halfExtents.y, 3);
     slab.aabbNeedsUpdate = true;
     g.world.broadphase.dirty = true;
     keys.Space = true; g.step(2); keys.Space = false;
@@ -46,7 +46,7 @@ test('jumps are a quick committed hop, and movement has weight', async ({ page }
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     const { player, keys } = g;
-    player.body.position.set(-20, 0.6, -30);
+    player.body.position.set(-14, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     g.step(60);
     const y0 = player.body.position.y;
@@ -74,7 +74,7 @@ test('jumps are a quick committed hop, and movement has weight', async ({ page }
     }
     return { apex: apex - y0, airTime: air / 120, tFull, tStop };
   });
-  // High enough for the 1.15 m warehouse perch steps, and not the old 0.96 s float.
+  // High enough to hop the 1.0 m crates and walls with room to spare, and not the old 0.96 s float.
   expect(r.apex).toBeGreaterThan(1.18);
   expect(r.apex).toBeLessThan(1.4);
   expect(r.airTime).toBeLessThan(0.85);
@@ -92,7 +92,7 @@ test('you stand as tall as the bots you fight, and a respawn moves your eye with
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     const { player, keys } = g;
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     g.step(60);
     const floor = player.body.position.y - 0.5;
@@ -121,14 +121,14 @@ test('a bot standing beside you has its head at your eye level, not below it', a
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     const { THREE, bots, player } = g;
-    player.body.position.set(-30, 0.6, -30);
+    player.body.position.set(-18, 0.6, 3);
     player.body.velocity.set(0, 0, 0);
     const bot = bots[0];
     bot.body.type = 1;
-    bot.body.position.set(-28.5, 0.9, -30);
+    bot.body.position.set(-16.5, 0.9, 3);
     bot.body.velocity.set(0, 0, 0);
     for (let f = 0; f < 60; f++) {
-      bot.body.position.x = -28.5; bot.body.position.z = -30;
+      bot.body.position.x = -16.5; bot.body.position.z = 3;
       globalThis.__testClock.pump(1, 1000 / 60);
     }
     const floor = player.body.position.y - 0.5;

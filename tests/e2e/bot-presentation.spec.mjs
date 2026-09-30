@@ -48,7 +48,7 @@ for (const mode of ['dm', 'tdm']) {
     // character was drawn backwards: toes against the heading at a dot product of -0.97. A bot
     // running at you moonwalked; one shooting at you had its back turned.
     await bootGame(page);
-    await startMatch(page, { mode, map: 'warehouse', diff: 'medium' });
+    await startMatch(page, { mode, map: 'port', diff: 'medium' });
     const rigs = await measureRigs(page);
     expect(rigs.length).toBeGreaterThan(2);
     for (const r of rigs) expect(r.toesAlongHeading, r.name).toBeGreaterThan(0.7);
@@ -59,7 +59,7 @@ for (const mode of ['dm', 'tdm']) {
     // 0.3 m BELOW its feet — a heap on the floor while its Idle weight read 0.99. Every track
     // bound, so characters.spec.mjs could not see it.
     await bootGame(page);
-    await startMatch(page, { mode, map: 'warehouse', diff: 'medium' });
+    await startMatch(page, { mode, map: 'port', diff: 'medium' });
     for (const r of await measureRigs(page)) expect(r.headAboveFeet, r.name).toBeGreaterThan(1.3);
   });
 }
@@ -69,7 +69,7 @@ test('a corpse stays where it fell, even with a grenade going off beside it', as
   // the floor, the fall-out guard teleported them to a spawn point in mid-air, and any frag
   // nearby launched them through the walls.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const before = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -100,7 +100,7 @@ test('bots are drawn between physics steps, not at the latest one', async ({ pag
   // Physics runs at 120 Hz and frames do not line up with it, so drawing the raw body position
   // moved a bot an uneven distance every frame. Halfway into a step, the mesh sits halfway.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const drawn = await page.evaluate(() => {
     const g = globalThis.__game;

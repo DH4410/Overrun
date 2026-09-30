@@ -28,7 +28,7 @@ test('every roster character and animation clip loads', async ({ page }) => {
 
 test('clips bind to the skeleton of whichever character a bot got', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'hard' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'hard' });
 
   const bound = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -123,7 +123,7 @@ test('every part of a split character moves with the one skeleton', async ({ pag
 
 test('bots in a team match draw from that team\'s cast', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'tdm', map: 'warehouse', diff: 'medium' });
+  await startMatch(page, { mode: 'tdm', map: 'port', diff: 'medium' });
 
   const cast = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -152,7 +152,7 @@ test('bots in a team match draw from that team\'s cast', async ({ page }) => {
 
 test('a dead bot plays the death clip instead of the procedural tip-over', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const death = await page.evaluate(() => {
     const g = globalThis.__game;

@@ -4,7 +4,7 @@ import { APP_STATE, bootGame, observedAppState, startMatch } from './helpers/gam
 
 test('a dead bot respawns in Deathmatch', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const result = await page.evaluate(() => {
     const bot = globalThis.__game.bots[0];
@@ -28,7 +28,7 @@ test('a dead bot respawns in Deathmatch', async ({ page }) => {
 
 test('Deathmatch HUD and time-limit result use the canonical leader', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const result = await page.evaluate(() => {
     const game = globalThis.__game;
@@ -54,7 +54,7 @@ test('Deathmatch HUD and time-limit result use the canonical leader', async ({ p
 });
 test('Survival advances from wave one to wave two after the break', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'sv', map: 'dungeon', diff: 'easy' });
+  await startMatch(page, { mode: 'sv', map: 'desert', diff: 'easy' });
 
   const result = await page.evaluate(() => {
     for (const bot of globalThis.__game.bots) bot.die();

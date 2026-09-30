@@ -24,75 +24,36 @@ test('boot reaches DEPLOY without runtime errors', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-// Clean-boot coverage for Warehouse and Dungeon: verifies the full production path
-// (game.js → src/main.js → boot() → buildMap() → buildWaypoints()) succeeds for both
-// maps and that losClear() returns valid nav-graph data. PORT, the default boot map, has
-// its own coverage in port-map.spec.mjs.
-test('Warehouse clean boot: reaches DEPLOY and has valid nav graph', async ({ page }) => {
+// Every map the lobby offers, through the full production path (switchMap → buildMap() →
+// buildWaypoints() → losClear()): a tile whose map is missing or fails to build would leave
+// the player on the last map with no error. Each map also has a spec of its own.
+test('every map in the lobby builds a usable level', async ({ page }) => {
   const errors = watchRuntimeErrors(page);
-  await bootGame(page);
-
-  const stats = await page.evaluate(() => {
-    globalThis.__game.switchMap('warehouse');
-    return {
-      mapId: globalThis.__game.currentMapId(),
-      spawns: globalThis.__game.spawnPoints.length,
-      waypoints: globalThis.__game.waypoints.length,
-      allFinite: globalThis.__game.spawnPoints.every(({ x, y, z }) => [x, y, z].every(Number.isFinite)),
-    };
-  });
-
-  expect(stats.mapId).toBe('warehouse');
-  expect(stats.spawns).toBeGreaterThanOrEqual(4);
-  expect(stats.waypoints).toBeGreaterThanOrEqual(4);
-  expect(stats.allFinite).toBe(true);
-  expect(errors).toEqual([]);
-});
-
-test('Dungeon clean boot: switchMap reaches ready state with valid nav graph', async ({ page }) => {
-  const errors = watchRuntimeErrors(page);
-  await bootGame(page);
-
-  const stats = await page.evaluate(() => {
-    globalThis.__game.switchMap('dungeon');
-    return {
-      mapId: globalThis.__game.currentMapId(),
-      spawns: globalThis.__game.spawnPoints.length,
-      waypoints: globalThis.__game.waypoints.length,
-      allFinite: globalThis.__game.spawnPoints.every(({ x, y, z }) => [x, y, z].every(Number.isFinite)),
-    };
-  });
-
-  expect(stats.mapId).toBe('dungeon');
-  expect(stats.spawns).toBeGreaterThanOrEqual(4);
-  expect(stats.waypoints).toBeGreaterThanOrEqual(4);
-  expect(stats.allFinite).toBe(true);
-  expect(errors).toEqual([]);
-});
-
-test('Warehouse and Dungeon both expose finite spawns and navigation nodes', async ({ page }) => {
   await bootGame(page);
 
   const stats = await page.evaluate(() => {
     const result = {};
-    for (const mapId of ['warehouse', 'dungeon']) {
+    for (const b of document.querySelectorAll('#maps [data-map]')) {
+      const mapId = b.dataset.map;
       globalThis.__game.switchMap(mapId);
-      const spawns = globalThis.__game.spawnPoints.map(({ x, y, z, team }) => ({ x, y, z, team }));
-      const nodes = globalThis.__game.waypoints.map(({ pos }) => ({ x: pos.x, y: pos.y, z: pos.z }));
+      const g = globalThis.__game;
       result[mapId] = {
-        current: globalThis.__game.currentMapId(),
-        spawns,
-        nodes,
+        current: g.currentMapId(),
+        spawns: g.spawnPoints.length,
+        nodes: g.waypoints.length,
+        finite: g.spawnPoints.every(({ x, y, z }) => [x, y, z].every(Number.isFinite))
+          && g.waypoints.every(({ pos }) => [pos.x, pos.y, pos.z].every(Number.isFinite)),
       };
     }
     return result;
   });
 
-  for (const mapId of ['warehouse', 'dungeon']) {
-    expect(stats[mapId].current).toBe(mapId);
-    expect(stats[mapId].spawns.length).toBeGreaterThanOrEqual(4);
-    expect(stats[mapId].nodes.length).toBeGreaterThanOrEqual(4);
-    expect(stats[mapId].spawns.every(({ x, y, z }) => [x, y, z].every(Number.isFinite))).toBe(true);
-    expect(stats[mapId].nodes.every(({ x, y, z }) => [x, y, z].every(Number.isFinite))).toBe(true);
+  expect(Object.keys(stats).length).toBeGreaterThanOrEqual(2);
+  for (const [mapId, m] of Object.entries(stats)) {
+    expect(m.current, mapId).toBe(mapId);
+    expect(m.spawns, mapId).toBeGreaterThanOrEqual(20);
+    expect(m.nodes, mapId).toBeGreaterThan(250);
+    expect(m.finite, mapId).toBe(true);
   }
+  expect(errors).toEqual([]);
 });

@@ -31,7 +31,7 @@ async function cones(page) {
 
 test('standing taps are pinpoint; moving, jumping and spraying are not', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => {
     globalThis.__spread = {
       playerSpread: globalThis.__game.playerSpread,
@@ -60,7 +60,7 @@ test('standing taps are pinpoint; moving, jumping and spraying are not', async (
 
 test('firing blooms the cone and letting go recovers it', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const result = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -91,7 +91,7 @@ test('firing blooms the cone and letting go recovers it', async ({ page }) => {
 
 test('the recoil pattern is deterministic and walks the shot up first', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const pattern = await page.evaluate(() => {
     const g = globalThis.__game;
@@ -119,7 +119,7 @@ test('the recoil pattern is deterministic and walks the shot up first', async ({
 
 test('the crosshair opens as the cone widens', async ({ page }) => {
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
 
   const gaps = await page.evaluate(() => {
     const g = globalThis.__game;

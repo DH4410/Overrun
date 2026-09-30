@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-import { CONFIG, DUNGEON_CEIL, DUNGEON_TILE } from './config.js';
 import {
   RAY_OPTS,
   addStaticBox,
@@ -13,17 +11,14 @@ import {
 import { createGlbMap, skyEnvironment } from './mapGlb.js';
 import { DESERT } from './mapDesert.js';
 import { PORT } from './mapPort.js';
-import { disposeTree, markShared, matte } from './rendering.js';
+import { disposeTree, markShared } from './rendering.js';
 import { settings } from './settings.js';
-import { clamp, lerp, pick, rand, randInt } from './utils.js';
 
-/** Warehouse/Dungeon construction, navigation, presentation, and teardown runtime. */
+/** Blender map loading, navigation, the minimap plan, and teardown runtime. */
 export function createMapRuntime({
   scene,
   maxAnisotropy: MAX_ANISO,
-  ceilingLayer: L_CEIL,
   mapLayer: L_MAP,
-  glowTexture,
   addLightEmitter,
   lightEmitters,
   lightSlots,
@@ -136,14 +131,6 @@ function meanLuminance(img) {
   }
 }
 
-const MATS = {
-  floor: pbrMat('concrete_wall_006', { repeat: 8, fallback: 0x6a6f74, rough: 0.95 }),
-  wall:  pbrMat('brick_wall_006',    { repeat: 6, fallback: 0x6d5a4e, rough: 0.92 }),
-  metal: pbrMat('metal_plate',       { repeat: 3, fallback: 0x7b8894, rough: 0.5, metal: 0.6 }),
-  ceiling: new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 1.0, metalness: 0.0, side: THREE.FrontSide }),
-  trim: new THREE.MeshStandardMaterial({ color: 0xffb454, roughness: 0.6, metalness: 0.2 }),
-};
-
 /** Ground-plane footprints that block walking — used to lay out the bot waypoint graph. */
 const blockers = [];
 function addBlocker(cx, cz, hx, hz) { blockers.push({ x: cx, z: cz, hx, hz }); }
@@ -158,66 +145,11 @@ const mapGroup = new THREE.Group();
 scene.add(mapGroup);
 
 /**
- * Texture tiles per metre, per material. The maps already carry a `repeat`, so the per-mesh
- * UV scale has to be its reciprocal-ish: scale * repeat lands near 0.5 tiles/m (one tile
- * every two metres) for every surface, which is what keeps a 30 m wall from turning into
- * aliased noise while a 3 m crate still reads as brick.
+ * The collider for a solid ramp from (x0,y0,z0) up to (x1,y1,z1); its mesh is modelled in
+ * Blender. The walking surface is one tilted 0.4 m slab, sunk by half its thickness so its top
+ * face runs exactly through both end points, and a row of boxes fills everything beneath it: a
+ * slab in mid-air let a jump underneath put the camera through the ramp.
  */
-const UV_SCALE = new Map([
-  [MATS.floor, 0.06],   // repeat 8  -> 0.48 tiles/m
-  [MATS.wall, 0.08],    // repeat 6  -> 0.48
-  [MATS.metal, 0.16],   // repeat 3  -> 0.48
-  [MATS.trim, 0.25],
-]);
-
-/** Box mesh + matching static collider, with UV scaling so textures keep a constant density. */
-function addSolid(w, h, d, x, y, z, mat, { block = true, uvScale = null, cast = true } = {}) {
-  const uvs = uvScale ?? UV_SCALE.get(mat) ?? 0.15;
-  const geo = new THREE.BoxGeometry(w, h, d);
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  m.castShadow = cast;
-  m.receiveShadow = true;
-  mapGroup.add(m);
-  addStaticBox(w / 2, h / 2, d / 2, { x, y, z });
-  if (block && y + h / 2 > 0.7 && y - h / 2 < 2.4) addBlocker(x, z, w / 2, d / 2);
-  // Scale the UVs per-instance so a 30 m wall does not show one stretched brick.
-  const uv = geo.attributes.uv;
-  const norm = geo.attributes.normal;
-  for (let i = 0; i < uv.count; i++) {
-    const ny = Math.abs(norm.getY(i));
-    const su = ny > 0.5 ? w : (Math.abs(norm.getX(i)) > 0.5 ? d : w);
-    const sv = ny > 0.5 ? d : h;
-    uv.setXY(i, uv.getX(i) * su * uvs, uv.getY(i) * sv * uvs);
-  }
-  uv.needsUpdate = true;
-  return m;
-}
-
-/**
- * A solid ramp from (x0,y0,z0) up to (x1,y1,z1).
- *
- * This used to be a 0.4 m slab tilted in mid-air with open space beneath it. The player's
- * collider was a single sphere at the feet, so jumping underneath put the camera — 1.6 m above
- * that sphere — through the slab and onto the top of the ramp. Real ramps are solid, and so is
- * this one: the walking surface is still one tilted box, and a row of boxes fills everything
- * beneath it. The slab is also sunk by half its thickness, so its TOP face runs exactly through
- * both end points; before, its lower end stood 0.2 m proud of the floor and every approach
- * started by bumping over a lip.
- */
-function addRamp(x0, y0, z0, x1, y1, z1, width, mat) {
-  addRampCollider(x0, y0, z0, x1, y1, z1, width);
-  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
-  const run = Math.hypot(dx, dz);
-  const m = new THREE.Mesh(wedgeGeometry(width, run, dy, UV_SCALE.get(mat) ?? 0.15), mat);
-  m.position.set(x0, y0, z0);
-  m.rotation.y = Math.atan2(dx, dz);
-  m.castShadow = true; m.receiveShadow = true;
-  mapGroup.add(m);
-  return m;
-}
-
-/** addRamp's physics and footprint without its mesh: PORT's ramps are modelled in Blender. */
 function addRampCollider(x0, y0, z0, x1, y1, z1, width) {
   const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
   const run = Math.hypot(dx, dz);
@@ -254,462 +186,21 @@ function addRampCollider(x0, y0, z0, x1, y1, z1, width) {
     Math.abs(uz) * run / 2 + Math.abs(ux) * width / 2);
 }
 
-/**
- * A solid wedge in local space: `width` across X, rising from y = 0 at z = 0 to y = `rise` at
- * z = `run`. Flat-shaded, with UVs scaled like addSolid's so its texture density matches.
- */
-function wedgeGeometry(width, run, rise, uvs) {
-  const hw = width / 2;
-  const slopeLen = Math.hypot(run, rise);
-  const A0 = [-hw, 0, 0], A1 = [hw, 0, 0];
-  const B0 = [-hw, 0, run], B1 = [hw, 0, run];
-  const C0 = [-hw, rise, run], C1 = [hw, rise, run];
-  const pos = [], uv = [];
-  const tri = (a, b, c, ta, tb, tc) => { pos.push(...a, ...b, ...c); uv.push(...ta, ...tb, ...tc); };
-  const quad = (a, b, c, d, ta, tb, tc, td) => { tri(a, b, c, ta, tb, tc); tri(a, c, d, ta, tc, td); };
-  const W = width * uvs, S = slopeLen * uvs, R = run * uvs, H = rise * uvs;
-  quad(A0, C0, C1, A1, [0, 0], [0, S], [W, S], [W, 0]);          // walking surface
-  quad(B0, B1, C1, C0, [0, 0], [W, 0], [W, H], [0, H]);          // back wall
-  quad(A0, A1, B1, B0, [0, 0], [W, 0], [W, R], [0, R]);          // underside
-  tri(A0, B0, C0, [0, 0], [R, 0], [R, H]);                       // sides
-  tri(A1, C1, B1, [0, 0], [R, H], [R, 0]);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function addPillar(x, z, radius, height, mat) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.12, height, 16), mat);
-  m.position.set(x, height / 2, z);
-  m.castShadow = true; m.receiveShadow = true;
-  mapGroup.add(m);
-  addStaticCylinder(radius, height, { x, y: height / 2, z });
-  addBlocker(x, z, radius, radius);
-  return m;
-}
-
-/* --------------------------- GLB props --------------------------- */
-
-const gltfLoader = new GLTFLoader();
-/** name -> prepared THREE.Group (cloned per instance). Missing entries fall back to primitives. */
-const propCache = {};
-
-const PROP_FILES = {
-  crate:   { file: 'box-large.glb',   size: 1.5 },
-  crateSm: { file: 'box-small.glb',   size: 1.0 },
-  crateLg: { file: 'box-wide.glb',    size: 2.0 },
-  barrel:  { file: 'hopper-round.glb', size: 1.7 },
-  tank:    { file: 'machine-fortified.glb', size: 2.6 },
-  shelf:   { file: 'machine.glb',     size: 2.4 },
-  piston:  { file: 'piston-round.glb', size: 2.2 },
-  // Dungeon kit. Its floor tile is authored at exactly the 4 m grid pitch the dungeon map
-  // uses, so normalising to size 4 is a no-op and the tiles butt up seamlessly.
-  dungeonFloor: { file: 'dungeon/template-floor.glb', size: DUNGEON_TILE },
-};
-
-function loadProp(key) {
-  const spec = PROP_FILES[key];
-  return new Promise((resolve) => {
-    gltfLoader.load(
-      `assets/models/${spec.file}`,
-      (gltf) => {
-        const root = gltf.scene;
-        // Kenney kits are authored on their own grid — normalise to the size we want and
-        // re-seat the model so its origin sits on the floor at its centre.
-        const box = new THREE.Box3().setFromObject(root);
-        const dim = box.getSize(new THREE.Vector3());
-        const biggest = Math.max(dim.x, dim.y, dim.z) || 1;
-        const s = spec.size / biggest;
-        root.scale.setScalar(s);
-        const box2 = new THREE.Box3().setFromObject(root);
-        const c = box2.getCenter(new THREE.Vector3());
-        root.position.set(-c.x, -box2.min.y, -c.z);
-        root.traverse((o) => {
-          if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-        });
-        const wrap = new THREE.Group();
-        wrap.add(root);
-        wrap.userData.size = new THREE.Vector3(
-          box2.max.x - box2.min.x, box2.max.y - box2.min.y, box2.max.z - box2.min.z);
-        propCache[key] = wrap;
-        resolve(true);
-      },
-      undefined,
-      () => resolve(false),   // missing/blocked file — the primitive fallback covers it
-    );
-  });
-}
-
-/** Place a prop: the GLB if it loaded, otherwise an equivalent primitive. Always collides. */
-function placeProp(key, x, z, yaw = 0) {
-  const spec = PROP_FILES[key];
-  const cached = propCache[key];
-  let hx, hy, hz;
-  let isRound = false;
-
-  if (cached) {
-    const inst = cached.clone(true);
-    inst.position.set(x, 0, z);
-    inst.rotation.y = yaw;
-    mapGroup.add(inst);
-    const s = cached.userData.size;
-    // Use true model half-extents; rotation is handled by the body quaternion below.
-    hx = s.x / 2; hz = s.z / 2; hy = s.y / 2;
-  } else {
-    const sz = spec.size;
-    isRound = key === 'barrel' || key === 'piston';
-    const geo = isRound
-      ? new THREE.CylinderGeometry(sz * 0.36, sz * 0.4, sz, 14)
-      : new THREE.BoxGeometry(sz, sz * 0.92, sz);
-    const mat = isRound ? MATS.metal : MATS.wall;
-    const m = new THREE.Mesh(geo, mat);
-    hy = (isRound ? sz : sz * 0.92) / 2;
-    m.position.set(x, hy, z);
-    m.rotation.y = yaw;
-    m.castShadow = true; m.receiveShadow = true;
-    mapGroup.add(m);
-    hx = hz = isRound ? sz * 0.4 : sz / 2;
-  }
-
-  // Rotate the physics body to match the visual mesh yaw.
-  const quat = yaw ? new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw) : null;
-  addStaticBox(hx, hy, hz, { x, y: hy, z }, quat);
-
-  // Nav blocker: axis-aligned bounding box of the rotated rectangle (cylindrical props are
-  // symmetric so their AABB does not change with yaw).
-  if (isRound || !yaw) {
-    addBlocker(x, z, hx, hz);
-  } else {
-    const cosA = Math.abs(Math.cos(yaw));
-    const sinA = Math.abs(Math.sin(yaw));
-    addBlocker(x, z, hx * cosA + hz * sinA, hx * sinA + hz * cosA);
-  }
-}
-
-/* ------------------------- arena assembly ------------------------- */
-
-const A = CONFIG.ARENA, R = CONFIG.RING, GAP = CONFIG.GAP, CH = CONFIG.CEIL;
-
 const spawnPoints = [];
-const sniperPerches = [];
-
-function buildArena() {
-  /* ---- floor ---- */
-  const floorGeo = new THREE.PlaneGeometry(A * 2, A * 2);
-  const floor = new THREE.Mesh(floorGeo, MATS.floor);
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  mapGroup.add(floor);
-  addStaticBox(A, 0.5, A, { x: 0, y: -0.5, z: 0 });
-
-  /* ---- ceiling: enclosed warehouse, no sky leaks ---- */
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(A * 2, A * 2), MATS.ceiling);
-  ceil.rotation.x = Math.PI / 2;
-  ceil.position.y = CH;
-  ceil.layers.set(L_CEIL);              // the minimap camera must be able to see past it
-  mapGroup.add(ceil);
-  addStaticBox(A, 0.5, A, { x: 0, y: CH + 0.5, z: 0 });
-
-  // Roof trusses, purely visual.
-  for (let i = -4; i <= 4; i++) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(A * 2, 0.4, 0.5), MATS.metal);
-    t.position.set(0, CH - 0.35, i * 11);
-    t.layers.set(L_CEIL);
-    t.castShadow = false;
-    mapGroup.add(t);
-  }
-
-  /* ---- outer shell ---- */
-  addSolid(A * 2, CH, 1.5, 0, CH / 2, -A, MATS.wall, { block: false });
-  addSolid(A * 2, CH, 1.5, 0, CH / 2, A, MATS.wall, { block: false });
-  addSolid(1.5, CH, A * 2, -A, CH / 2, 0, MATS.wall, { block: false });
-  addSolid(1.5, CH, A * 2, A, CH / 2, 0, MATS.wall, { block: false });
-  addBlocker(0, -A, A, 1.4); addBlocker(0, A, A, 1.4);
-  addBlocker(-A, 0, 1.4, A); addBlocker(A, 0, 1.4, A);
-
-  /* ---- inner ring: four walls, each split by a central doorway.
-         The gap between the ring and the outer shell is a continuous corridor loop whose
-         four corners are the flanking "arms". ---- */
-  const RW = 6;                             // ring wall height
-  const seg = (R - GAP) / 2;                // length of one half-wall
-  const off = (R + GAP) / 2;                // its centre offset from the axis
-  for (const s of [-1, 1]) {
-    for (const o of [-off, off]) {
-      addSolid(seg, RW, 1.4, o, RW / 2, s * R, MATS.wall);          // north / south
-      addSolid(1.4, RW, seg, s * R, RW / 2, o, MATS.wall);          // east / west
-    }
-    // Doorway lintels so the openings read as gates rather than holes.
-    addSolid(GAP * 2, 1.2, 1.4, 0, RW - 0.6, s * R, MATS.trim, { block: false });
-    addSolid(1.4, 1.2, GAP * 2, s * R, RW - 0.6, 0, MATS.trim, { block: false });
-  }
-
-  /* ---- central hub: raised platform with four ramps ---- */
-  addSolid(16, 3.2, 16, 0, 1.6, 0, MATS.metal);
-  addRamp(0, 0.0, -15.5, 0, 3.2, -8.2, 5, MATS.metal);
-  addRamp(0, 0.0, 15.5, 0, 3.2, 8.2, 5, MATS.metal);
-  addRamp(-15.5, 0.0, 0, -8.2, 3.2, 0, 5, MATS.metal);
-  addRamp(15.5, 0.0, 0, 8.2, 3.2, 0, 5, MATS.metal);
-  // Chest-high cover on the hub so it is holdable but not a fortress.
-  addSolid(6, 1.1, 0.6, 0, 3.75, -6.5, MATS.metal, { block: false });
-  addSolid(6, 1.1, 0.6, 0, 3.75, 6.5, MATS.metal, { block: false });
-  addSolid(0.6, 1.1, 6, -6.5, 3.75, 0, MATS.metal, { block: false });
-  addSolid(0.6, 1.1, 6, 6.5, 3.75, 0, MATS.metal, { block: false });
-
-  /* ---- four corner sniper perches + the catwalk ring that links them ---- */
-  const P = 22, TOP = 4.6;
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const px = sx * P, pz = sz * P;
-      addSolid(7, TOP, 7, px, TOP / 2, pz, MATS.metal);
-      // Staircase of jumpable ledges: 1.15 -> 2.3 -> 3.45 -> deck.
-      addSolid(3, 1.15, 3, px - sx * 5.0, 0.575, pz - sz * 5.0, MATS.metal);
-      addSolid(3, 2.30, 3, px - sx * 5.0, 1.150, pz - sz * 2.2, MATS.metal);
-      addSolid(3, 3.45, 3, px - sx * 2.2, 1.725, pz - sz * 5.0, MATS.metal);
-      // Waist-high railing on the outer two edges.
-      addSolid(7, 1.0, 0.4, px, TOP + 0.5, pz + sz * 3.3, MATS.trim, { block: false });
-      addSolid(0.4, 1.0, 7, px + sx * 3.3, TOP + 0.5, pz, MATS.trim, { block: false });
-      sniperPerches.push(new THREE.Vector3(px, TOP, pz));
-    }
-  }
-  // Catwalk ring at deck height joining all four perches — 3 m wide, walk-through cover.
-  for (const s of [-1, 1]) {
-    addSolid(2 * P - 7, 0.4, 3, 0, TOP - 0.2, s * P, MATS.metal, { block: false });
-    addSolid(3, 0.4, 2 * P - 7, s * P, TOP - 0.2, 0, MATS.metal, { block: false });
-  }
-
-  /* ---- structural pillars from floor to ceiling ---- */
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    addPillar(sx * 13, sz * 13, 0.85, CH, MATS.metal);
-    addPillar(sx * 42, sz * 42, 1.0, CH, MATS.metal);
-  }
-
-  // Low concrete walls that break the long plaza sight lines.
-  addSolid(14, 1.3, 0.8, -16, 0.65, -6, MATS.floor);
-  addSolid(14, 1.3, 0.8, 16, 0.65, 6, MATS.floor);
-  addSolid(0.8, 1.3, 14, -6, 0.65, 16, MATS.floor);
-  addSolid(0.8, 1.3, 14, 6, 0.65, -16, MATS.floor);
-
-  buildLights();
-}
-
-/**
- * Spawn points, validated against the finished level rather than trusted.
- *
- * This runs after placeArenaProps() so the prop blockers exist — validating inside
- * buildArena() would happily approve a point that a crate later lands on. Every candidate
- * has to clear inBlocker() with a 2 m pad and have real floor under it; the floor height
- * comes from a downward ray, so a candidate on the raised hub spawns on the hub instead of
- * inside it.
- *
- * The old list put four spawns at (0,+/-44) and (+/-44,0), which face the ring wall from
- * ~10 m out, and four more in the corridor corners. Those are the "spawned facing a wall"
- * complaints. These candidates are spread across the plaza and the corridor ring.
- */
-const SPAWN_CANDIDATES = [
-  // plaza ring, off-axis so none of them sit on the four ramps
-  [10, 10], [-10, 10], [10, -10], [-10, -10],
-  [20, 20], [-20, 20], [20, -20], [-20, -20],
-  [24, 0], [-24, 0], [0, 24], [0, -24],
-  // corridor ring between the inner wall and the shell
-  [42, 20], [-42, 20], [42, -20], [-42, -20],
-  [20, 42], [-20, 42], [20, -42], [-20, -42],
-  // fallbacks well inside the plaza
-  [28, 10], [-28, 10], [10, 28], [-10, 28],
-];
 
 const _spFrom = new CANNON.Vec3();
 const _spTo = new CANNON.Vec3();
 const _spRes = new CANNON.RaycastResult();
 
-/* ================================================================== *
- * === FOUNDRY — the competitive map ===
- * ================================================================== */
-
 /**
- * A compact, deliberately symmetric arena, built for the 1v1 duel and for anyone who wants
- * a map that rewards knowing it.
+ * Spawn points from a map's candidates, validated against the built level rather than trusted:
+ * each must clear every blocker by 2 m and have a floor under it.
  *
- * Both other maps are asymmetric: the warehouse is a ring with props scattered by hand, and
- * the dungeon is a random carve. Neither can host a fair duel, because "who got the better
- * spawn" is decided by the level rather than by the players. Foundry has exact 180-degree
- * rotational symmetry — every solid is placed through mirrored(), which emits the piece at
- * (x, z) and again at (-x, -z) — so the two ends are the same position played from opposite
- * sides, and a duel round is decided by aim and timing.
- *
- * The shape is three lanes, which is the oldest competitive layout there is because it
- * works: two flanks and a contested middle. Mid holds a raised platform, so taking it buys
- * you height and sightlines into both lanes but puts you in the open to everyone; the lanes
- * are safer, slower, and let you arrive behind someone who took mid. Every sightline is
- * broken at least once by cover, so no angle is a free kill from spawn.
+ * `castY` is the height the ground-finding rays start from, and it must sit BELOW the map's
+ * lowest roof collider: a ray from above a roof lands on it, and the match then opens with
+ * everyone standing on top of the building.
  */
-const FOUNDRY_HALF = 32;      // floor spans 64 x 64 m
-const FOUNDRY_CEIL = 8;
-const FOUNDRY_MID_H = 1.5;    // height of the mid platform's walking surface
-
-/** Emit a piece at (x, z) and again rotated 180 degrees, to (-x, -z). */
-function mirrored(emit) {
-  emit(1);
-  emit(-1);
-}
-
-function buildFoundry() {
-  const H = FOUNDRY_HALF;
-  const CEIL_Y = FOUNDRY_CEIL;
-
-  /* ---- floor ---- */
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2), MATS.floor);
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  mapGroup.add(floor);
-  addStaticBox(H, 0.5, H, { x: 0, y: -0.5, z: 0 });
-
-  /* ---- ceiling, on the layer the minimap camera skips ---- */
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2), MATS.ceiling);
-  ceil.rotation.x = Math.PI / 2;
-  ceil.position.y = CEIL_Y;
-  ceil.layers.set(L_CEIL);
-  mapGroup.add(ceil);
-  addStaticBox(H, 0.5, H, { x: 0, y: CEIL_Y + 0.5, z: 0 });
-
-  /* ---- outer shell. block:false because the walls ARE the boundary; marking them as
-         blockers would push every nav waypoint away from the edge and strand the lanes. ---- */
-  addSolid(H * 2, CEIL_Y, 1.5, 0, CEIL_Y / 2, -H, MATS.wall, { block: false });
-  addSolid(H * 2, CEIL_Y, 1.5, 0, CEIL_Y / 2, H, MATS.wall, { block: false });
-  addSolid(1.5, CEIL_Y, H * 2, -H, CEIL_Y / 2, 0, MATS.wall, { block: false });
-  addSolid(1.5, CEIL_Y, H * 2, H, CEIL_Y / 2, 0, MATS.wall, { block: false });
-  addBlocker(0, -H, H, 1.4); addBlocker(0, H, H, 1.4);
-  addBlocker(-H, 0, 1.4, H); addBlocker(H, 0, 1.4, H);
-
-  /* ---- lane dividers: two walls per side, split by a doorway at z = 0 so mid and the
-         lanes actually connect. Without the doorway the lanes are three separate maps. ---- */
-  mirrored((s) => {
-    addSolid(1.2, 5.0, 15, s * 12, 2.5, s * 12.5, MATS.wall);     // outer half
-    addSolid(1.2, 5.0, 9, s * 12, 2.5, s * -2.5, MATS.wall);      // inner half
-  });
-
-  /* ---- mid platform: height and sightlines, reachable by a ramp from each side ---- */
-  addSolid(13, FOUNDRY_MID_H, 13, 0, FOUNDRY_MID_H / 2, 0, MATS.metal, { block: false });
-  mirrored((s) => {
-    addRamp(s * 2.6, 0, s * 12.5, s * 2.6, FOUNDRY_MID_H, s * 6.0, 5.0, MATS.metal);
-
-    /**
-     * A chest-high lip along the platform edge, so holding mid still means taking cover —
-     * but SPLIT, with a gap at the ramp mouth.
-     *
-     * A single 13 m lip spanned z 5.85..6.55 at y 1.5..2.5, and the ramp tops out at
-     * z = 6.0, y = 1.5. That put a one-metre wall exactly across the top of the ramp, so
-     * mid was unreachable: the player would have to jump it and bots, which cannot jump,
-     * could never take the platform at all. The gap below is x 0.0..5.2, which clears the
-     * ramp's own 5 m width centred on x = 2.6.
-     */
-    addSolid(6.5, 1.0, 0.7, s * -3.25, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
-    addSolid(1.3, 1.0, 0.7, s * 5.85, FOUNDRY_MID_H + 0.5, s * 6.2, MATS.metal);
-  });
-
-  /* ---- spawn-side cover: the first thing you can stand behind out of spawn ---- */
-  mirrored((s) => {
-    addSolid(6, 2.0, 1.2, s * -6, 1.0, s * 21, MATS.wall);
-    addSolid(1.2, 2.0, 6, s * 21, 1.0, s * 21, MATS.wall);
-  });
-
-  /* ---- crates. Every one is mirrored, so a crate you can peek from has a twin the other
-         side can peek from at exactly the same angle. ---- */
-  mirrored((s) => {
-    addSolid(2.4, 1.4, 2.4, s * 20, 0.7, s * 4, MATS.metal);
-    addSolid(2.4, 1.4, 2.4, s * 22, 0.7, s * -6, MATS.metal);
-    addSolid(2.0, 2.2, 2.0, s * 7, 1.1, s * 18, MATS.metal);
-    addSolid(3.0, 1.2, 1.4, s * -18, 0.6, s * 9, MATS.metal);
-    addSolid(1.4, 1.8, 3.0, s * -25, 0.9, s * -3, MATS.metal);
-  });
-
-  /* ---- pillars, breaking the long shell-hugging sightlines ---- */
-  mirrored((s) => {
-    addPillar(s * 27, s * 13, 0.8, CEIL_Y, MATS.metal);
-    addPillar(s * 5, s * 27, 0.8, CEIL_Y, MATS.metal);
-  });
-
-  buildFoundryLights();
-}
-
-/**
- * Interior lighting for Foundry.
- *
- * This is not optional decoration. The map is a sealed box with a roof at y = 8, so the
- * directional sun contributes almost nothing indoors and the ambient and hemisphere terms
- * alone leave the floor effectively black — the first playable build of this map rendered
- * as a black screen with a faint wall edge. The warehouse does not have that problem only
- * because buildArena() calls buildLights(); Foundry needed its own.
- *
- * Lamps are requests for one of the shared MAX_POINT_LIGHTS slots rather than lights of
- * their own, so adding them here costs nothing when they are out of range or budget.
- * Mirrored like everything else, so neither side is better lit than the other.
- */
-function buildFoundryLights() {
-  const y = FOUNDRY_CEIL - 1.0;
-  const lamp = (x, z, color, intensity, distance) => {
-    addLightEmitter({ x, y, z, color, intensity, distance, priority: 1 });
-    const bulb = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.1, 1.5, 0.5, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffeccd }),
-    );
-    bulb.position.set(x, y, z);
-    bulb.layers.set(L_CEIL);
-    mapGroup.add(bulb);
-  };
-
-  // One warm lamp per lane end, so both flanks and both spawns read.
-  mirrored((s) => {
-    lamp(s * 20, s * 18, 0xffd9a8, 300, 52);
-    lamp(s * -20, s * 14, 0xffd9a8, 300, 52);
-    lamp(s * 2, s * 24, 0xffd9a8, 260, 46);
-  });
-  // Cool key over mid, so the contested ground is the brightest thing on the map and a
-  // silhouette standing on the platform is readable from either lane.
-  addLightEmitter({ x: 0, y, z: 0, color: 0xbfd8ff, intensity: 420, distance: 70, priority: 1 });
-}
-
-/** Mirrored spawn candidates. Listed in pairs so the symmetry is checkable by eye. */
-const FOUNDRY_SPAWNS = [
-  [0, 27], [0, -27],
-  [-9, 25], [9, -25],
-  [9, 25], [-9, -25],
-  [24, 24], [-24, -24],
-  [-24, 24], [24, -24],
-  [28, 0], [-28, 0],
-  [17, -14], [-17, 14],
-];
-
-function buildFoundryMap() {
-  buildFoundry();
-  buildSpawnPoints(FOUNDRY_SPAWNS, [[0, 27], [0, -27], [26, 0], [-26, 0]], FOUNDRY_CEIL - 0.5);
-  // Ammo sits in the lanes, health and shield out on the flanks — so topping up costs you
-  // the map control you spent the round taking.
-  spawnAmmoChests([
-    [20, 0], [-20, 0], [0, 20], [0, -20],
-    [26, 16], [-26, -16], [-26, 16], [26, -16],
-  ], 6);
-  spawnConsumables([
-    ['health', 28, 8], ['health', -28, -8],
-    ['shield', -14, 22], ['shield', 14, -22],
-    ['health', 0, 0], ['shield', 24, -24], ['shield', -24, 24],
-  ], 8);
-}
-
-/**
- * `castY` is the height the ground-finding rays start from, and it must sit BELOW the
- * current map's roof collider. This is the same trap documented on spawnCastY for the pickup
- * spawners: the warehouse roof is at CONFIG.CEIL = 10, so a hardcoded 9.5 works there and
- * silently breaks on any map with a lower lid. Foundry's roof spans y = 8.0 to 9.0, so a ray
- * from 9.5 hit the top of the roof and every spawn point landed on it — the duel then opened
- * with both players 10.5 m in the air.
- */
-function buildSpawnPoints(
-  candidates = SPAWN_CANDIDATES,
-  fallback = [[0, 28], [0, -28], [28, 0], [-28, 0]],
-  castY = CONFIG.CEIL - 0.5,
-) {
+function buildSpawnPoints(candidates, fallback, castY) {
   let rejected = 0;
   for (const [x, z] of candidates) {
     if (inBlocker(x, z, 2.0)) { rejected++; continue; }        // pillar, ramp, crate, low wall
@@ -727,571 +218,6 @@ function buildSpawnPoints(
     }
   }
   return { accepted: spawnPoints.length, rejected };
-}
-
-/** Scattered cover — run once the GLBs have resolved, before the waypoint graph is laid out. */
-function placeArenaProps() {
-  const layout = [
-    ['crateLg', -6, -20, 0], ['crate', -8.4, -20, 0.4], ['crateSm', -7, -22.3, 0],
-    ['crateLg', 6, 20, 0], ['crate', 8.4, 20, 0.4], ['crateSm', 7, 22.3, 0],
-    ['tank', -20, 6, Math.PI / 2], ['barrel', -22.5, 8.5, 0], ['barrel', -22.5, 3.5, 0],
-    ['tank', 20, -6, -Math.PI / 2], ['barrel', 22.5, -8.5, 0], ['barrel', 22.5, -3.5, 0],
-    ['shelf', -28, -28, Math.PI / 4], ['shelf', 28, 28, Math.PI / 4],
-    ['piston', 0, -26, 0], ['piston', 0, 26, 0], ['piston', -26, 0, 0], ['piston', 26, 0, 0],
-    // corridor loop
-    ['crate', -42, -18, 0], ['crateSm', -42, -14, 0.6], ['crate', 42, 18, 0], ['crateSm', 42, 14, 0.6],
-    ['barrel', -18, -42, 0], ['barrel', -14, -42, 0], ['barrel', 18, 42, 0], ['barrel', 14, 42, 0],
-    ['tank', 42, -30, 0], ['tank', -42, 30, 0],
-    ['crateLg', -30, 42, 0], ['crateLg', 30, -42, 0],
-  ];
-  for (const [key, x, z, yaw] of layout) placeProp(key, x, z, yaw);
-  placeDressing();
-}
-
-/* ---------------------- environment dressing ---------------------- */
-
-/**
- * Set dressing. None of it registers a blocker or a physics body: it is small enough to walk
- * through visually, and adding colliders here would silently invalidate spawn points and carve
- * holes in the nav graph for the sake of a soda can.
- */
-const DRESS_MATS = {
-  bin:      matte(0x3b4046, 0.85, 0.15),
-  binLid:   matte(0x2b3036, 0.8, 0.25),
-  alu:      matte(0xc0c0c0, 0.2, 0.9),
-  duct:     matte(0x8b9299, 0.6, 0.55),
-  cable:    matte(0x17191c, 0.9, 0.1),
-  lampCase: matte(0x2a2e34, 0.7, 0.4),
-  lampGlow: new THREE.MeshBasicMaterial({ color: 0xffdca8 }),
-  drain:    new THREE.MeshBasicMaterial({ color: 0x0d1014 }),
-};
-
-/** Yellow/black hazard stripes, drawn once into a canvas and shared by every strip. */
-const cautionTexture = (() => {
-  const c = document.createElement('canvas');
-  c.width = 64; c.height = 16;
-  const x = c.getContext('2d');
-  x.fillStyle = '#f2c200';
-  x.fillRect(0, 0, 64, 16);
-  x.fillStyle = '#141414';
-  // Diagonal bars. Drawn as a skewed parallelogram so the stripe reads at a glance.
-  for (let i = -16; i < 64; i += 16) {
-    x.beginPath();
-    x.moveTo(i, 0); x.lineTo(i + 8, 0); x.lineTo(i + 8 + 16, 16); x.lineTo(i + 16, 16);
-    x.closePath(); x.fill();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-})();
-
-function addDeco(mesh, x, y, z, yaw = 0) {
-  mesh.position.set(x, y, z);
-  mesh.rotation.y = yaw;
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  mapGroup.add(mesh);
-  return mesh;
-}
-
-function addTrashCan(x, z) {
-  const g = new THREE.Group();
-  const can = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.8, 12), DRESS_MATS.bin);
-  can.position.y = 0.4;
-  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 12), DRESS_MATS.binLid);
-  lid.position.y = 0.82;
-  g.add(can, lid);
-  addDeco(g, x, 0, z, rand(0, Math.PI));
-}
-
-function addSodaCans(x, y, z, n) {
-  const g = new THREE.Group();
-  for (let i = 0; i < n; i++) {
-    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), DRESS_MATS.alu);
-    can.position.set(rand(-0.22, 0.22), 0.06, rand(-0.22, 0.22));
-    can.rotation.z = Math.random() < 0.35 ? Math.PI / 2 : 0;   // a few knocked over
-    if (can.rotation.z !== 0) can.position.y = 0.04;
-    g.add(can);
-  }
-  addDeco(g, x, y, z);
-}
-
-function addDuct(x, y, z, len, horizontalAlongX) {
-  const geo = horizontalAlongX
-    ? new THREE.BoxGeometry(len, 0.4, 0.4)
-    : new THREE.BoxGeometry(0.4, 0.4, len);
-  addDeco(new THREE.Mesh(geo, DRESS_MATS.duct), x, y, z);
-}
-
-function addCautionTape(x, y, z, len, yaw) {
-  const mat = new THREE.MeshBasicMaterial({
-    map: cautionTexture.clone(), side: THREE.DoubleSide, transparent: false,
-  });
-  mat.map.needsUpdate = true;
-  mat.map.repeat.set(Math.max(1, Math.round(len / 0.6)), 1);
-  addDeco(new THREE.Mesh(new THREE.PlaneGeometry(len, 0.15), mat), x, y, z, yaw);
-}
-
-function addCable(x, y, z, len, yaw, sag = 0.35) {
-  // A slack cable is a quadratic bezier; three's TubeGeometry renders it for almost nothing.
-  const curve = new THREE.QuadraticBezierCurve3(
-    new THREE.Vector3(-len / 2, 0, 0),
-    new THREE.Vector3(0, -sag, 0),
-    new THREE.Vector3(len / 2, 0, 0),
-  );
-  addDeco(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.025, 6, false), DRESS_MATS.cable), x, y, z, yaw);
-}
-
-function addWallLamp(x, y, z, yaw) {
-  const g = new THREE.Group();
-  const casing = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.2), DRESS_MATS.lampCase);
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8), DRESS_MATS.lampGlow);
-  tube.rotation.z = Math.PI / 2;
-  tube.position.y = -0.08;
-  g.add(casing, tube);
-  addDeco(g, x, y, z, yaw);
-}
-
-function addFloorDrain(x, z) {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), DRESS_MATS.drain);
-  m.rotation.x = -Math.PI / 2;
-  addDeco(m, x, 0.012, z);      // just above the floor so it does not z-fight
-}
-
-function placeDressing() {
-  const R = CONFIG.RING, A = CONFIG.ARENA;
-
-  for (const [x, z] of [[-R + 3, -12], [R - 3, 12], [-12, R - 3], [12, -R + 3],
-                        [-A + 4, 24], [A - 4, -24]]) addTrashCan(x, z);
-
-  for (const [x, y, z, n] of [[-6, 1.3, -20, 3], [6, 1.3, 20, 2], [-42, 1.3, -18, 4],
-                              [42, 1.3, 18, 2], [-30, 1.3, 42, 3]]) addSodaCans(x, y, z, n);
-
-  const ductY = CONFIG.CEIL - 1.2;
-  for (const s of [-1, 1]) {
-    addDuct(0, ductY, s * (R - 2), 40, true);
-    addDuct(s * (R - 2), ductY, 0, 40, false);
-    addDuct(0, ductY, s * (A - 3), 60, true);
-  }
-
-  for (const [x, y, z, len, yaw] of [
-    [0, 1.15, -CONFIG.GAP - 0.2, 5, 0], [0, 1.15, CONFIG.GAP + 0.2, 5, 0],
-    [-CONFIG.GAP - 0.2, 1.15, 0, 5, Math.PI / 2], [CONFIG.GAP + 0.2, 1.15, 0, 5, Math.PI / 2],
-    [-16, 1.45, -6.2, 6, 0], [16, 1.45, 6.2, 6, 0],
-  ]) addCautionTape(x, y, z, len, yaw);
-
-  for (const s of [-1, 1]) {
-    addCable(s * (A - 0.6), CONFIG.CEIL - 2.0, -20, 12, Math.PI / 2);
-    addCable(s * (A - 0.6), CONFIG.CEIL - 2.4, 20, 12, Math.PI / 2);
-    addCable(-20, CONFIG.CEIL - 2.2, s * (A - 0.6), 12, 0);
-  }
-
-  for (const s of [-1, 1]) {
-    for (const d of [-24, 0, 24]) {
-      addWallLamp(s * (A - 0.7), 4.2, d, s > 0 ? -Math.PI / 2 : Math.PI / 2);
-      addWallLamp(d, 4.2, s * (A - 0.7), s > 0 ? Math.PI : 0);
-    }
-  }
-
-  for (const [x, z] of [[-14, 14], [14, -14], [0, 0], [-30, -30], [30, 30]]) addFloorDrain(x, z);
-}
-
-function buildLights() {
-  // Ceiling lamps: four warm quadrant lights. The bulb geometry is map-owned, the light
-  // itself is only a request for one of the shared slots.
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const x = sx * 24, y = CH - 1.2, z = sz * 24;
-    addLightEmitter({ x, y, z, color: 0xffd9a8, intensity: 420, distance: 78, priority: 1 });
-    const bulb = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.5, 2.0, 0.6, 14),
-      new THREE.MeshBasicMaterial({ color: 0xffe3bb }),
-    );
-    bulb.position.set(x, y, z);
-    bulb.layers.set(L_CEIL);
-    mapGroup.add(bulb);
-  }
-  // Cool fill over the corridor loop so the outer ring is not a black void.
-  addLightEmitter({ x: 0, y: CH - 2, z: 0, color: 0x9fc4ff, intensity: 260, distance: 110, priority: 1 });
-}
-
-/* ======================= MAP 2: DUNGEON ======================= */
-
-/**
- * A tiled stone map built on the Kenney Modular Dungeon Kit's native grid.
- *
- * The kit measures out cleanly: every corridor piece is a 4 x 4 m footprint 4.15 m tall with
- * its origin centred on the tile and its floor on y=0, and the rooms are exact multiples
- * (room-small 12 m, room-large 20 m). So the map is authored as a character grid on a 4 m
- * pitch and each open cell gets a floor; walls go on the boundary between an open cell and a
- * closed one.
- *
- * Colliders are generated procedurally from that same grid rather than from the GLB meshes.
- * The art can then be swapped, or fail to load entirely, without any risk of the physics
- * disagreeing with what the player can see — a mesh collider built from an arbitrary GLB is
- * exactly the kind of thing that produces invisible walls.
- */
-/*
- * The layout is carved rather than hand-drawn as ASCII. Every corridor here is TWO tiles
- * (8 m) wide and the halls are far bigger, because the first pass at this map used 1-tile
- * corridors and they played like a drainpipe — you could not strafe, dodge or flank, and a
- * walk test could only cover 1.4 m before hitting stone.
- *
- * '#' solid rock, '.' floor, 'S' spawn, 'A' ammo chest, 'T' torch.
- */
-const DUNGEON_COLS = 23, DUNGEON_ROWS = 23;
-
-function carveDungeon() {
-  const g = Array.from({ length: DUNGEON_ROWS }, () => Array(DUNGEON_COLS).fill('#'));
-  const rect = (r0, c0, r1, c1) => {
-    for (let r = r0; r <= r1; r++) {
-      for (let c = c0; c <= c1; c++) {
-        if (r > 0 && c > 0 && r < DUNGEON_ROWS - 1 && c < DUNGEON_COLS - 1) g[r][c] = '.';
-      }
-    }
-  };
-
-  // Outer ring corridor, 2 tiles wide, hugging the shell.
-  rect(2, 2, 3, 20); rect(19, 2, 20, 20);
-  rect(2, 2, 20, 3); rect(2, 19, 20, 20);
-
-  // Central hall, 7x7 tiles (28 m) — the main fighting space.
-  rect(8, 8, 14, 14);
-
-  // Four 2-wide spokes from the ring into the hall.
-  rect(3, 10, 8, 12); rect(14, 10, 20, 12);
-  rect(10, 3, 12, 8); rect(10, 14, 12, 20);
-
-  // Corner chambers, joined to the ring by short 2-wide necks.
-  rect(5, 5, 7, 7);   rect(3, 5, 5, 6);   rect(5, 3, 6, 5);
-  rect(5, 15, 7, 17); rect(3, 16, 5, 17); rect(5, 17, 6, 19);
-  rect(15, 5, 17, 7); rect(17, 5, 19, 6); rect(15, 3, 16, 5);
-  rect(15, 15, 17, 17); rect(17, 16, 19, 17); rect(15, 17, 16, 19);
-
-  // Two pillars inside the hall so it is not a featureless box.
-  g[10][10] = '#'; g[10][12] = '#'; g[12][10] = '#'; g[12][12] = '#';
-
-  const put = (r, c, ch) => { if (g[r] && g[r][c] === '.') g[r][c] = ch; };
-  // Spawns: spread around the ring and the corner chambers, never in the central hall.
-  for (const [r, c] of [[2, 2], [2, 20], [20, 2], [20, 20], [2, 11], [20, 11],
-                        [11, 2], [11, 20], [6, 6], [6, 16], [16, 6], [16, 16]]) put(r, c, 'S');
-  // Ammo in the spokes and the hall corners — restocking means leaving cover.
-  for (const [r, c] of [[6, 11], [16, 11], [11, 6], [11, 16], [9, 9], [13, 13]]) put(r, c, 'A');
-  // Torches along the ring and the hall edge.
-  for (const [r, c] of [[3, 6], [3, 16], [19, 6], [19, 16], [6, 3], [16, 3], [6, 19], [16, 19],
-                        [8, 11], [14, 11], [11, 8], [11, 14], [2, 8], [20, 14]]) put(r, c, 'T');
-
-  return g.map((row) => row.join(''));
-}
-
-const DUNGEON_MAP = carveDungeon();
-
-// Shared geometry — one box, one plane, reused by every tile.
-const dungeonWallGeo = new THREE.BoxGeometry(DUNGEON_TILE, DUNGEON_CEIL, DUNGEON_TILE);
-const dungeonTileGeo = new THREE.PlaneGeometry(DUNGEON_TILE, DUNGEON_TILE);
-
-/**
- * Procedural stone. The dungeon read as flat coloured boxes because it literally was flat
- * coloured boxes — no map of any kind. This draws a masonry pattern into a canvas once
- * (mortar courses, per-brick tone variation, speckle and a little wear) and derives a bump
- * map from it, which is what makes the surfaces catch the torchlight.
- *
- * Generated rather than downloaded so the map cannot end up untextured if a CDN is blocked.
- */
-function makeStoneTexture({ size = 256, rows = 6, cols = 6, base = [122, 112, 96],
-                            mortar = [58, 52, 44], jitter = 26, seedSpeckle = 0.16 } = {}) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const g = c.getContext('2d');
-  const rgb = (a) => `rgb(${a[0]|0},${a[1]|0},${a[2]|0})`;
-
-  g.fillStyle = rgb(mortar);
-  g.fillRect(0, 0, size, size);
-
-  const bw = size / cols, bh = size / rows, gap = Math.max(1.5, size * 0.008);
-  for (let r = 0; r < rows; r++) {
-    // Every other course is offset half a brick, the way real masonry is laid.
-    const offset = (r % 2) * bw * 0.5;
-    for (let i = -1; i <= cols; i++) {
-      const x = i * bw + offset, y = r * bh;
-      const v = (Math.random() - 0.5) * 2 * jitter;
-      g.fillStyle = rgb([base[0] + v, base[1] + v, base[2] + v]);
-      g.fillRect(x + gap, y + gap, bw - gap * 2, bh - gap * 2);
-      // A darker corner wash so bricks are not perfectly flat.
-      g.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.09})`;
-      g.fillRect(x + gap, y + bh - gap * 3, bw - gap * 2, gap * 2);
-    }
-  }
-  // Speckle for grain.
-  const img = g.getImageData(0, 0, size, size), d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (Math.random() > seedSpeckle) continue;
-    const n = (Math.random() - 0.5) * 42;
-    d[i] += n; d[i + 1] += n; d[i + 2] += n;
-  }
-  g.putImageData(img, 0, 0);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = MAX_ANISO;
-  return tex;
-}
-
-const STONE_WALL_TEX = makeStoneTexture({ rows: 5, cols: 5, base: [126, 116, 99] });
-const STONE_FLOOR_TEX = makeStoneTexture({ rows: 4, cols: 4, base: [138, 129, 112], jitter: 20 });
-const STONE_CEIL_TEX = makeStoneTexture({ rows: 3, cols: 3, base: [86, 78, 66], jitter: 14 });
-for (const [t, n] of [[STONE_WALL_TEX, 1], [STONE_FLOOR_TEX, 1], [STONE_CEIL_TEX, 1]]) t.repeat.set(n, n);
-
-const DUNGEON_MATS = {
-  // Textured stone, and deliberately mid-tone rather than "realistically" black — two passes
-  // of this map came back as unplayably dark.
-  floor: new THREE.MeshStandardMaterial({
-    map: STONE_FLOOR_TEX, bumpMap: STONE_FLOOR_TEX, bumpScale: 0.04,
-    color: 0xbfb6a4, roughness: 0.95, metalness: 0.02,
-  }),
-  wall: new THREE.MeshStandardMaterial({
-    map: STONE_WALL_TEX, bumpMap: STONE_WALL_TEX, bumpScale: 0.06,
-    color: 0xb3a893, roughness: 0.92, metalness: 0.03,
-  }),
-  ceiling: new THREE.MeshStandardMaterial({
-    map: STONE_CEIL_TEX, color: 0x8d8477, roughness: 1.0, metalness: 0.0,
-  }),
-  torch: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.75, metalness: 0.55 }),
-  torchWood: new THREE.MeshStandardMaterial({ color: 0x3d2a1a, roughness: 0.95, metalness: 0.0 }),
-  // Three nested cones read as fire far better than one flat one: deep ember at the edge,
-  // orange body, near-white core.
-  flameOuter: new THREE.MeshBasicMaterial({
-    color: 0xc23a08, transparent: true, opacity: 0.45, depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }),
-  flameMid: new THREE.MeshBasicMaterial({
-    color: 0xff8a1e, transparent: true, opacity: 0.8, depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }),
-  flameCore: new THREE.MeshBasicMaterial({ color: 0xffe6a8 }),
-  chain: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.55, metalness: 0.85 }),
-};
-
-const dungeonTorches = [];     // flickered every frame
-const dungeonChains = [];      // gently swayed
-
-const dungeonCells = [];       // { x, z, char } for every open cell, in world coordinates
-
-function dungeonGrid() {
-  const rows = DUNGEON_MAP.length, cols = DUNGEON_MAP[0].length;
-  const ox = -(cols - 1) / 2 * DUNGEON_TILE;
-  const oz = -(rows - 1) / 2 * DUNGEON_TILE;
-  return { rows, cols, ox, oz };
-}
-
-const dungeonAt = (r, c) => (DUNGEON_MAP[r] && DUNGEON_MAP[r][c]) || '#';
-const dungeonOpen = (r, c) => dungeonAt(r, c) !== '#';
-
-/**
- * Wall sconce: an iron bracket and cradle holding a burning log, with a layered flame.
- * The old version was a plain cone stuck on a stick. This one builds the flame from three
- * nested, differently-tinted cones (deep red at the base through to near-white at the core)
- * with a soft additive halo, which is what actually sells fire at a distance.
- */
-function addTorch(x, y, z, yaw) {
-  const g = new THREE.Group();
-
-  // Wall plate and an S-curved arm out from it.
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 0.05), DUNGEON_MATS.torch);
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.34, 6), DUNGEON_MATS.torch);
-  arm.rotation.x = Math.PI / 2.6;
-  arm.position.set(0, 0.06, -0.13);
-  // Cradle ring the log sits in.
-  const cradle = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.016, 5, 10), DUNGEON_MATS.torch);
-  cradle.rotation.x = Math.PI / 2;
-  cradle.position.set(0, 0.20, -0.24);
-  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.26, 7), DUNGEON_MATS.torchWood);
-  log.position.set(0, 0.16, -0.24);
-  log.rotation.x = -0.12;
-  g.add(plate, arm, cradle, log);
-
-  // Flame: outer haze, mid body, bright core.
-  const flame = new THREE.Group();
-  const outer = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 8), DUNGEON_MATS.flameOuter);
-  const mid = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.30, 8), DUNGEON_MATS.flameMid);
-  const core = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 8), DUNGEON_MATS.flameCore);
-  outer.position.y = 0.21; mid.position.y = 0.15; core.position.y = 0.09;
-  flame.add(outer, mid, core);
-  flame.position.set(0, 0.30, -0.24);
-  g.add(flame);
-
-  // Soft glow billboard so the sconce reads as a light source, not a lit object.
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTexture, color: 0xff9a3c, transparent: true, opacity: 0.5,
-    depthWrite: false, blending: THREE.AdditiveBlending,
-  }));
-  halo.scale.setScalar(1.5);
-  halo.position.set(0, 0.34, -0.24);
-  g.add(halo);
-
-  g.position.set(x, y, z);
-  g.rotation.y = yaw;
-  mapGroup.add(g);
-
-  // The actual illumination is a request for a shared slot, positioned in world space.
-  const wx = x - Math.sin(yaw) * 0.24, wz = z - Math.cos(yaw) * 0.24;
-  const emitter = addLightEmitter({
-    x: wx, y: y + 0.34, z: wz, color: 0xff8c2a, intensity: 34, distance: 11, priority: 0,
-  });
-  dungeonTorches.push({ emitter, flame, halo, base: 34, phase: rand(0, Math.PI * 2) });
-}
-
-function addHangingChain(x, z, links) {
-  const g = new THREE.Group();
-  for (let i = 0; i < links; i++) {
-    const t = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.018, 5, 10), DUNGEON_MATS.chain);
-    t.position.y = -i * 0.1;
-    t.rotation.x = Math.PI / 2;
-    t.rotation.y = (i % 2) * Math.PI / 2;
-    g.add(t);
-  }
-  g.position.set(x, DUNGEON_CEIL - 0.1, z);
-  mapGroup.add(g);
-  dungeonChains.push({ group: g, phase: rand(0, Math.PI * 2) });
-}
-
-function updateDungeonFx(dt) {
-  const t = performance.now() * 0.001;
-  for (const tc of dungeonTorches) {
-    // Flicker: a fast sine plus a slower one so it never reads as a clean pulse.
-    const f = 1 + Math.sin(t * 8 + tc.phase) * 0.3 + Math.sin(t * 3.3 + tc.phase) * 0.12;
-    tc.emitter.intensity = tc.base * f;
-    // Flames stretch vertically as they gutter rather than scaling uniformly.
-    tc.flame.scale.set(1 + Math.sin(t * 13 + tc.phase) * 0.09, f, 1 + Math.cos(t * 11 + tc.phase) * 0.09);
-    tc.halo.material.opacity = 0.36 + f * 0.16;
-  }
-  for (const c of dungeonChains) {
-    c.group.rotation.z = Math.sin(t * 0.8 + c.phase) * 0.06;
-    c.group.rotation.x = Math.cos(t * 0.6 + c.phase) * 0.04;
-  }
-}
-
-/** Instance a dungeon GLB on a tile. Silently does nothing if the kit failed to download. */
-function placeDungeonPiece(key, x, z, yaw = 0) {
-  const src = propCache[key];
-  if (!src) return false;
-  const m = src.clone(true);
-  m.position.set(x, 0, z);
-  m.rotation.y = yaw;
-  m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  mapGroup.add(m);
-  return true;
-}
-
-function buildDungeonMap() {
-  const { rows, cols, ox, oz } = dungeonGrid();
-  const H = DUNGEON_TILE / 2;
-  dungeonCells.length = 0;
-  dungeonTorches.length = 0;
-  dungeonChains.length = 0;
-
-  const torchSpots = [];
-  const chestSpots = [];
-  const spawnSpots = [];
-
-  // Floor + ceiling slabs for the whole footprint, then per-cell art.
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const ch = dungeonAt(r, c);
-      const x = ox + c * DUNGEON_TILE;
-      const z = oz + r * DUNGEON_TILE;
-
-      if (ch === '#') {
-        // Rock buried behind other rock is never seen and never touched, so it gets neither
-        // geometry nor a collider — only cells with an open neighbour do. On this layout that
-        // is roughly a third of the wall cells, and it is the difference between a map that
-        // costs 400 draw calls and one that costs 140.
-        const exposed = dungeonOpen(r - 1, c) || dungeonOpen(r + 1, c)
-                     || dungeonOpen(r, c - 1) || dungeonOpen(r, c + 1)
-                     || dungeonOpen(r - 1, c - 1) || dungeonOpen(r - 1, c + 1)
-                     || dungeonOpen(r + 1, c - 1) || dungeonOpen(r + 1, c + 1);
-        addBlocker(x, z, H, H);
-        if (!exposed) continue;
-        const m = new THREE.Mesh(dungeonWallGeo, DUNGEON_MATS.wall);
-        m.position.set(x, DUNGEON_CEIL / 2, z);
-        m.castShadow = true; m.receiveShadow = true;
-        mapGroup.add(m);
-        addStaticBox(H, DUNGEON_CEIL / 2, H, { x, y: DUNGEON_CEIL / 2, z });
-        continue;
-      }
-
-      dungeonCells.push({ x, z, char: ch });
-      if (ch === 'T') torchSpots.push([r, c, x, z]);
-      if (ch === 'A') chestSpots.push([x, z]);
-      if (ch === 'S') spawnSpots.push([x, z]);
-
-      // Prefer the kit's own floor tile; fall back to a plain slab.
-      if (!placeDungeonPiece('dungeonFloor', x, z)) {
-        const f = new THREE.Mesh(dungeonTileGeo, DUNGEON_MATS.floor);
-        f.rotation.x = -Math.PI / 2;
-        f.position.set(x, 0.01, z);
-        f.receiveShadow = true;
-        mapGroup.add(f);
-      }
-      // Ceiling slab, so looking up is stone rather than sky.
-      const ceil = new THREE.Mesh(dungeonTileGeo, DUNGEON_MATS.ceiling);
-      ceil.rotation.x = Math.PI / 2;
-      ceil.position.set(x, DUNGEON_CEIL, z);
-      ceil.layers.set(L_CEIL);
-      mapGroup.add(ceil);
-    }
-  }
-
-  // Outer shell: floor plate and a lid, so nothing can fall out of the level.
-  addStaticBox(cols * DUNGEON_TILE, 0.5, rows * DUNGEON_TILE, { x: 0, y: -0.5, z: 0 });
-  addStaticBox(cols * DUNGEON_TILE, 0.5, rows * DUNGEON_TILE,
-    { x: 0, y: DUNGEON_CEIL + 0.5, z: 0 });
-
-  // Torch sconces face into the corridor from an adjacent wall.
-  for (const [r, c, x, z] of torchSpots) {
-    const dirs = [[0, -1, 0], [0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]];
-    for (const [dc, dr, yaw] of dirs) {
-      if (!dungeonOpen(r + dr, c + dc)) {
-        addTorch(x + dc * (H - 0.25), 2.3, z + dr * (H - 0.25), yaw);
-        break;
-      }
-    }
-  }
-
-  for (const { x, z, char } of dungeonCells) {
-    if (char === '.' && Math.random() < 0.06) addHangingChain(x, z, 5 + randInt(0, 3));
-  }
-
-  // Props from the factory kit dress the rooms; they already have procedural fallbacks.
-  let dressed = 0;
-  for (const { x, z, char } of dungeonCells) {
-    if (char !== '.' || dressed > 14 || Math.random() > 0.12) continue;
-    placeProp(pick(['barrel', 'crate', 'crateSm']), x + rand(-0.8, 0.8), z + rand(-0.8, 0.8), rand(0, Math.PI));
-    dressed++;
-  }
-
-
-  // Spawns and chests come from the authored cells, still validated the usual way.
-  for (const [x, z] of spawnSpots) {
-    if (inBlocker(x, z, 0.8)) continue;
-    spawnPoints.push(new THREE.Vector3(x, 0.9, z));
-  }
-  if (spawnPoints.length < 4) {
-    for (const { x, z, char } of dungeonCells) {
-      if (spawnPoints.length >= 8) break;
-      if (char === '.' && !inBlocker(x, z, 0.8)) spawnPoints.push(new THREE.Vector3(x, 0.9, z));
-    }
-  }
-  spawnAmmoChests(chestSpots, 6);
-
-  // Health and shield go in the corner chambers, deliberately off the ammo route.
-  const T = DUNGEON_TILE, gx = (c) => (c - (DUNGEON_COLS - 1) / 2) * T, gz = (r) => (r - (DUNGEON_ROWS - 1) / 2) * T;
-  spawnConsumables([
-    ['health', gx(6), gz(6)], ['health', gx(16), gz(16)],
-    ['health', gx(11), gz(2)], ['health', gx(11), gz(20)],
-    ['shield', gx(16), gz(6)], ['shield', gx(6), gz(16)],
-    ['shield', gx(2), gz(11)], ['shield', gx(20), gz(11)],
-  ]);
 }
 
 /* --------------------------- bot navigation --------------------------- */
@@ -1439,7 +365,7 @@ function nodeFits(x, f, z) {
   return true;
 }
 
-function buildWaypoints({ extent = 46, step = 4, coverPad = 3.0, ceilY = CONFIG.CEIL } = {}) {
+function buildWaypoints({ extent = 46, step = 4, coverPad = 3.0, ceilY }) {
   const cells = new Map();                     // "ix,iz" -> node indices in that column
   const topY = ceilY - 0.3;
   const cellsPerSide = Math.floor(extent / step);
@@ -1510,7 +436,7 @@ function buildWaypoints({ extent = 46, step = 4, coverPad = 3.0, ceilY = CONFIG.
  */
 const MAP_PLATE_GEO = new THREE.PlaneGeometry(1, 1);
 
-function buildMapLayer(extent = A, plates = { ground: 0x141a21, solid: 0x5c6b7a }) {
+function buildMapLayer(extent, plates = { ground: 0x141a21, solid: 0x5c6b7a }) {
   const g = new THREE.Group();
 
   const ground = new THREE.Mesh(MAP_PLATE_GEO,
@@ -1551,11 +477,11 @@ function addMapLight(obj) {
 }
 
 /**
- * Geometry that outlives any single map. The dungeon reuses one box and one plane across
- * hundreds of tiles, so these must survive clearMap() or the second visit to a map renders
- * nothing. Anything not in here is per-mesh and safe to free.
+ * Geometry that outlives any single map. Every minimap plate is this one plane, scaled, so it
+ * must survive clearMap() or the second map's plan renders nothing. Anything not in here is
+ * per-mesh and safe to free.
  */
-markShared(dungeonWallGeo, dungeonTileGeo, MAP_PLATE_GEO);
+markShared(MAP_PLATE_GEO);
 
 /** Tear the current level down completely: colliders, meshes, lights, nav data, pickups. */
 function clearMap() {
@@ -1572,8 +498,6 @@ function clearMap() {
   // released by updateExplosionFx. Clearing the array is what keeps the slot pool honest.
   lightEmitters.length = 0;
   for (const l of lightSlots) l.intensity = 0;
-  dungeonTorches.length = 0;
-  dungeonChains.length = 0;
 
   if (mapLayerGroup) {
     scene.remove(mapLayerGroup);
@@ -1585,7 +509,6 @@ function clearMap() {
 
   blockers.length = 0;
   spawnPoints.length = 0;
-  sniperPerches.length = 0;
   waypoints.length = 0;
 }
 
@@ -1748,15 +671,10 @@ const glbMaps = GLB_MAPS.map((def) => createGlbMap(def, {
 }));
 
 return {
-  arenaExtent: A,
-  PROP_FILES,
-  loadProp,
   mapGroup,
   blockers,
   inBlocker,
   spawnPoints,
-  sniperPerches,
-  updateDungeonFx,
   waypoints,
   mapLights,
   clearMap,
@@ -1764,13 +682,6 @@ return {
   nearestWaypoint,
   findPath,
   canWalk,
-  buildArena,
-  placeArenaProps,
-  buildSpawnPoints,
-  buildDungeonMap,
-  buildFoundryMap,
-  foundryHalf: FOUNDRY_HALF,
-  foundryCeil: FOUNDRY_CEIL,
   glbMaps,
   /** Fetch every Blender map at once; resolves to { id: loaded } once they have all settled. */
   loadGlbMaps: async () => Object.fromEntries(await Promise.all(glbMaps.map(async (m) => [m.def.id, await m.load()]))),
@@ -1786,28 +697,16 @@ export function createMapController({
   rigAmbient,
   rigHemi,
   rigSun,
-  arenaExtent: A,
-  buildArena,
-  placeArenaProps,
-  buildSpawnPoints,
-  buildDungeonMap,
-  buildFoundryMap,
-  foundryHalf,
-  foundryCeil,
   glbMaps,
   buildWaypoints,
   buildMapLayer,
   clearMap,
-  spawnAmmoChests,
-  spawnConsumables,
   setSpawnCastY,
 }) {
   /**
-   * The two playable levels. Each entry owns everything that differs between them: how the
-   * geometry is built, the sky/fog treatment, and the nav-graph and minimap tuning (the dungeon
-   * is a 4 m corridor grid, so it needs a much finer graph than the open warehouse).
+   * A map's entry, from its definition (see mapGlb.js): how the geometry is built, the sky and
+   * fog, and the nav-graph and minimap tuning.
    */
-  /** A Blender map's menu entry, from its definition (see mapGlb.js). */
   const glbEntry = (m) => {
     const d = m.def, [HX, HZ] = d.half, L = d.look.lighting;
     return {
@@ -1828,95 +727,21 @@ export function createMapController({
       build() { m.build(); },
     };
   };
-  const MAPS = {
-    ...Object.fromEntries(glbMaps.map((m) => [m.def.id, glbEntry(m)])),
-    warehouse: {
-      name: 'WAREHOUSE',
-      blurb: 'Open industrial plaza, long sight lines, four ramps to the hub.',
-      background: 0x0a0e14,
-      fog: { color: 0x0a0e14, near: 55, far: 190 },
-      mapView: 46,
-      ceilY: CONFIG.CEIL,
-      nav: { extent: 48, step: 4, coverPad: 3.0 },
-      layerExtent: A,
-      plates: { ground: 0x141a21, solid: 0x5c6b7a },
-      lighting: {
-        ambient: { color: 0x8ea6c0, intensity: 0.4 },
-        hemi: { sky: 0x7f9bb8, ground: 0x232830, intensity: 0.75 },
-        sun: { color: 0xfff1dc, intensity: 1.7, pos: [38, 62, 26], extent: A * 1.05, far: 170 },
-      },
-      build() {
-        buildArena();
-        placeArenaProps();
-        buildSpawnPoints();
-        spawnAmmoChests([
-          [0, 38], [0, -38], [38, 0], [-38, 0],
-          [22, 22], [-22, -22], [22, -22], [-22, 22],
-          [12, 12], [-12, -12], [12, -12], [-12, 12],
-          [30, 12], [-30, 12], [12, 30], [-12, 30],
-        ]);
-        // Health and shield sit away from the ammo, so topping up costs a separate trip.
-        spawnConsumables([
-          ['health', 0, 20], ['health', 0, -20], ['health', -34, -34], ['health', 34, 34],
-          ['shield', 20, 0], ['shield', -20, 0], ['shield', 34, -34], ['shield', -34, 34],
-        ]);
-      },
-    },
-    foundry: {
-      name: 'FOUNDRY',
-      blurb: 'Compact three-lane arena, mirrored end to end. Built for duels.',
-      background: 0x0b1016,
-      fog: { color: 0x0b1016, near: 40, far: 130 },
-      mapView: 40,
-      ceilY: foundryCeil,
-      // A finer nav step than the warehouse: the lanes are ~9 m wide, so a coarse graph
-      // would put at most one node across a lane and bots would hug the walls.
-      nav: { extent: foundryHalf - 1, step: 3, coverPad: 2.6 },
-      layerExtent: foundryHalf + 2,
-      plates: { ground: 0x10161d, solid: 0x6f8496 },
-      lighting: {
-        ambient: { color: 0x9db4cc, intensity: 0.55 },
-        hemi: { sky: 0x8fa9c4, ground: 0x262c34, intensity: 0.85 },
-        sun: { color: 0xfff4e2, intensity: 1.55, pos: [26, 48, 18], extent: foundryHalf * 1.1, far: 140 },
-      },
-      build() { buildFoundryMap(); },
-    },
-    dungeon: {
-      name: 'DUNGEON',
-      blurb: 'Tight stone corridors, torchlight, choke points everywhere.',
-      background: 0x1a1410,
-      fog: { color: 0x140d07, near: 8, far: 60 },
-      mapView: 44,
-      ceilY: DUNGEON_CEIL,
-      nav: { extent: 40, step: DUNGEON_TILE, coverPad: 2.6 },
-      layerExtent: 44,
-      // High-contrast plan: on the warehouse palette the dungeon minimap was near-black on
-      // near-black and unreadable.
-      plates: { ground: 0x120d08, solid: 0xb08a52 },
-      lighting: {
-        // Deliberately much brighter than a "realistic" dungeon. Two passes of this map were
-        // reported as unplayably black; atmosphere is worth nothing if you cannot see a target.
-        ambient: { color: 0x9c8a72, intensity: 1.15 },
-        hemi: { sky: 0xa08d70, ground: 0x3a2c20, intensity: 0.95 },
-        sun: { color: 0xffd9ad, intensity: 0.95, pos: [20, 50, 14], extent: 46, far: 130 },
-      },
-      build() { buildDungeonMap(); },
-    },
-  };
+  const MAPS = Object.fromEntries(glbMaps.map((m) => [m.def.id, glbEntry(m)]));
 
-  let currentMapId = 'warehouse';
+  let currentMapId = null;
   let currentPlan = null;          // what the minimap draws; a new object per map build
   const environments = new Map();  // sky light per map, prefiltered on first visit
 
-  /** The map to open on: the first Blender map that loaded, otherwise the warehouse. */
-  const defaultMapId = () => glbMaps.find((m) => m.ready())?.def.id ?? 'warehouse';
+  /** The map to open on: the first one that loaded, or null if none did. */
+  const defaultMapId = () => glbMaps.find((m) => m.ready())?.def.id ?? null;
 
   /** Build a level from scratch. Assumes clearMap() has already run if one was loaded. */
   function buildMap(id) {
     const m = MAPS[id];
     currentMapId = id;
     // Must be set before m.build() runs — the spawners below it cast down from here.
-    setSpawnCastY((m.ceilY ?? CONFIG.CEIL) - 0.5);
+    setSpawnCastY(m.ceilY - 0.5);
 
     scene.background = new THREE.Color(m.background);
     scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
@@ -1944,7 +769,7 @@ export function createMapController({
     rigSun.shadow.camera.updateProjectionMatrix();
 
     m.build();
-    buildWaypoints({ ...m.nav, ceilY: m.ceilY ?? CONFIG.CEIL });
+    buildWaypoints({ ...m.nav, ceilY: m.ceilY });
     buildMapLayer(m.layerExtent, m.plates);
     currentPlan = { extent: m.layerExtent, view: m.mapView, plates: m.plates };
   }

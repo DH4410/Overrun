@@ -693,6 +693,8 @@ function bindInput() {
     firing = false; aiming = false;
     if (pointerLocked && match.running) {
       resumePlay();
+      // The death screen shares this overlay and the match loop keeps it up while you are dead.
+      if (player.alive) showPause(false);
     } else if (!pointerLocked && getAppState() === playingState) {
       showPause(true);
     }

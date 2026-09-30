@@ -25,6 +25,20 @@ test('CORE-01: releasing pointer lock freezes the match clock', async ({ page })
   expect(after).toBeCloseTo(before, 2);
 });
 
+test('CORE-01: clicking back in from the pause screen hides it', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page);
+  await page.evaluate(() => document.exitPointerLock());
+  await expect(page.locator('#pause')).toHaveClass(/\bon\b/);
+  // Chrome refuses a lock asked for too soon after one was released.
+  await page.waitForTimeout(1200);
+  await page.locator('#pause').click();
+  await expect.poll(() => page.evaluate(() => Boolean(document.pointerLockElement))).toBe(true);
+  // The game is live again, so the overlay must not be left covering it.
+  await expect(page.locator('#pause')).not.toHaveClass(/\bon\b/);
+  expect(await observedAppState(page)).toBe(APP_STATE.PLAYING);
+});
+
 test('CORE-01: settings opened during a match freeze gameplay', async ({ page }) => {
   await bootGame(page);
   await startMatch(page);

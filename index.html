@@ -28,13 +28,13 @@
 
   <div id="vitals">
     <div class="name" id="v-name">PLAYER</div>
-    <div class="vrow hp">
-      <svg class="vicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1h4v5h5v4h-5v5H6v-5H1V6h5z" /></svg>
-      <span class="vnum" id="hptxt">100</span><span class="bar"><span id="hpfill"></span></span>
-    </div>
     <div class="vrow ap">
       <svg class="vicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l6 2.2v4.6c0 3.4-2.5 6.1-6 7.2-3.5-1.1-6-3.8-6-7.2V3.2z" /></svg>
-      <span class="vnum" id="aptxt">50</span><span class="bar"><span id="apfill"></span></span>
+      <span class="bar"><span class="chip" id="apchip"></span><span class="fill" id="apfill"></span></span><span class="vnum" id="aptxt">50</span>
+    </div>
+    <div class="vrow hp">
+      <svg class="vicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1h4v5h5v4h-5v5H6v-5H1V6h5z" /></svg>
+      <span class="bar"><span class="chip" id="hpchip"></span><span class="fill" id="hpfill"></span></span><span class="vnum" id="hptxt">100</span>
     </div>
   </div>
 
@@ -45,7 +45,7 @@
     <div id="slots"></div>
   </div>
 
-  <div id="mapframe"></div><div id="dmgnums"></div>
+  <div id="mapframe"><canvas id="minimap"></canvas></div><div id="dmgnums"></div>
   <div id="ammo-prompt"><span id="ammo-prompt-label">AMMO</span><small>walk in to collect</small></div><div id="toast"></div>
 
   <div id="board"><div class="card"><h2 id="b-title">SCOREBOARD</h2><div class="sub" id="b-sub"></div><table><thead><tr><th>PLAYER</th><th class="num">K</th><th class="num">D</th><th class="num">K/D</th></tr></thead><tbody id="b-body"></tbody></table></div></div>

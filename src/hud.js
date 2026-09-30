@@ -24,6 +24,7 @@ const el = {
   hud: $('hud'), menu: $('menu'), pause: $('pause'), board: $('board'),
   crosshair: $('crosshair'), scope: $('scope'), hitmarker: $('hitmarker'),
   hp: $('hpfill'), hptxt: $('hptxt'), ap: $('apfill'), aptxt: $('aptxt'), vname: $('v-name'),
+  hpchip: $('hpchip'), apchip: $('apchip'),
   aname: $('a-name'), amag: $('a-mag'), ares: $('a-res'), areload: $('a-reload'), slots: $('slots'),
   tbMode: $('tb-mode'), tbA: $('tb-a'), tbB: $('tb-b'), tbTime: $('tb-time'),
   feed: $('feed'), plates: $('plates'), dmgwrap: $('dmgwrap'), lowhp: $('lowhp'),
@@ -255,8 +256,13 @@ function updatePlates(dt) {
 function updateVitals() {
   // Critical-health pulse is a class on the panel so the CSS animation owns the timing.
   el.vitals?.classList.toggle('low', player.alive && player.health < 35);
-  el.hp.style.transform = `scaleX(${clamp(player.health / CONFIG.MAX_HEALTH, 0, 1)})`;
-  el.ap.style.transform = `scaleX(${clamp(player.armor / CONFIG.MAX_ARMOR, 0, 1)})`;
+  // The chip behind each fill follows it down late (a CSS transition delay), so the chunk a
+  // hit took stays visible for a moment; on the way up it hides behind the fill.
+  const hp = `scaleX(${clamp(player.health / CONFIG.MAX_HEALTH, 0, 1)})`;
+  const ap = `scaleX(${clamp(player.armor / CONFIG.MAX_ARMOR, 0, 1)})`;
+  el.hp.style.transform = hp; el.hpchip.style.transform = hp;
+  el.ap.style.transform = ap; el.apchip.style.transform = ap;
+  el.vitals?.classList.toggle('noshield', player.armor <= 0);
   el.hptxt.textContent = Math.ceil(player.health);
   el.aptxt.textContent = Math.ceil(player.armor);
   el.lowhp.style.opacity = player.alive && player.health < 40

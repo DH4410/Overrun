@@ -57,6 +57,7 @@ import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
+import { createMinimap } from './minimap.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import {
   ADS_FOV,
@@ -355,6 +356,7 @@ const {
   buildMap,
   switchMap,
   currentMapId: getCurrentMapId,
+  currentPlan,
   defaultMapId,
 } = createMapController({
   scene,
@@ -576,7 +578,7 @@ function applyRenderScale() {
 
 function resizeRenderer() {
   // The corner panels are sized for a ~1280x720 window and scale down below it (the CSS applies
-  // this as `zoom`). The minimap is drawn by WebGL, not CSS, so renderMinimap reads it too.
+  // this as `zoom`). The minimap canvas reads it too, to size its backing store.
   hudScale = clamp(Math.min(innerWidth / 1280, innerHeight / 720), 0.62, 1);
   document.documentElement.style.setProperty('--hud-scale', String(hudScale));
   const w = Math.max(320, Math.round(innerWidth * renderScale));
@@ -692,7 +694,6 @@ function clearEffects() {
  * === MINIMAP ===
  * ================================================================== */
 
-const MAP_PX = 180, MAP_MARGIN = 20;
 const _rendererSize = new THREE.Vector2();
 
 /** Player blip: a triangle pointing where the player faces, on the minimap-only layer. */
@@ -739,31 +740,6 @@ function updateSpotting(dt) {
   }
 }
 
-function renderMinimap() {
-  const px = player.body.position.x, pz = player.body.position.z;
-  // 50 m up keeps every blip inside scene.fog's near plane (55 m), so the map stays crisp
-  // without having to swap the fog out and force a shader recompile every frame.
-  mapCamera.position.set(px, 50, pz);
-  mapCamera.lookAt(px, 0, pz);          // north-up; the player arrow carries the heading
-  playerBlip.position.set(px, 0.6, pz);
-  playerBlip.rotation.y = player.yaw;
-
-  // setViewport/setScissor work in the renderer's own drawing-buffer units (three applies the
-  // pixel ratio itself). With a render scale below 1 those are no longer CSS pixels, so the
-  // minimap rectangle has to be scaled to match or it drifts off the corner.
-  const size = renderer.getSize(_rendererSize);
-  const box = MAP_PX * hudScale * renderScale;
-  const margin = MAP_MARGIN * hudScale * renderScale;
-  const x = size.x - margin - box;
-  const y = margin;                    // GL origin is bottom-left
-
-  renderer.setViewport(x, y, box, box);
-  renderer.setScissor(x, y, box, box);
-  renderer.setScissorTest(true);
-  renderer.clear(true, true, false);
-  renderer.render(scene, mapCamera);
-  renderer.setScissorTest(false);
-}
 
 /* ================================================================== *
  * === HUD ===
@@ -1177,7 +1153,7 @@ function frame() {
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
   }
-  if (match.running) renderMinimap();
+  if (match.running) minimap.draw();
 }
 
 /* ================================================================== *
@@ -1202,6 +1178,16 @@ const {
   endMatch,
 });
 
+
+// Drawn on its own 2D canvas inside #mapframe; see minimap.js.
+const minimap = createMinimap({
+  canvas: $('minimap'),
+  blockers,
+  player,
+  bots,
+  getPlan: () => currentPlan(),
+  getScale: () => hudScale,
+});
 
 // The locker opens from the lobby and from the pause screen. A change applies at once: keys
 // 1-4 follow it, and if the gun in your hands was taken out you are handed slot 1.

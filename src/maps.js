@@ -1893,6 +1893,7 @@ export function createMapController({
   };
 
   let currentMapId = 'warehouse';
+  let currentPlan = null;          // what the minimap draws; a new object per map build
 
   /** The map to open on: PORT when its files loaded, otherwise the warehouse. */
   const defaultMapId = () => (MAPS.port.available() ? 'port' : 'warehouse');
@@ -1929,6 +1930,7 @@ export function createMapController({
     m.build();
     buildWaypoints({ ...m.nav, ceilY: m.ceilY ?? CONFIG.CEIL });
     buildMapLayer(m.layerExtent, m.plates);
+    currentPlan = { extent: m.layerExtent, view: m.mapView, plates: m.plates };
   }
 
   /** Swap levels. No-op when the requested map is already loaded, or its files are not. */
@@ -1943,6 +1945,7 @@ export function createMapController({
     buildMap,
     switchMap,
     currentMapId: () => currentMapId,
+    currentPlan: () => currentPlan,
     defaultMapId,
   };
 }

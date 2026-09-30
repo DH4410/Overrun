@@ -458,6 +458,7 @@ button { font: inherit; color: inherit; }
 #modes .tile[data-mode="sv"] svg { stroke: var(--self); }
 #modes .tile[data-mode="duel"] svg { stroke: var(--enemy); }
 .art-port { background: linear-gradient(180deg, #9ec3e0 0 38%, transparent 38%), repeating-linear-gradient(90deg, #c2412f 0 18%, #2f6aa3 18% 36%, #d8a531 36% 54%, #3c8a5a 54% 72%, #8d99a6 72% 90%), #444c55; background-size: 100% 100%, 100% 30%, 100% 100%; background-repeat: no-repeat; background-position: 0 0, 0 55%, 0 0; }
+.art-desert { background: radial-gradient(circle at 50% 50%, #efe6d6 0 10%, transparent 10.5%), linear-gradient(180deg, #6f9fd3 0, #e9d9bd 46%, transparent 46%), repeating-linear-gradient(90deg, #c9a070 0 22%, #a8744c 22% 34%, #e3d5bb 34% 58%, #b8875c 58% 72%), #d7b98c; background-size: 100% 100%, 100% 100%, 100% 36%, 100% 100%; background-repeat: no-repeat; background-position: 0 0, 0 0, 0 72%, 0 0; }
 .art-warehouse { background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .04) 0 2px, transparent 2px 60px), radial-gradient(ellipse at 50% 20%, #ffd99a55, transparent 45%), linear-gradient(180deg, #2a2f36, #15191e); }
 .art-foundry { background: radial-gradient(ellipse at 50% 85%, #ff7a1a 0, #b53d10 18%, transparent 45%), linear-gradient(180deg, #1c1f24, #0d0f12); }
 .art-dungeon { background: radial-gradient(circle at 25% 40%, #ffae4a66, transparent 22%), radial-gradient(circle at 78% 40%, #ffae4a55, transparent 22%), repeating-linear-gradient(0deg, #3a2c1f 0 22px, #2e2318 22px 24px), #2a1f15; }

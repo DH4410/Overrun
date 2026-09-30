@@ -4,7 +4,7 @@ import { bootGame, pumpFrames, startMatch } from './helpers/game.mjs';
 
 /**
  * Thrown ordnance physics. These assert behaviour a player can feel — a running throw goes
- * further, an underhand lands short, a spent grenade stops rolling — rather than exact
+ * further, a tap lands short, a spent grenade stops rolling — rather than exact
  * distances, which any retune is free to change.
  */
 
@@ -74,19 +74,81 @@ test('a grenade inherits the thrower velocity', async ({ page }) => {
   expect(backing.travel).toBeLessThan(still.travel);
 });
 
-test('an underhand throw lands far shorter than an overhand one', async ({ page }) => {
+/** Stand the player at `at` facing +z, press G for `frames` frames, and report where it lands. */
+async function throwWithG(page, at, frames) {
+  await page.evaluate((o) => {
+    const g = globalThis.__game;
+    for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); b.state = 'SPAWN'; b.stateTime = -1e9; }
+    g.player.body.position.set(o.x, 0.6, o.z);
+    g.player.body.velocity.set(0, 0, 0);
+    g.player.yaw = Math.PI;                   // forward is (-sin yaw, -cos yaw) = +z
+    g.player.pitch = 0.15;
+    g.player.fragCount = 3;
+    for (let i = 0; i < 30; i++) g.fixedStep(1 / 120);
+  }, at);
+  await page.keyboard.down('g');
+  await pumpFrames(page, frames);
+  const predicted = await page.evaluate(() => globalThis.__game.player.cooking && true);
+  await page.keyboard.up('g');
+  return page.evaluate(({ o, held }) => {
+    const g = globalThis.__game;
+    const nade = g.grenades.at(-1);
+    const from = nade.body.position.clone();
+    for (let i = 0; i < 300; i++) g.fixedStep(1 / 120);   // 2.5 s: inside the 3 s fuse
+    const p = nade.body.position;
+    return { held, from: [from.x, from.z], travel: Math.hypot(p.x - o.x, p.z - o.z) };
+  }, { o: at, held: predicted });
+}
+
+test('a tap of G lobs a grenade short, and holding it throws it far', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
-
   const at = await openOrigin(page, 22);
   expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
 
-  const overhand = await throwFrom(page, { dir: [0, 0, 1], power: 17, at });
-  const underhand = await throwFrom(page, { dir: [0, 0.30, 1], power: 7, at });
-
-  expect(underhand.travel).toBeLessThan(overhand.travel * 0.6);
+  const tap = await throwWithG(page, at, 1);
+  const hold = await throwWithG(page, at, 70);   // past the 0.9 s full charge
+  expect(tap.held && hold.held).toBe(true);
+  expect(hold.travel).toBeGreaterThan(16);
+  expect(tap.travel).toBeLessThan(hold.travel * 0.45);
   // Short, but it still has to clear your own feet.
-  expect(underhand.travel).toBeGreaterThan(1.5);
+  expect(tap.travel).toBeGreaterThan(1.5);
+});
+
+test('the arc drawn while charging is where the grenade first lands', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  const at = await openOrigin(page, 22);
+  expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
+
+  const r = await page.evaluate((o) => {
+    const g = globalThis.__game;
+    const { THREE } = g;
+    const out = [];
+    const throws = [
+      { d: [0, 0.4, 1], p: 6, v: [0, 0, 0] },
+      { d: [0, 0.2, 1], p: 13, v: [0, 0, 0] },
+      { d: [0, 0.1, 1], p: 21, v: [0, 0, 0] },
+      { d: [0.3, 0.2, 1], p: 13, v: [0, 0, 5] },  // on the run
+    ];
+    for (const t of throws) {
+      const owner = { body: { velocity: { x: t.v[0], y: t.v[1], z: t.v[2] } }, team: 0 };
+      const origin = new THREE.Vector3(o.x, 1.8, o.z);
+      const dir = new THREE.Vector3(...t.d).normalize();
+      const predicted = g.predictThrow(owner, origin, dir, t.p);
+      const nade = g.throwGrenade(owner, origin, dir, t.p, 'smoke', 999);
+      let first = null;
+      nade.body.addEventListener('collide', () => { first ??= nade.body.position.clone(); });
+      for (let i = 0; i < 480 && !first; i++) g.fixedStep(1 / 120);
+      g.clearGrenades();
+      out.push({ miss: predicted && first ? predicted.distanceTo(first) : 99, far: first ? Math.hypot(first.x - o.x, first.z - o.z) : 0 });
+    }
+    return out;
+  }, at);
+  for (const t of r) {
+    expect(t.far).toBeGreaterThan(1.5);
+    expect(t.miss).toBeLessThan(0.5);
+  }
 });
 
 test('a spent grenade comes to rest instead of rolling forever', async ({ page }) => {
@@ -165,6 +227,38 @@ test('three frags thrown in a row each go off where they landed', async ({ page 
 
   expect(r.exploded).toEqual([true, true, true]);
   for (const d of r.drift) expect(d).toBeLessThan(1.0);
+});
+
+test('three quick taps of G throw three frags, and all three go off', async ({ page }) => {
+  // The player's own report, through the real keys rather than throwGrenade().
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'warehouse', diff: 'easy' });
+  const at = await openOrigin(page, 22);
+  expect(at, 'needs an open 22 m throwing corridor').not.toBeNull();
+  await page.evaluate((o) => {
+    const g = globalThis.__game;
+    for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); b.state = 'SPAWN'; b.stateTime = -1e9; }
+    g.player.body.position.set(o.x, 0.6, o.z);
+    g.player.yaw = Math.PI;
+    g.player.pitch = 0.1;
+    g.player.fragCount = 3;
+    g.__thrown = [];
+  }, at);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.down('g');
+    await pumpFrames(page, 3);
+    await page.keyboard.up('g');
+    await page.evaluate(() => { const g = globalThis.__game; g.__thrown.push(g.grenades.at(-1)); });
+    await pumpFrames(page, 12);
+  }
+  await pumpFrames(page, 240);
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    return { distinct: new Set(g.__thrown).size, gone: g.__thrown.map((n) => n.fuse <= 0), frags: g.player.fragCount };
+  });
+  expect(r.distinct).toBe(3);
+  expect(r.gone).toEqual([true, true, true]);
+  expect(r.frags).toBe(0);
 });
 
 test('an idle controller does not throw a grenade the keyboard is cooking', async ({ page }) => {

@@ -413,9 +413,11 @@ const {
   clearBullets,
   stepBullets,
   fireWeapon,
+  grenades,
   throwGrenade,
   clearGrenades,
-  explode,
+  predictThrow,
+  showThrowArc,
   stepGrenades,
   syncGrenades,
 } = createProjectileRuntime({
@@ -814,13 +816,14 @@ const {
   applyDamage,
   stepPlayer,
   syncPlayerPoints,
+  resetStance,
   currentWeapon,
   startReload,
   finishReload,
   switchWeapon,
   tryFire,
   startCook,
-  releaseCook,
+  updateThrowPreview,
   bindInput,
   requestLock,
   pollGamepad,
@@ -861,9 +864,8 @@ const {
   smokeBlocks: (...args) => smokeBlocks(...args),
   // Aim assist needs to know who is shootable. Bots only — there is one player.
   getEnemies: () => bots,
-  explode,
-  spawnSmoke,
   throwGrenade,
+  showThrowArc,
 });
 
 
@@ -893,6 +895,7 @@ const {
   setAppState: (state) => { appState = state; },
   resetPlayerAmmo,
   syncPlayerPoints,
+  resetStance,
   clearEffects,
   resetAmmoChests,
   resetConsumables,
@@ -1114,10 +1117,6 @@ function frame() {
       player.reloading -= dt;
       if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
     }
-    if (player.cooking) {
-      player.cookTime -= dt;
-      if (player.cookTime <= 0) releaseCook(true);
-    }
     if (isFiring() && currentWeapon().auto) tryFire();
 
     // Fixed-step physics, capped so a stall cannot spiral the accumulator.
@@ -1147,6 +1146,7 @@ function frame() {
     updateMatch(dt);
     updateViewModel(dt);
     updateCamera(dt);
+    updateThrowPreview(dt);
     updatePlates(dt);
     updateAllyMarkers();
     updateHudTimers(dt);
@@ -1315,7 +1315,8 @@ async function boot() {
     settings, applySettings, QUALITY, vmCamera, vmScene, vmRig, vmModels, setAiming,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
-    WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, throwGrenade, clearGrenades,
+    WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
+    predictThrow, updateThrowPreview, grenades,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

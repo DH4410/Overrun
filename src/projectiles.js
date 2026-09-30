@@ -7,11 +7,12 @@ import { matte } from './rendering.js';
 import { rand } from './utils.js';
 
 /** Combatant hitbox profiles. Offsets are relative to the combatant chest position. */
-// The player stands 2.0 m tall, as tall as the bots: legs to 0.73 m, torso to 1.57 m, and the
-// head centred at 1.75 m, just under the 1.8 m eye. Crouched it is 1.39 m. It used to top out at
-// 2.3 m, which only made you easier to hit than anyone you were fighting.
-export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.42, headR: 0.27, headY: 0.6, legLen: 0.73 };
-export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.28, headR: 0.27, headY: 0.37, legLen: 0.47 };
+// The player stands 2.0 m tall, as tall as the bots: legs to 0.73 m, torso to 1.57 m, and a
+// bot-sized head (0.22 m) centred at 1.78 m, at the 1.8 m eye. Crouched it is 1.39 m. It used to
+// top out at 2.3 m, which only made you easier to hit than anyone you were fighting. The head
+// sits right on the torso: a bigger head any lower caught chest shots that drifted up.
+export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.42, headR: 0.22, headY: 0.63, legLen: 0.73 };
+export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.28, headR: 0.22, headY: 0.42, legLen: 0.47 };
 export const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
 
 /**
@@ -348,12 +349,7 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
     collisionFilterGroup: G_NADE,
   });
   body.position.set(origin.x, origin.y, origin.z);
-  const inherited = owner?.body?.velocity;
-  body.velocity.set(
-    dir.x * power + (inherited ? inherited.x : 0),
-    dir.y * power + 1.6 + (inherited ? Math.max(0, inherited.y) * 0.5 : 0),
-    dir.z * power + (inherited ? inherited.z : 0),
-  );
+  launchVelocity(owner, dir, power, body.velocity);
   // Spin about the axis perpendicular to the throw, so it tumbles end-over-end along its
   // flight path instead of buzzing randomly about its own centre.
   const spin = 11 + power * 0.25;
@@ -378,9 +374,98 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
   return g;
 }
 
+/** A throw's launch velocity: the throw, a little loft, and the thrower's own motion. */
+function launchVelocity(owner, dir, power, out) {
+  const inherited = owner?.body?.velocity;
+  return out.set(
+    dir.x * power + (inherited ? inherited.x : 0),
+    dir.y * power + 1.6 + (inherited ? Math.max(0, inherited.y) * 0.5 : 0),
+    dir.z * power + (inherited ? inherited.z : 0),
+  );
+}
+
+/*
+ * The aiming arc for a throw being charged: the flight a grenade released now would take,
+ * integrated the way the physics step does, up to where it first meets the level, with a ring
+ * where it lands. It uses launchVelocity(), so the arc is the throw.
+ */
+const ARC_MAX = 96;
+const arcGeo = new THREE.BufferGeometry();
+arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_MAX * 3), 3));
+const arcLine = new THREE.Line(arcGeo, new THREE.LineDashedMaterial({
+  color: 0xf3b53f, dashSize: 0.3, gapSize: 0.18, transparent: true, opacity: 0.9, depthTest: false,
+}));
+arcLine.renderOrder = 10;
+arcLine.frustumCulled = false;
+arcLine.visible = false;
+scene.add(arcLine);
+const arcRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.32, 0.46, 32),
+  new THREE.MeshBasicMaterial({ color: 0xf3b53f, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthTest: false }),
+);
+arcRing.renderOrder = 10;
+arcRing.visible = false;
+scene.add(arcRing);
+const _av = new THREE.Vector3();
+const _ap = new THREE.Vector3();
+const _aFrom = new CANNON.Vec3();
+const _aTo = new CANNON.Vec3();
+const _aRes = new CANNON.RaycastResult();
+const _aUp = new THREE.Vector3(0, 0, 1);
+
+/** Where a throw first meets the level, or null if it flies for 4 s without doing so. */
+function predictThrow(owner, origin, dir, power, points = null) {
+  const h = 1 / 120;                     // the fixed physics step
+  const drag = Math.pow(1 - 0.01, h);    // the grenade body's linearDamping
+  launchVelocity(owner, dir, power, _av);
+  _ap.copy(origin);
+  let n = 0;
+  if (points) { points[0] = _ap.x; points[1] = _ap.y; points[2] = _ap.z; n = 1; }
+  for (let i = 0; i < 480; i += 4) {
+    _aFrom.set(_ap.x, _ap.y, _ap.z);
+    for (let k = 0; k < 4; k++) {
+      _av.y += CONFIG.GRAVITY * h;        // CONFIG.GRAVITY is negative
+      _av.multiplyScalar(drag);
+      _ap.addScaledVector(_av, h);
+    }
+    _aTo.set(_ap.x, _ap.y, _ap.z);
+    _aRes.reset();
+    world.raycastClosest(_aFrom, _aTo, RAY_OPTS, _aRes);
+    if (_aRes.hasHit) {
+      const hp = _aRes.hitPointWorld;
+      if (points && n < ARC_MAX) { points[n * 3] = hp.x; points[n * 3 + 1] = hp.y; points[n * 3 + 2] = hp.z; n++; }
+      predictThrow.count = n;
+      predictThrow.normal = _aRes.hitNormalWorld;
+      return new THREE.Vector3(hp.x, hp.y, hp.z);
+    }
+    if (points && n < ARC_MAX) { points[n * 3] = _ap.x; points[n * 3 + 1] = _ap.y; points[n * 3 + 2] = _ap.z; n++; }
+  }
+  predictThrow.count = n;
+  return null;
+}
+
+/** Draw the arc for a throw being charged; pass null to hide it. */
+function showThrowArc(owner, origin, dir, power) {
+  if (!owner) { arcLine.visible = false; arcRing.visible = false; return null; }
+  const attr = arcGeo.attributes.position;
+  const hit = predictThrow(owner, origin, dir, power, attr.array);
+  attr.needsUpdate = true;
+  arcGeo.setDrawRange(0, predictThrow.count);
+  arcLine.computeLineDistances();
+  arcLine.visible = true;
+  arcRing.visible = !!hit;
+  if (hit) {
+    const nrm = predictThrow.normal;
+    arcRing.position.set(hit.x + nrm.x * 0.03, hit.y + nrm.y * 0.03, hit.z + nrm.z * 0.03);
+    arcRing.quaternion.setFromUnitVectors(_aUp, _ap.set(nrm.x, nrm.y, nrm.z));
+  }
+  return hit;
+}
+
 function clearGrenades() {
   for (const g of grenades) { world.removeBody(g.body); scene.remove(g.mesh); }
   grenades.length = 0;
+  showThrowArc(null);
 }
 
 /** Radial damage with linear falloff, plus a 1/d^2 impulse on every dynamic body nearby. */
@@ -471,8 +556,11 @@ return {
   clearBullets,
   stepBullets,
   fireWeapon,
+  grenades,
   throwGrenade,
   clearGrenades,
+  predictThrow,
+  showThrowArc,
   explode,
   stepGrenades,
   syncGrenades,

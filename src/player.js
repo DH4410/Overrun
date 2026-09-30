@@ -35,6 +35,7 @@ export function createPlayerState() {
   yaw: 0, pitch: 0,
   recoilPitch: 0, recoilYaw: 0,
   grounded: false, crouching: false, sprinting: false,
+  slideTime: 0,                      // seconds of slide left (sprint, then crouch)
   current: 'pistol',
   ammo: {},
   cooldown: 0, reloading: 0, reloadTotal: 0,
@@ -45,9 +46,11 @@ export function createPlayerState() {
   // how long since the last round left the barrel. See playerSpread / recoilStep.
   bloom: 0, sprayIndex: 0, sinceShot: 99,
   fragCount: 3, smokeCount: 1,
-  // cookSource is the input that started the cook ('key', 'mouse' or 'pad'): only that input's
-  // release throws it, or an idle controller would throw every keyboard cook on the next frame.
-  cooking: null, cookTime: 0, cookSource: null,
+  // cooking is the grenade in hand ('frag' or 'smoke') while the throw charges, and chargeTime
+  // how long it has been held: the longer, the farther (see throwAim). The fuse only starts on
+  // release. cookSource is the input holding it ('key', 'mouse' or 'pad'): only that input's
+  // release throws it, or an idle controller would throw every keyboard throw on the next frame.
+  cooking: null, chargeTime: 0, cookSource: null,
   respawnTimer: 0,
   invulnTimer: 0,                    // spawn protection — see SPAWN_INVULN
   stepTimer: 0,
@@ -87,9 +90,8 @@ export function createPlayerRuntime({
   losClear,
   smokeBlocks,
   getEnemies,
-  explode,
-  spawnSmoke,
   throwGrenade,
+  showThrowArc,
 }) {
 const match = getMatch();
 
@@ -244,6 +246,13 @@ function playerGroundCheck() {
   }
 }
 
+const THROW_POWER_SOFT = 6;    // m/s at a tap
+const THROW_POWER_HARD = 21;   // m/s at a full hold
+const THROW_LIFT_SOFT = 0.4;   // extra upward aim at a tap, so a short lob clears a crate
+const THROW_LIFT_HARD = 0.06;
+const SLIDE_TIME = 0.75;       // seconds a slide lasts at most
+const SLIDE_BOOST = 1.2;       // times sprint speed at the start of a slide
+const SLIDE_DECEL = 7;         // m/s lost per second while sliding
 const _crouchFrom = new CANNON.Vec3();
 const _crouchTo = new CANNON.Vec3();
 const _crouchRes = new CANNON.RaycastResult();
@@ -342,7 +351,23 @@ function stepPlayer(dt) {
   player.landTime += dt;
   // Crouch reads from a latch when the player has chosen toggle-style bindings (see
   // settings.toggleCrouch), otherwise straight from the held key.
+  const wasSprinting = player.sprinting, wasCrouching = player.crouching;
   setCrouch(settings.toggleCrouch ? crouchLatch : !!(keys.KeyC || keys.GpCrouch));
+  // Crouching out of a sprint slides: a burst of speed that bleeds off, under a crouched
+  // hitbox, which is how you cross a gap a bot is watching. It is read from the previous
+  // step's sprint, because crouching has already cancelled this step's.
+  const planarNow = Math.hypot(b.velocity.x, b.velocity.z);
+  if (player.crouching && !wasCrouching && wasSprinting && player.grounded
+      && planarNow > CONFIG.WALK_SPEED) {
+    const boost = Math.max(planarNow, CONFIG.WALK_SPEED * CONFIG.SPRINT_MULT) * SLIDE_BOOST / planarNow;
+    b.velocity.x *= boost;
+    b.velocity.z *= boost;
+    player.slideTime = SLIDE_TIME;
+    Audio.slide?.();
+  }
+  if (!player.crouching || planarNow < CONFIG.WALK_SPEED * CONFIG.CROUCH_MULT) player.slideTime = 0;
+  player.slideTime = Math.max(0, player.slideTime - dt);
+  const sliding = player.slideTime > 0;
 
   // Movement basis is camera yaw with the pitch stripped out.
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -376,8 +401,15 @@ function stepPlayer(dt) {
   if (_wish.lengthSq() > 0) _wish.normalize();
 
   // Friction on the ground only, then accelerate toward the wish. See CONFIG.GROUND_ACCEL.
-  if (player.grounded) applyFriction(b, dt);
-  if (_wish.lengthSq() > 0) {
+  // A slide swaps friction for a steady bleed and only steers, so it carries its speed.
+  if (sliding && player.grounded) {
+    const k = Math.max(0, planarNow - SLIDE_DECEL * dt) / Math.max(1e-4, planarNow);
+    b.velocity.x *= k;
+    b.velocity.z *= k;
+  } else if (player.grounded) applyFriction(b, dt);
+  if (sliding) {
+    if (_wish.lengthSq() > 0) accelerate(b, _wish.x, _wish.z, speed, CONFIG.AIR_ACCEL, dt);
+  } else if (_wish.lengthSq() > 0) {
     accelerate(b, _wish.x, _wish.z, speed, player.grounded ? CONFIG.GROUND_ACCEL : CONFIG.AIR_ACCEL, dt);
   }
   _wish.multiplyScalar(speed);
@@ -453,13 +485,21 @@ function finishReload() {
   Audio.reloadClick();
 }
 
+/** Stand up and drop any latched crouch or slide, for a fresh life. */
+function resetStance() {
+  crouchLatch = false;
+  player.slideTime = 0;
+  setCrouch(false);
+}
+
 function switchWeapon(id) {
   if (player.current === id || !WEAPON_BY_ID[id]) return;
   if (id === 'frag' && player.fragCount <= 0) return;
   player.current = id;
   player.reloading = 0;
   player.cooldown = Math.max(player.cooldown, 0.25);
-  aiming = false; crouchLatch = false; sprintLatch = false;
+  // The crouch latch survives a swap: with toggle-crouch on, every swap used to stand you up.
+  aiming = false; sprintLatch = false;
   updateAmmoHud();
 }
 
@@ -522,48 +562,59 @@ function startCook(kind, source = 'key') {
   if (kind === 'smoke' && player.smokeCount <= 0) return;
   player.cooking = kind;
   player.cookSource = source;
-  player.cookTime = kind === 'frag' ? CONFIG.FRAG_FUSE : CONFIG.SMOKE_FUSE;
+  player.chargeTime = 0;
   Audio.pinPull();
 }
 
-function releaseCook(exploded = false) {
+/** How far the throw in hand has charged, 0 at a tap to 1 once held for THROW_CHARGE_TIME. */
+function throwCharge() {
+  return clamp(player.chargeTime / CONFIG.THROW_CHARGE_TIME, 0, 1);
+}
+
+/**
+ * The throw a release would make now: its direction into `out`, and its speed returned.
+ *
+ * One throw strength could not cover both "over that wall" and "just past my feet", so the
+ * hold sets it: a tap lobs it short and high, a full hold throws it flat and far, and the arc
+ * drawn while you hold (updateThrowPreview) is exactly this throw.
+ */
+function throwAim(out) {
+  const c = throwCharge();
+  playerAimDirection(out);
+  out.y += lerp(THROW_LIFT_SOFT, THROW_LIFT_HARD, c);
+  out.normalize();
+  return lerp(THROW_POWER_SOFT, THROW_POWER_HARD, c);
+}
+
+function releaseCook() {
   const kind = player.cooking;
   if (!kind) return;
   player.cooking = null;
   player.cookSource = null;
+  showThrowArc(null);
 
   if (kind === 'frag') player.fragCount--;
   else player.smokeCount--;
 
-  if (exploded) {
-    // Cooked it too long — it goes off in your hand.
-    if (kind === 'frag') explode(player.eye, player);
-    else spawnSmoke(player.eye, player);
-  } else {
-    player.invulnTimer = 0;  // throwing cancels spawn protection
-    playerAimDirection(_aimDir);
-
-    /**
-     * Overhand by default, underhand while aiming.
-     *
-     * One throw strength cannot cover both "over that wall" and "just past my feet" — with a
-     * single 17 m/s overhand, anything you wanted to place close had to be bounced off
-     * geometry and hoped for. Holding the aim button lobs it short and soft instead, which
-     * is the throw you actually want for blocking a doorway you are standing in or rolling
-     * a frag around a near corner. Both are the same button, so nothing new to learn.
-     */
-    const underhand = aiming;
-    const power = underhand ? 7.0 : 17.0;
-    // The underhand gets a steeper launch so its shorter throw still clears a crate.
-    const lift = underhand ? 0.30 : 0.0;
-    const dir = _aimDir.clone();
-    dir.y += lift;
-    dir.normalize();
-    const origin = player.eye.clone().addScaledVector(dir, 0.7);
-    throwGrenade(player, origin, dir, power, kind, Math.max(0.35, player.cookTime));
-  }
+  player.invulnTimer = 0;  // throwing cancels spawn protection
+  const dir = new THREE.Vector3();
+  const power = throwAim(dir);
+  const origin = player.eye.clone().addScaledVector(dir, 0.7);
+  throwGrenade(player, origin, dir, power, kind, kind === 'frag' ? CONFIG.FRAG_FUSE : CONFIG.SMOKE_FUSE);
   if (player.current === 'frag' && player.fragCount <= 0) switchWeapon('pistol');
   updateAmmoHud();
+}
+
+const _throwDir = new THREE.Vector3();
+const _throwFrom = new THREE.Vector3();
+
+/** Charge the throw in hand and draw its arc. Once per rendered frame while playing. */
+function updateThrowPreview(dt) {
+  if (!player.cooking || !player.alive) { showThrowArc(null); return; }
+  player.chargeTime += dt;
+  const power = throwAim(_throwDir);
+  _throwFrom.copy(player.eye).addScaledVector(_throwDir, 0.7);
+  showThrowArc(player, _throwFrom, _throwDir, power);
 }
 
 /* ------------------------------ input ------------------------------ */
@@ -868,6 +919,7 @@ return {
   applyDamage,
   stepPlayer,
   syncPlayerPoints,
+  resetStance,
   currentWeapon,
   startReload,
   finishReload,
@@ -875,6 +927,8 @@ return {
   tryFire,
   startCook,
   releaseCook,
+  throwCharge,
+  updateThrowPreview,
   bindInput,
   requestLock,
   pollGamepad,

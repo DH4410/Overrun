@@ -98,7 +98,7 @@ test('CORE-02: player travel remains consistent at 60 and 30 render Hz', async (
   expect(relativeDifference(at60, at30)).toBeLessThanOrEqual(0.05);
 });
 
-test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', async ({ page }) => {
+test('CORE-03: your frag cannot damage or score from an allied bot in TDM', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'tdm' });
   expect(await observedAppState(page)).toBe(APP_STATE.PLAYING);
@@ -148,26 +148,14 @@ test('CORE-03: a cooked frag cannot damage or score from an allied bot in TDM', 
   });
   expect(setup.distance).toBeLessThan(1);
   expect(setup.enemyInCombatGraph).toBe(true);
-  const cooking = await page.evaluate(() => {
-    globalThis.__game.keys.KeyG = false;
-    // The deterministic gamepad is connected for input coverage. Keep its grenade button
-    // held while the keyboard cook is active so pollGamepad() does not release the frag.
-    globalThis.__testGamepad.setButton(4, true);
-    globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG' }));
-    return globalThis.__game.player.cooking;
-  });
-  expect(cooking).toBe('frag');
-  await page.evaluate(() => { globalThis.__game.player.cookTime = 0; });
-  await pumpFrames(page);
-  expect(await page.evaluate(() => ({
-    cooking: globalThis.__game.player.cooking,
-    fragCount: globalThis.__game.player.fragCount,
-  }))).toEqual({ cooking: null, fragCount: 2 });
-  expect(await page.evaluate(() => globalThis.__game.particlesAdd.active)).toBeGreaterThan(setup.particles);
+  // A frag of the player's that goes off where they stand. (This used to be a frag cooked
+  // until it blew up in hand; the fuse now starts on release, so nothing goes off in hand.)
   await page.evaluate(() => {
-    globalThis.__testGamepad.setButton(4, false);
-    globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyG' }));
+    const game = globalThis.__game;
+    game.throwGrenade(game.player, game.player.eye.clone(), new game.THREE.Vector3(0, -1, 0), 0.01, 'frag', 0.005);
   });
+  await pumpFrames(page);
+  expect(await page.evaluate(() => globalThis.__game.particlesAdd.active)).toBeGreaterThan(setup.particles);
 
   const result = await page.evaluate(() => {
     const game = globalThis.__game;

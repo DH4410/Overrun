@@ -52,6 +52,9 @@ export const AIM = {
   headBias: 0.0,
   /** Stop moving this many seconds before the shot lands, to clear `moveSpread`. 0 = never. */
   counterStrafe: 0.0,
+  /** Time constant, in seconds, of how fast aim height and lead catch up with a target that
+   *  drops or changes direction. It is what makes crouching and strafe-jiggling a dodge. */
+  trackLag: 0.32,
 };
 
 /** Resolve a tier's aim profile against the defaults. */
@@ -68,9 +71,9 @@ export const BOT_RANGE_BAND = {
 };
 
 export const DIFFICULTY = {
-  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85 },
+  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85, aim: { trackLag: 0.45 } },
   medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10, speed: 1.0 },
-  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18 },
+  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18, aim: { trackLag: 0.22 } },
 
   /**
    * The 1v1 duel opponent. Not "hard with bigger numbers" — a different shooter.
@@ -119,6 +122,7 @@ export const DIFFICULTY = {
       moveSpread: 0.055,     // 4.6 m/s of strafe costs it 0.25 rad — it cannot run and shoot
       headBias: 0.8,
       counterStrafe: 0.11,
+      trackLag: 0.14,
     },
   },
 };
@@ -732,6 +736,11 @@ class Bot {
     this.respawnTimer = 0;
     this.aimOff = new THREE.Vector3();     // persistent aim error, random-walks while firing
     this.aimSettle = 0;                    // seconds spent tracking the current target
+    // Where this bot's aim thinks the target is: its height and velocity, each catching up
+    // with the real thing over aim.trackLag. See simStep.
+    this.trackTarget = null;
+    this.trackY = 0;
+    this.trackVel = new THREE.Vector3();
     this.strafeDir = Math.random() < 0.5 ? -1 : 1;
     this.strafeTimer = rand(0.5, 1.5);
     this.yaw = rand(-Math.PI, Math.PI);
@@ -1056,10 +1065,17 @@ class Bot {
    * Every tier before the elite one aimed at `target.pos`, which is the chest — so a bot
    * could only ever headshot you by accident. `headBias` is the share of shots aimed at the
    * head instead. It reads the target's live hitbox rather than a constant, so crouching
-   * genuinely moves the aim point down: HB_PLAYER.headY is 0.6 standing and
-   * HB_PLAYER_CROUCH.headY is 0.37, and `player.hb` is swapped as you crouch.
+   * genuinely moves the aim point down: HB_PLAYER.headY is 0.63 standing and
+   * HB_PLAYER_CROUCH.headY is 0.42, and `player.hb` is swapped as you crouch. The move reaches
+   * the aim over aim.trackLag, through trackY.
    */
   aimPoint(target, out) {
+    this.aimPointTrue(target, out);
+    if (target === this.trackTarget) out.y += this.trackY - target.pos.y;
+    return out;
+  }
+
+  aimPointTrue(target, out) {
     out.copy(target.pos);
     if (this.aim.headBias > 0 && Math.random() < this.aim.headBias) {
       // Dead centre of the head sphere, NOT its lower edge.
@@ -1100,7 +1116,8 @@ class Bot {
     // depends on the difficulty, so a bot mis-times a moving target the way a person does.
     const skill = this.diff.accuracy;
     const leadErr = lerp(0.45, 0.95, skill) * rand(0.75, 1.2);
-    _v2.copy(aimAt).addScaledVector(target.vel, flight * leadErr);
+    const seenVel = target === this.trackTarget ? this.trackVel : target.vel;
+    _v2.copy(aimAt).addScaledVector(seenVel, flight * leadErr);
     _v2.y += 0.5 * 9.82 * flight * flight * lerp(0.55, 1.0, skill);
     _v2.sub(muzzle).normalize();
 
@@ -1175,6 +1192,17 @@ class Bot {
     if (this.hasLOS && this.target === this._lastAimTarget) this.aimSettle += dt * this.aim.settle;
     else { this.aimSettle = 0; this.aimOff.set(0, 0, 0); }
     this._lastAimTarget = this.hasLOS ? this.target : null;
+    // Aim follows a target that drops or turns a beat late, the way a hand does. Only height
+    // and velocity lag: a lagged position would make every steady strafe miss behind.
+    const tt = this.target;
+    if (!tt) this.trackTarget = null;
+    else if (tt !== this.trackTarget) {
+      this.trackTarget = tt; this.trackY = tt.pos.y; this.trackVel.copy(tt.vel);
+    } else {
+      const k = 1 - Math.exp(-dt / this.aim.trackLag);
+      this.trackY += (tt.pos.y - this.trackY) * k;
+      this.trackVel.lerp(tt.vel, k);
+    }
     this.stepTimer = Math.max(0, this.stepTimer - dt);
     this.stateTime += dt;
     this.repathTimer -= dt;

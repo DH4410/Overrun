@@ -45,6 +45,7 @@ export function createMatchRuntime({
   setAppState,
   resetPlayerAmmo,
   syncPlayerPoints,
+  resetStance,
   clearEffects,
   resetAmmoChests,
   resetConsumables,
@@ -198,6 +199,7 @@ function respawnPlayer(immediate = false, at = null) {
   player.body.position.set(sp.x, sp.y + 0.6, sp.z);
   player.body.velocity.set(0, 0, 0);
   player.body.wakeUp();
+  resetStance();                       // dying crouched must not respawn you crouched
   // Eye and chest follow the body only when the player steps, so until then they still said
   // where you died: a grenade thrown on the first frame of a life left from your corpse.
   syncPlayerPoints();

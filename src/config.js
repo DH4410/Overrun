@@ -76,6 +76,7 @@ export const CONFIG = {
 
   // Grenades
   FRAG_FUSE: 3.0,
+  THROW_CHARGE_TIME: 0.9,   // seconds of holding throw for the farthest throw
   FRAG_DAMAGE: 80,
   FRAG_RADIUS: 8,
   FRAG_IMPULSE: 900,

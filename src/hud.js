@@ -365,7 +365,8 @@ function updateHudTimers(dt) {
     const p = Math.round((1 - player.reloading / player.reloadTotal) * 100);
     el.areload.textContent = `RELOADING ${p}%`;
   } else if (player.cooking) {
-    el.areload.textContent = `${player.cooking.toUpperCase()} COOKING ${player.cookTime.toFixed(1)}s`;
+    const pct = Math.round(clamp(player.chargeTime / CONFIG.THROW_CHARGE_TIME, 0, 1) * 100);
+    el.areload.textContent = `${player.cooking.toUpperCase()} POWER ${pct}%`;
   } else {
     const w = currentWeapon();
     const a = !w.thrown && player.ammo[w.id];
@@ -385,6 +386,7 @@ function updateHudTimers(dt) {
  */
 function updateCrosshairSpread() {
   const w = currentWeapon();
+  if (w && el.crosshair.dataset.w !== w.id) el.crosshair.dataset.w = w.id;
   if (!w || w.thrown || w.rest === undefined) return;
   const planar = Math.hypot(player.body.velocity.x, player.body.velocity.z);
   const cone = playerSpread(w, {

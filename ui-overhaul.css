@@ -63,6 +63,30 @@ button { font: inherit; color: inherit; }
 .ch-lf { height: 2px; width: 8px; top: -1px; left: calc(-1 * (var(--xhair-gap, 8px) + 8px)); }
 .ch-rt { height: 2px; width: 8px; top: -1px; left: var(--xhair-gap, 8px); }
 #crosshair.off { opacity: 0; }
+/* Each gun its own reticle (data-w is the weapon id). The ring follows the same --xhair-gap as
+   the arms, so it is still a live read-out of the cone: a pump shows its whole pellet circle. */
+#crosshair i.ch-ring { display: none; background: transparent; border-radius: 50%;
+  border: 2px solid var(--xhair, #7fdc8c); box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(0, 0, 0, .45);
+  width: calc(2 * var(--xhair-gap, 8px)); height: calc(2 * var(--xhair-gap, 8px));
+  left: calc(-1 * var(--xhair-gap, 8px) - 2px); top: calc(-1 * var(--xhair-gap, 8px) - 2px); }
+#crosshair[data-w="shotgun"] i.ch-ring { display: block; }
+#crosshair[data-w="shotgun"] .ch-up, #crosshair[data-w="shotgun"] .ch-dn { height: 6px; }
+#crosshair[data-w="shotgun"] .ch-lf, #crosshair[data-w="shotgun"] .ch-rt { width: 6px; }
+#crosshair[data-w="shotgun"] .ch-up { top: calc(-1 * var(--xhair-gap, 8px) - 3px); }
+#crosshair[data-w="shotgun"] .ch-dn { top: calc(var(--xhair-gap, 8px) - 3px); }
+#crosshair[data-w="shotgun"] .ch-lf { left: calc(-1 * var(--xhair-gap, 8px) - 3px); }
+#crosshair[data-w="shotgun"] .ch-rt { left: calc(var(--xhair-gap, 8px) - 3px); }
+#crosshair[data-w="sniper"] i.ch-ring { display: block; border-width: 1px; opacity: .8; }
+#crosshair[data-w="sniper"] .ch-up, #crosshair[data-w="sniper"] .ch-dn,
+#crosshair[data-w="sniper"] .ch-lf, #crosshair[data-w="sniper"] .ch-rt { display: none; }
+#crosshair[data-w="sniper"] .ch-dot { width: 4px; height: 4px; left: -2px; top: -2px; border-radius: 50%; }
+#crosshair[data-w="pistol"] .ch-up, #crosshair[data-w="pistol"] .ch-dn { height: 5px; }
+#crosshair[data-w="pistol"] .ch-lf, #crosshair[data-w="pistol"] .ch-rt { width: 5px; }
+#crosshair[data-w="pistol"] .ch-up { top: calc(-1 * var(--xhair-gap, 8px) - 5px); }
+#crosshair[data-w="pistol"] .ch-lf { left: calc(-1 * var(--xhair-gap, 8px) - 5px); }
+#crosshair[data-w="frag"] .ch-up, #crosshair[data-w="frag"] .ch-dn,
+#crosshair[data-w="frag"] .ch-lf, #crosshair[data-w="frag"] .ch-rt { display: none; }
+#crosshair[data-w="frag"] .ch-dot { width: 6px; height: 6px; left: -3px; top: -3px; border-radius: 50%; background: transparent; border: 2px solid var(--xhair, #7fdc8c); }
 
 /* ---- sniper scope ---- */
 #scope { position: absolute; inset: 0; display: none; }
@@ -430,4 +454,57 @@ kbd {
   .pill { font-size: 18px; }
   .grp { margin-bottom: 13px; }
   .actions { padding: 12px 0 22px; }
+}
+
+/* ==========================================================================
+   Locker — the loadout screen. Rarity colours as in Fortnite, so a gun's class reads at a glance.
+   ========================================================================== */
+#locker { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 20%, rgba(28, 34, 44, .96), rgba(4, 6, 9, .98) 70%); pointer-events: auto; }
+#locker.hidden { display: none; }
+.lk-card { width: min(1060px, 94vw); max-height: 96vh; display: flex; flex-direction: column; gap: clamp(8px, 2vh, 18px); }
+.lk-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.lk-head h2 { margin: 0; font-family: var(--f-display); font-size: clamp(30px, 6vh, 52px); font-weight: 800; letter-spacing: 3px; line-height: .95; }
+.lk-sub { font-size: 14px; color: var(--ink-2); margin-top: 4px; }
+.lk-label { font-family: var(--f-display); font-size: 15px; font-weight: 700; letter-spacing: 3px; color: var(--ink-3); }
+.lk-label span { letter-spacing: 0; font-family: var(--f-body); font-weight: 400; font-size: 13px; margin-left: 10px; text-transform: none; }
+.lk-slots, .lk-armory { display: grid; gap: clamp(6px, 1.2vw, 12px); }
+.lk-slots { grid-template-columns: repeat(5, 1fr); }
+.lk-armory { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+.lk-gun { --tier: #8a939e; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 10px 10px; text-align: left; cursor: pointer; border: 0; border-radius: 6px; overflow: hidden;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tier) 42%, #151a22) 0%, #10141a 78%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier) 55%, transparent), 0 6px 18px rgba(0, 0, 0, .35);
+  transition: transform .12s, box-shadow .12s; }
+.lk-gun::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--tier); }
+.lk-gun:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 2px var(--tier), 0 10px 24px rgba(0, 0, 0, .45); }
+.lk-gun.tier-common { --tier: #8a939e; }
+.lk-gun.tier-uncommon { --tier: #4cb85c; }
+.lk-gun.tier-rare { --tier: #3f8fe6; }
+.lk-gun.tier-epic { --tier: #a45de0; }
+.lk-gun.tier-legendary { --tier: #f0a23a; }
+.lk-img { width: 100%; aspect-ratio: 16 / 7; display: flex; align-items: center; justify-content: center; }
+.lk-img img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .5)); }
+.lk-name { font-family: var(--f-display); font-size: clamp(15px, 2.6vh, 20px); font-weight: 800; letter-spacing: 1px; line-height: 1; }
+.lk-cls { font-family: var(--f-display); font-size: 12px; font-weight: 700; letter-spacing: 2px; color: color-mix(in srgb, var(--tier) 75%, white); }
+.lk-key { position: absolute; top: 6px; left: 8px; font-family: var(--f-display); font-size: 22px; font-weight: 800; color: var(--ink-3); }
+.lk-slot.sel { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 2px var(--accent), 0 10px 24px rgba(0, 0, 0, .45); transform: translateY(-3px); }
+.lk-slot.sel .lk-key { color: var(--accent); }
+.lk-slot.fixed { cursor: default; opacity: .75; }
+.lk-slot.fixed:hover { transform: none; }
+.lk-equipped { position: absolute; top: 6px; right: 8px; font-family: var(--f-display); font-size: 12px; font-weight: 800; letter-spacing: 1px;
+  padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .45); color: var(--ink-2); }
+.lk-gun.in-slot { box-shadow: inset 0 0 0 2px var(--accent), 0 10px 24px rgba(0, 0, 0, .45); }
+.lk-gun.in-slot .lk-equipped { background: var(--accent); color: var(--accent-ink); }
+.lk-stats { display: grid; gap: 3px; width: 100%; margin-top: 6px; }
+.lk-stat { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 6px; }
+.lk-stat i { font-style: normal; font-family: var(--f-display); font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--ink-3); }
+.lk-stat b { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.lk-stat em { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--tier) 70%, white), var(--tier)); }
+@media (max-height: 520px) {
+  .lk-stats { gap: 1px; margin-top: 3px; }
+  .lk-stat b { height: 4px; }
+  .lk-sub { display: none; }
+  .lk-img { aspect-ratio: 16 / 6; }
 }

@@ -113,3 +113,34 @@ test('you stand as tall as the bots you fight, and a respawn moves your eye with
   expect(r.respawnEye[0]).toBeCloseTo(12, 5);
   expect(r.respawnEye[1]).toBeCloseTo(-24, 5);
 });
+
+test('a bot standing beside you has its head at your eye level, not below it', async ({ page }) => {
+  // Measured against the drawn, posed model rather than the constants, because what looked
+  // wrong was the model: up close every opponent seemed a size smaller than you.
+  await setup(page);
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const { THREE, bots, player } = g;
+    player.body.position.set(-30, 0.6, -30);
+    player.body.velocity.set(0, 0, 0);
+    const bot = bots[0];
+    bot.body.type = 1;
+    bot.body.position.set(-28.5, 0.9, -30);
+    bot.body.velocity.set(0, 0, 0);
+    for (let f = 0; f < 60; f++) {
+      bot.body.position.x = -28.5; bot.body.position.z = -30;
+      globalThis.__testClock.pump(1, 1000 / 60);
+    }
+    const floor = player.body.position.y - 0.5;
+    const box = new THREE.Box3().setFromObject(bot.mesh);
+    return {
+      eye: player.eye.y - floor,
+      botHead: bot.headPoint(new THREE.Vector3()).y - floor,
+      botTop: box.max.y - floor,
+    };
+  });
+  expect(r.botHead - r.eye).toBeGreaterThan(-0.05);
+  expect(r.botHead - r.eye).toBeLessThan(0.2);
+  expect(r.botTop - r.eye).toBeGreaterThan(0.1);
+  expect(r.botTop - r.eye).toBeLessThan(0.35);
+});

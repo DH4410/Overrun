@@ -219,6 +219,10 @@ async function measureAim(page, { tier, range, botSpeed = 0, rounds = 60 }) {
       bot.updateTransforms();
       bot.faceDir(lane.b.x - lane.a.x, lane.b.z - lane.a.z, 1, 1000);
       bot.updateTransforms();
+      // Parking teleports the dummy back up to y = 1 after it has settled on the floor. No
+      // real target jumps like that, so forget the bot's lagged height (trackLag) as it would
+      // for a fresh target, rather than measuring a half-metre-low aim point.
+      bot.trackTarget = null;
     }
 
     /**

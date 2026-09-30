@@ -58,6 +58,7 @@ import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
 import { createMinimap } from './minimap.js';
+import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import {
   ADS_FOV,
@@ -108,7 +109,15 @@ let spawnCastY = CONFIG.CEIL - 0.5;
 
 const Audio = createAudio({
   getCamera: () => camera,
-  getPlayer: () => player,
+});
+// Browsers only start audio after a gesture, so the lobby music begins on the first click or key.
+// Menu buttons tick on hover and click.
+Audio.playMusic('lobby');
+for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => Audio.init(), { once: true, capture: true });
+addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(); }, true);
+addEventListener('pointerover', (e) => {
+  const b = e.target.closest?.('.tile, .sel-card, .lk-gun, #play');
+  if (b && !b.contains(e.relatedTarget)) Audio.uiHover();
 });
 
 
@@ -554,6 +563,7 @@ function applySettings() {
   vmCamera.updateProjectionMatrix();
 
   Audio.setVolume?.(settings.masterVolume);
+  Audio.setMusicVolume?.(settings.musicVolume);
   applyCrosshairStyle();
   saveSettings();
 }
@@ -1097,7 +1107,9 @@ function frame() {
       if (player.cooldown < 0) player.cooldown = 0;
     }
     if (player.reloading > 0) {
+      const from = 1 - player.reloading / player.reloadTotal;
       player.reloading -= dt;
+      Audio.reloadProgress(player.current, from, 1 - Math.max(player.reloading, 0) / player.reloadTotal);
       if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
     }
     if (isFiring() && currentWeapon().auto) tryFire();
@@ -1129,6 +1141,7 @@ function frame() {
     updateMatch(dt);
     updateViewModel(dt);
     updateCamera(dt);
+    emotes.update(dt, { running: match.running && !match.outro, firing: isFiring() });
     updateThrowPreview(dt);
     updatePlates(dt);
     updateAllyMarkers();
@@ -1149,11 +1162,16 @@ function frame() {
   renderer.clear(true, true, true);
   renderer.render(scene, camera);
 
-  if (match.running && vmRig.visible) {
+  if (!match.running && emotes.active) emotes.stop(false);   // abandoned mid-dance from the pause menu
+  if (match.running && vmRig.visible && !emotes.active) {
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
   }
   if (match.running) minimap.draw();
+  if (appState === APP_STATE.PLAYING) {
+    Audio.updateListener();
+    Audio.heartbeat(dt, match.running && player.alive && player.health < 35);
+  }
 }
 
 /* ================================================================== *
@@ -1214,6 +1232,13 @@ const locker = createLocker({
   },
   onClose: () => { if (match.running) requestLock(); },
 });
+const emotes = createEmotes({
+  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio,
+});
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING && match.running && !match.outro) emotes.openWheel();
+});
+addEventListener('keyup', (e) => { if (e.code === 'KeyB') emotes.closeWheel(true); });
 $('locker-open')?.addEventListener('click', () => locker.open());
 $('locker-open-pause')?.addEventListener('click', () => locker.open());
 
@@ -1330,7 +1355,7 @@ async function boot() {
     renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, props: `${ok}/${results.length}`, anims: extraAnims,
               characters: loadedCharacters(), port: portOk },
-    registerBotClips, botClipNames, buildCharacterMesh,
+    registerBotClips, botClipNames, buildCharacterMesh, emotes, Audio,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,

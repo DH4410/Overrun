@@ -945,10 +945,7 @@ class Bot {
     if (this.stepTimer <= 0) {
       this.stepTimer = 0.42;
       const dc = this.body.position.distanceTo(camera.position);
-      if (dc < 22) {
-        const sp = Audio.spatial(this.body.position);
-        Audio.burst({ dur: 0.06, gain: 0.05 * Audio.atten(dc), type: 'lowpass', freq: 380, decay: 0.05, pan: sp.pan });
-      }
+      if (dc < 22) Audio.step(this.body.position);
     }
     return false;
   }

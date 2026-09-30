@@ -178,8 +178,12 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
   }
   target.health -= dmg;
 
+  // A hit that a shield soaked cracks instead of thudding, and the hit that breaks it shatters.
+  const shield = soaked > 0 ? (target.armor <= 0 ? 'break' : 'hit') : null;
   if (target === player) {
-    Audio.hurt();
+    if (shield === 'break') Audio.shieldBreak(true);
+    else if (shield) Audio.shieldHit(true);
+    else Audio.hurt();
     if (source && source !== player) showDamageDirection(source.pos);
     addShake(0.035);
   } else {
@@ -187,7 +191,10 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
       const lethal = target.health <= 0;
       if (!lethal) {
         showHitMarker(headshot ? 'head' : 'body');
-        if (headshot) Audio.headshot?.(); else Audio.hit();
+        if (shield === 'break') Audio.shieldBreak();
+        else if (shield) Audio.shieldHit();
+        if (headshot) Audio.headshot();
+        else if (!shield) Audio.hit(player.current);
       }
       // zone was being dropped here, so every number rendered with the plain body style and a
       // headshot looked exactly like a graze. soaked tells the player *why* a centre-mass hit
@@ -484,7 +491,6 @@ function finishReload() {
   const need = w.mag - a.mag;
   const take = Math.min(need, a.reserve);
   a.mag += take; a.reserve -= take;
-  Audio.reloadClick();
 }
 
 /** Stand up and drop any latched crouch or slide, for a fresh life. */
@@ -501,6 +507,7 @@ function switchWeapon(id) {
   player.current = id;
   player.reloading = 0;
   player.cooldown = Math.max(player.cooldown, 0.25);
+  Audio.equip();
   // The crouch latch survives a swap: with toggle-crouch on, every swap used to stand you up.
   aiming = false; sprintLatch = false;
   updateAmmoHud();

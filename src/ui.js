@@ -145,6 +145,7 @@ const SETTINGS_SCHEMA = [
     hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
   { group: 'AUDIO' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
+  { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
 ];
 
 function buildSettingsPanel() {

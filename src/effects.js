@@ -341,7 +341,7 @@ const SMOKE_FADE = 2.5;       // seconds of fade at the end of its life
 let smokeVeil = null;
 
 function spawnSmoke(pos, owner) {
-  Audio.smokePop(pos.distanceTo(camera.position));
+  Audio.smokePop(pos);
   const group = new THREE.Group();
   group.position.copy(pos);
   scene.add(group);

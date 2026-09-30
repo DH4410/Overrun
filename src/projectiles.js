@@ -307,14 +307,9 @@ function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1, coneOverri
     }
     spawnBullet(origin, _fireDir, weapon, shooter, weapon.damage);
   }
-  // The player's own gun stays centred; everyone else's is placed in the stereo field so you
-  // can tell which side you are being shot from before you see anyone.
-  if (shooter === getPlayer()) {
-    Audio.gunshot(weapon.sound, 0, 0);
-  } else {
-    const sp = Audio.spatial(origin);
-    Audio.gunshot(weapon.sound, sp.dist, sp.pan);
-  }
+  // The player's own gun plays dry; everyone else's is placed in 3D where they stand, so you
+  // can tell where you are being shot from, and how far, before you see anyone.
+  Audio.gunshot(weapon.sound, shooter === getPlayer() ? null : origin);
   alertBots(origin, shooter);
 }
 
@@ -369,7 +364,7 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
     if (g.bounceCd > 0) return;
     g.bounceCd = 0.12;
     const speed = body.velocity.length();
-    if (speed > 1.4) Audio.bounce(mesh.position.distanceTo(camera.position));
+    if (speed > 1.4) Audio.bounce(mesh.position);
   });
   return g;
 }
@@ -471,7 +466,7 @@ function clearGrenades() {
 /** Radial damage with linear falloff, plus a 1/d^2 impulse on every dynamic body nearby. */
 function explode(pos, owner) {
   spawnExplosion(pos);
-  Audio.explosion(pos.distanceTo(camera.position));
+  Audio.explosion(pos);
 
   for (const c of combatants) {
     if (!c.alive) continue;

@@ -660,3 +660,21 @@ body.outro #hud > *:not(#smokeveil):not(#lowhp) { opacity: 0; transition: opacit
   background: var(--accent); color: var(--accent-ink); font-family: var(--f-display); font-size: 20px; font-weight: 800; letter-spacing: 6px;
   animation: o-up .4s ease-out 1.5s both; }
 #podium-close:hover { filter: brightness(1.1); }
+
+/* ==========================================================================
+   Emote wheel: hold B, point, let go.
+   ========================================================================== */
+#emote-wheel { position: fixed; left: 50%; top: 50%; z-index: 20; width: min(420px, 80vmin); aspect-ratio: 1; transform: translate(-50%, -50%) scale(.9);
+  border-radius: 50%; display: none; opacity: 0; transition: opacity .12s, transform .12s;
+  background: radial-gradient(circle, rgba(8, 10, 14, .55) 0 22%, rgba(8, 10, 14, .78) 22.5% 70%, transparent 70.5%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .08) inset; }
+#emote-wheel.on { display: block; opacity: 1; transform: translate(-50%, -50%); }
+.ew-hub { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; font-family: var(--f-display); }
+.ew-hub b { display: block; font-size: 13px; letter-spacing: 4px; color: var(--ink-3); }
+.ew-hub span { display: block; min-height: 26px; font-size: 22px; font-weight: 800; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; }
+.ew-slot { position: absolute; transform: translate(-50%, -50%); padding: 8px 12px; border-radius: 4px; pointer-events: auto; cursor: pointer;
+  font-family: var(--f-display); font-size: clamp(14px, 2.6vmin, 18px); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap;
+  color: var(--ink-2); background: rgba(255, 255, 255, .06); transition: background .08s, color .08s, transform .08s; }
+.ew-slot.on { color: var(--accent-ink); background: var(--accent); transform: translate(-50%, -50%) scale(1.12); }
+.ew-slot.off { opacity: .3; pointer-events: none; }
+body.emoting #crosshair, body.emoting #hitmarker { display: none; }

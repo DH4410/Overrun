@@ -161,6 +161,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
 
   Audio.init();
   Audio.startAmbient();
+  Audio.playMusic('match');
+  Audio.roundStart();
   requestLock();
 }
 
@@ -202,7 +204,7 @@ function endMatch(title, sub, { instant = false } = {}) {
   $id('o-sub').textContent = sub;
   $id('outro').className = `on ${outcome}`;
   document.body.classList.add('outro');
-  Audio.stinger?.(outcome);
+  Audio.stinger(outcome);
 }
 
 /** Advanced on real time by the frame loop, not on the slowed world clock. */
@@ -217,6 +219,7 @@ function finishMatch(title, sub, podium) {
   match.outro = null;
   setAppState(APP_STATE.MENU);
   document.exitPointerLock?.();
+  Audio.playMusic('lobby');
   document.body.classList.remove('outro');
   $id('outro').className = '';
   el.hud.classList.add('hidden');

@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS = {
   showDamageNumbers: true,
   showEnemyHealth: false,
   masterVolume: 0.8,
+  musicVolume: 0.6,
   viewBob: true,
   toggleAim: false,
   toggleCrouch: true,

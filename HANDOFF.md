@@ -10,6 +10,9 @@ dead bots floating — it found the bots were being drawn backwards. Session 4 (
 worked through your ten-point list: bot jitter, animation, weapons, jumping through ramps, stuck
 bots, hitboxes and damage feedback, the UI, and movement. Session 5 (2026-09-29) did the last
 two: **PORT**, a new default map modelled in Blender, and **three more Mixamo characters**.
+Session 6 (2026-09-30) worked through a fifteen-point list: locker, crouch dodge, cooked
+throws, bot height, per-gun crosshairs, minimap, health bars, win screen, lobby, sound and
+music, and emotes. See "Session 6".
 
 ---
 
@@ -19,8 +22,8 @@ two: **PORT**, a new default map modelled in Blender, and **three more Mixamo ch
 |---|---|
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
-| Pushed? | **No.** Nothing has been pushed and no PR exists. |
-| Tests | 68/68 Playwright, 19/19 unit, lint 0 errors (16 warnings, all pre-existing) |
+| Pushed? | Sessions 1-5 are on PR DH4410/shooting-game#7. **Session 6 is committed locally, not pushed.** |
+| Tests | 88/88 Playwright, 19/19 unit, lint 0 errors (15 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -39,10 +42,39 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ## Next session — start here
 
-1. **Playtest PORT and the new characters** in a real browser (`node scripts/serve-tests.mjs`,
-   then http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v14`). Everything
-   visual was checked headless; see "Session 5" for what that did and did not cover.
+1. **Playtest session 6** in a real browser (`node scripts/serve-tests.mjs`, then
+   http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v16`). Sound and music
+   in particular were only checked for "runs without errors": nobody has listened to them.
 2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below.
+
+---
+
+## Session 6: the fifteen-point list
+
+| Ask | Where |
+|---|---|
+| Fortnite-style locker | `src/locker.js`, `src/loadout.js` (saved to localStorage). Lobby card and pause button. Four guns from five, SMG added. |
+| Crouch to dodge | Crouch slide from a sprint, lower hitbox (`PLAYER_CHEST_CROUCH`). |
+| Hold G to throw further | Cook time sets the throw speed, with a drawn arc. Three frags in a row all go off. |
+| Bots looked short | Player eye lowered to 1.8 m (`CONFIG.EYE_HEIGHT` 1.3 above the foot sphere). |
+| Crosshair per gun | `#crosshair` classes per weapon in `ui-overhaul.css`. |
+| Minimap | `src/minimap.js`: a rotating 2D radar drawn from `blockers`, not a second WebGL render. |
+| Health you can read | Thick bottom-centre bars; a pale chip trails each hit for a moment. |
+| Win screen | 5 s slow motion (`OUTRO_TIME_SCALE`) under VICTORY/DEFEAT, then a podium. |
+| No scrollbars | Hidden everywhere; `match-end.spec` checks every screen at two sizes. |
+| Lobby | Mode and map are cards that open popouts of big tiles (`#mode-pop`, `#map-pop`). |
+| Standings while dead | The pause-screen board during the respawn wait shows your place. |
+| Smoke | Denser and longer. |
+| Sound | `src/audio.js` rewritten. Other people's sounds go through an HRTF panner at their world position (direction + distance fall-off + an air low-pass). Per-gun shots, a pump/bolt after your own shotgun/sniper shot, reload foley stepped through `reloadProgress`, per-gun hit ticks, a shield crack and a shield break (hitting a shielded bot, or being hit on your shield), low-health heartbeat, UI ticks. |
+| Music | Synthesised step sequencers (`SONGS` in `audio.js`): lobby, match, emote, and a win/loss stinger. Own volume slider in Settings. |
+| Emotes | `src/emotes.js`. Hold **B**, point, let go. Eight Mixamo clips in `assets/player/emotes/` (not precached, loaded on first wheel open). Plays on a roster character in third person; moving, jumping, firing or dying ends it. Bots never emote. |
+
+Notes:
+- Bots only carry shields in Duel (they copy yours), so the shield crack on a hit is a Duel
+  sound; the incoming crack plays in every mode. Giving bots shields elsewhere would change
+  time-to-kill, so it was left alone.
+- The lobby music needs a gesture before a browser will play it; it starts on the first click
+  or key press.
 
 ---
 

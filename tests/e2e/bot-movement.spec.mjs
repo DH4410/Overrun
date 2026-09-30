@@ -162,7 +162,7 @@ test('bots cross PORT: onto the dock, through the yard, into the warehouse', asy
   for (const r of results) expect(r.arrived, `${r.name}: ended at ${r.at} after ${r.t}s`).toBe(true);
 });
 
-for (const map of ['port', 'desert']) {
+for (const map of ['port', 'desert', 'snow']) {
   test(`bots cross ${map.toUpperCase()} end to end`, async ({ page }) => {
     await bootGame(page);
     await startMatch(page, { mode: 'dm', map, diff: 'medium' });
@@ -182,11 +182,11 @@ for (const map of ['port', 'desert']) {
   });
 }
 
-test('DESERT: no node inside a solid, and none up on a roof', async ({ page }) => {
+for (const map of ['desert', 'snow']) test(`${map.toUpperCase()}: no node inside a solid, and none up on a roof`, async ({ page }) => {
   // A node inside a solid that is not flagged as a blocker had bots pressing themselves against
   // its side trying to reach it.
   await bootGame(page);
-  await startMatch(page, { mode: 'dm', map: 'desert', diff: 'medium' });
+  await startMatch(page, { mode: 'dm', map, diff: 'medium' });
   const r = await page.evaluate(() => {
     const g = globalThis.__game;
     // A standing body's column must be open: nothing between the node's floor and head height.

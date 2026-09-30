@@ -9,9 +9,9 @@ OVERRUN is a browser-based first-person shooter where you fight AI bots in fast 
   - Team Deathmatch (you + allies vs enemy team, first to 25)
   - Survival (endless waves, score by kills)
   - 1v1 Duel (round-based, one life each, first to 7 — always the ELITE bot)
-- **Maps**: Port (the default: a daylight container port, modelled in Blender by
-  `scripts/blender/build_port.py`), Warehouse, Foundry (symmetric three-lane, built for duels)
-  and Dungeon
+- **Maps**, each modelled in Blender by a script in `scripts/blender/` and textured with Poly
+  Haven CC0 materials: Port (the default: a daylight container port), Desert (a walled desert
+  town) and Snow (a research outpost at dusk). All three are symmetric, built for duels.
 - **Weapons**: multiple weapon slots, reloads, aiming/scope, frag and smoke grenades
 - **HUD systems**: health/armor, ammo, minimap, scoreboard, kill feed, damage indicators,
   and a crosshair that opens to match your live firing cone

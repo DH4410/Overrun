@@ -459,6 +459,7 @@ button { font: inherit; color: inherit; }
 #modes .tile[data-mode="duel"] svg { stroke: var(--enemy); }
 .art-port { background: linear-gradient(180deg, #9ec3e0 0 38%, transparent 38%), repeating-linear-gradient(90deg, #c2412f 0 18%, #2f6aa3 18% 36%, #d8a531 36% 54%, #3c8a5a 54% 72%, #8d99a6 72% 90%), #444c55; background-size: 100% 100%, 100% 30%, 100% 100%; background-repeat: no-repeat; background-position: 0 0, 0 55%, 0 0; }
 .art-desert { background: radial-gradient(circle at 50% 50%, #efe6d6 0 10%, transparent 10.5%), linear-gradient(180deg, #6f9fd3 0, #e9d9bd 46%, transparent 46%), repeating-linear-gradient(90deg, #c9a070 0 22%, #a8744c 22% 34%, #e3d5bb 34% 58%, #b8875c 58% 72%), #d7b98c; background-size: 100% 100%, 100% 100%, 100% 36%, 100% 100%; background-repeat: no-repeat; background-position: 0 0, 0 0, 0 72%, 0 0; }
+.art-snow { background: linear-gradient(180deg, transparent 0 40%, #2c4632 40% 44%, transparent 44%), linear-gradient(90deg, transparent 0 16%, #9c2f24 16% 38%, transparent 38% 62%, #c28a2e 62% 84%, transparent 84%), linear-gradient(180deg, #4a74ad 0, #f1cfae 40%, #e4e9ef 40%, #cfd6de 100%); background-size: 100% 100%, 100% 22%, 100% 100%; background-repeat: no-repeat; background-position: 0 0, 0 52%, 0 0; }
 @media (max-width: 700px) { .pop-grid { grid-template-columns: repeat(2, 1fr); } .tile { height: clamp(130px, 34vh, 240px); } }
 
 /* After a match: the result line. */

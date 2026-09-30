@@ -33,6 +33,7 @@ import os
 try:
     import bpy
     import bmesh
+    from mathutils import Matrix
     IN_BLENDER = True
 except ImportError:
     IN_BLENDER = False
@@ -395,7 +396,7 @@ def download_model(slug):
 def import_prop(name, coll):
     """Import one Poly Haven model, joined into a single mesh object, decimated to its triangle
     budget, its textures shrunk to PROP_TEX. Returns (object, bounds in game axes)."""
-    slug, max_tris, _kind, _approx = PROPS[name]
+    slug, max_tris, _kind, approx = PROPS[name]
     path = download_model(slug)
     before = set(bpy.data.objects)
     before_meshes = set(bpy.data.meshes)
@@ -424,7 +425,14 @@ def import_prop(name, coll):
             bpy.data.meshes.remove(m)
     ob.name = 'prop_' + name
     ob.data.name = 'prop_' + name
-    tris = sum(len(p.vertices) - 2 for p in ob.data.polygons)
+    # A few Poly Haven glTFs are in the wrong unit: steel_frame_shelves_01 is in decimetres, 21 m
+    # tall where the site lists 2.14 m. PROPS has the listed size, so a model off it by a power
+    # of ten is rescaled by exactly that power; anything closer is a real size and left alone.
+    zs = [v.co.z for v in ob.data.vertices]
+    k = approx[1] / max(1e-6, max(zs) - min(zs))
+    if abs(math.log10(k)) > 0.5:
+        ob.data.transform(Matrix.Scale(10 ** round(math.log10(k)), 4))
+    tris =sum(len(p.vertices) - 2 for p in ob.data.polygons)
     if tris > max_tris:
         mod = ob.modifiers.new('decimate', 'DECIMATE')
         mod.ratio = max_tris / tris
@@ -549,7 +557,10 @@ def build(layout):
 
 def export(objs):
     os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
-    bpy.ops.object.select_all(action='DESELECT')
+    # Not select_all: it leaves hidden objects selected, and use_selection would export them,
+    # which is how another map's build got into this one's GLB.
+    for ob in bpy.context.view_layer.objects:
+        ob.select_set(False)
     for ob in objs:
         ob.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]

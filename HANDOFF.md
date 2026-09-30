@@ -12,7 +12,10 @@ bots, hitboxes and damage feedback, the UI, and movement. Session 5 (2026-09-29)
 two: **PORT**, a new default map modelled in Blender, and **three more Mixamo characters**.
 Session 6 (2026-09-30) worked through a fifteen-point list: locker, crouch dodge, cooked
 throws, bot height, per-gun crosshairs, minimap, health bars, win screen, lobby, sound and
-music, and emotes. See "Session 6".
+music, and emotes. See "Session 6". Session 7 (2026-09-30) was the maps: the three old
+procedural maps are gone, replaced by **DESERT** and **SNOW**, both modelled in Blender like
+PORT, and clicking back in from the pause screen no longer leaves it over the game. See
+"Session 7".
 
 ---
 
@@ -22,8 +25,8 @@ music, and emotes. See "Session 6".
 |---|---|
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
-| Pushed? | Sessions 1-5 are on PR DH4410/shooting-game#7. **Session 6 is committed locally, not pushed.** |
-| Tests | 88/88 Playwright, 19/19 unit, lint 0 errors (15 warnings, all pre-existing) |
+| Pushed? | Sessions 1-5 are on PR DH4410/shooting-game#7. **Sessions 6 and 7 are committed locally, not pushed.** |
+| Tests | 98/98 Playwright, 19/19 unit, lint 0 errors (12 warnings, all pre-existing) |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -42,10 +45,47 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ## Next session — start here
 
-1. **Playtest session 6** in a real browser (`node scripts/serve-tests.mjs`, then
-   http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v16`). Sound and music
+1. **Playtest sessions 6 and 7** in a real browser (`node scripts/serve-tests.mjs`, then
+   http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v17`). Sound and music
    in particular were only checked for "runs without errors": nobody has listened to them.
-2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below.
+   DESERT and SNOW were checked from headless screenshots and the specs, not played.
+2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below; DESERT
+   and SNOW work the same way with `build_desert.py` and `build_snow.py`.
+
+---
+
+## Session 7: the maps
+
+WAREHOUSE, FOUNDRY and DUNGEON are retired, with everything only they used (the arena, prop
+and dungeon builders in `maps.js`, their config constants, tiles and tile art, the foundry
+spec). The lobby now has three maps, all modelled in Blender, all 180-degree symmetric:
+
+| Map | Script | Loaded by |
+|---|---|---|
+| PORT (default) | `scripts/blender/build_port.py` | `src/mapPort.js` |
+| DESERT — a walled town at mid-afternoon: market square, souk and caravanserai on each flank | `scripts/blender/build_desert.py` | `src/mapDesert.js` |
+| SNOW — a research outpost at dusk: frozen pond round a radio mast, a station and a garage on each flank | `scripts/blender/build_snow.py` | `src/mapSnow.js` |
+
+- **One loader.** `src/mapGlb.js` loads any Blender map: the GLB (one mesh per material key),
+  the collider JSON, a sky dome with clouds, a PMREM environment from the same sky, and the
+  map's lamps. A map's `src/map*.js` is only what differs: materials, look, spawns, pickups,
+  lamps. `GLB_MAPS` in `maps.js` lists them.
+- **A shared piece kit.** `scripts/blender/mapkit.py` has the export, the collider table and the
+  Poly Haven prop import; each map script is its layout. Props take their colliders from their
+  measured bounds.
+- **Textures** are Poly Haven CC0, 2k on the Quality preset and 1k otherwise. Coloured cladding,
+  snow and paint use a texture's luminance over a chosen colour (`pbrMat({ detail: true })`).
+- **Poly Haven units.** `steel_frame_shelves_01` ships in decimetres and imported 21 m tall —
+  on SNOW that was the "four tall towers" over the buildings. The importer now rescales a model
+  that is off its listed size by a power of ten.
+- **Specs.** `desert-map.spec.mjs` and `snow-map.spec.mjs` are PORT's checks per map: colliders
+  equal meshes both ways, symmetry, heights (a berm or crate is a hop, a cabin or container a
+  wall), TDM/Survival/Duel start cleanly. Bots cross all three maps end to end.
+- **Pause fix** (`4140d6b`): regaining pointer lock resumed the match but never hid the pause
+  overlay, so you played blind behind it. The lock handler in `player.js` now hides it (unless
+  you are dead: the death screen shares that overlay).
+- Unused now: the Kenney models in `assets/models/` (12 MB: factory and dungeon kits, and the
+  blasters), still in the repo, not referenced by any code or the service worker.
 
 ---
 
@@ -350,9 +390,8 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.
-- [ ] **Scene lighting from the sky** (a PMREM environment for PORT) would make metal and paint
-      read better in daylight. Left out for now: it costs every fragment, and battery was the
-      point of session 2.
+- [x] **Scene lighting from the sky** — done in session 7: every Blender map gets a PMREM
+      environment from its own sky (`skyEnvironment` in `mapGlb.js`, strength `look.env`).
 - [ ] **More animation, if wanted.** Hit reactions were discussed but not added — the bot has
       no hit-reaction hook yet, so it needs code as well as a clip.
 - [ ] **Clean up ~170 MB of source FBX in `C:\Users\dimah\Downloads`** (`Ch15_nonPBR`,
@@ -458,10 +497,11 @@ characters whose parts each carry their own copy of the skeleton (Exo Gray: 896 
 duplicates), because only one part of those would animate. Then add the file to `CHARACTERS`
 in `src/bots.js`.
 
-**Add a map made in Blender:** follow PORT — a generator script that emits meshes and colliders
-together, a GLB named by material key plus a collider JSON, and a `src/map*.js` that loads both
-at boot (`loadPort` in `main.js` runs alongside the character loads) and is marked `available`
-in `MAPS` only once they arrive.
+**Add a map made in Blender:** follow SNOW — a generator script on `mapkit.py` that emits
+meshes and colliders together, a GLB named by material key plus a collider JSON, and a
+`src/map*.js` definition added to `GLB_MAPS` in `maps.js`. `loadGlbMaps` loads every map at
+boot alongside the character loads; a map is marked `available` in `MAPS` only once its files
+arrive. Add a lobby tile in `index.html` and tile art in `ui-overhaul.css`.
 
 **Add an animation:** download as FBX **Without Skin**, with **In Place** ticked for anything
 locomotive (bots are physics-driven, so root motion makes them slide). Drop it in
@@ -476,5 +516,5 @@ node scripts/serve-tests.mjs
 ```
 
 Then open `http://localhost:4173`. `window.__game` is exposed on localhost only and is the
-fastest way to drive a scenario — e.g. `__game.startMatch('duel','medium','PLAYER','foundry')`.
+fastest way to drive a scenario — e.g. `__game.startMatch('duel','medium','PLAYER','snow')`.
 Pointer lock fails inside an embedded preview pane; that error is the pane, not the game.

@@ -25,17 +25,18 @@ image so the procedural/fallback boot path stays deterministic.
 Baseline browser coverage currently verifies:
 
 - boot reaches `DEPLOY` without page or console errors;
-- Warehouse and Dungeon create finite spawn points and navigation nodes;
-- Warehouse Deathmatch starts and supports movement, firing, reload, and weapon switching;
+- every map in the lobby creates finite spawn points and navigation nodes;
+- Port Deathmatch starts and supports movement, firing, reload, and weapon switching;
 - a dead Deathmatch bot respawns through the split `simStep()` / `renderStep()` API;
 - Deathmatch HUD and time-limit results agree on the canonical `dmLeader()` outcome;
 - Survival advances from wave one to wave two;
 - Duel starts one ELITE bot on a mirrored loadout and ends at `CONFIG.DUEL_ROUNDS`;
-- Foundry is symmetric under a 180-degree rotation (~5800 mirrored line-of-sight pairs);
 - Port is the default map; its colliders sit exactly where its meshes are (every collider top,
   plus a 2,000-point grid with no invisible walls or walk-through props), it is symmetric, its
   heights work as designed (crate a hop, dock via a crate, container a wall), and bots path
   onto the dock, through the yard and into the warehouse;
+- Desert and Snow get the same collider, symmetry and height checks, and bots cross every
+  map end to end with no nav node inside a solid or up on a roof;
 - every part of a split-mesh character moves with its one skeleton;
 - every animation track of every clip binds to every roster character's skeleton;
 - the player's firing cone widens with movement, air time and spray, and recovers;
@@ -44,7 +45,7 @@ Baseline browser coverage currently verifies:
 Several of these guard failures that are otherwise **silent**. A clip whose track names do
 not match the skeleton is not an error — AnimationMixer binds what it can and ignores the
 rest — so a fully broken retarget looks exactly like a working one until you watch a bot
-stand frozen in its T-pose. Likewise, an un-mirrored crate on Foundry quietly hands one
+stand frozen in its T-pose. Likewise, an un-mirrored crate on a duel map quietly hands one
 spawn a better angle and nothing else would notice.
 
 Measurement specs (`duel.spec.mjs`) validate their own fixture before trusting it: they step

@@ -18,8 +18,24 @@ export function createUiRuntime({
 function bindMenu() {
   let mode = 'dm', diff = 'medium', map = defaultMap();
 
-  const blurb = $('map-blurb');
-  for (const b of document.querySelectorAll('#maps .pill')) {
+  // Mode and map are each a card in the sidebar that opens a popout of big tiles; picking a
+  // tile closes it. Esc, the X, or a click on the backdrop closes it without a change.
+  const pops = [$('mode-pop'), $('map-pop')];
+  const closePops = () => pops.forEach((p) => p?.classList.remove('on'));
+  const openPop = (p) => { closePops(); p?.classList.add('on'); p?.querySelector('.tile.active')?.focus({ preventScroll: true }); };
+  $('mode-card')?.addEventListener('click', () => openPop($('mode-pop')));
+  $('map-card')?.addEventListener('click', () => openPop($('map-pop')));
+  for (const p of pops) {
+    p?.addEventListener('click', (e) => { if (e.target === p || e.target.closest('.pop-x')) closePops(); });
+  }
+  addEventListener('keydown', (e) => { if (e.code === 'Escape') closePops(); });
+
+  const showMap = () => {
+    $('map-name').textContent = MAPS[map].name;
+    $('map-blurb').textContent = MAPS[map].blurb;
+  };
+  for (const b of document.querySelectorAll('#maps [data-map]')) {
+    b.querySelector('.md').textContent = MAPS[b.dataset.map]?.blurb ?? '';
     // A map whose files failed to load cannot be picked; switchMap would ignore it anyway.
     if (MAPS[b.dataset.map]?.available?.() === false) {
       b.disabled = true;
@@ -28,24 +44,32 @@ function bindMenu() {
     b.classList.toggle('active', b.dataset.map === map);
     b.addEventListener('click', () => {
       map = b.dataset.map;
-      document.querySelectorAll('#maps .pill').forEach((x) => x.classList.toggle('active', x === b));
-      if (blurb) blurb.textContent = MAPS[map].blurb;
+      document.querySelectorAll('#maps [data-map]').forEach((x) => x.classList.toggle('active', x === b));
+      showMap();
+      closePops();
     });
   }
-  if (blurb) blurb.textContent = MAPS[map].blurb;
+  showMap();
 
   // The duel always runs the elite opponent, so the difficulty pills do not apply to it.
   // Grey them out rather than hiding them, so it is obvious why they stopped responding.
   const diffGrp = $('diffgrp');
   const syncDiffLock = () => diffGrp?.classList.toggle('locked', mode === 'duel');
 
+  const showMode = (b) => {
+    $('mode-name').textContent = b.querySelector('.mt').textContent;
+    $('mode-desc').textContent = b.querySelector('.md').textContent;
+  };
   for (const b of document.querySelectorAll('.mode-btn')) {
     b.addEventListener('click', () => {
       mode = b.dataset.mode;
       document.querySelectorAll('.mode-btn').forEach((x) => x.classList.toggle('active', x === b));
+      showMode(b);
       syncDiffLock();
+      closePops();
     });
   }
+  showMode(document.querySelector('.mode-btn.active'));
   syncDiffLock();
   for (const b of document.querySelectorAll('#diffs .pill')) {
     b.addEventListener('click', () => {

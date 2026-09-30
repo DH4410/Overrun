@@ -1192,12 +1192,19 @@ const minimap = createMinimap({
 // The locker opens from the lobby and from the pause screen. A change applies at once: keys
 // 1-4 follow it, and if the gun in your hands was taken out you are handed slot 1.
 player.loadout = loadLoadout();
+/** The lobby's Locker card lists what you are carrying. */
+function showLoadoutSummary() {
+  const sum = $('locker-sum');
+  if (sum) sum.textContent = player.loadout.map((id) => WEAPON_BY_ID[id].name).join(' · ');
+}
+showLoadoutSummary();
 const locker = createLocker({
   getLoadout: () => player.loadout,
   setLoadout: (list) => {
     if (!validLoadout(list)) return;
     player.loadout = list;
     saveLoadout(list);
+    showLoadoutSummary();
     if (player.current !== 'frag' && !list.includes(player.current)) switchWeapon(list[0]);
     if (match.running) updateAmmoHud();
   },

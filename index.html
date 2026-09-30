@@ -64,18 +64,17 @@
 
     <section class="grp">
       <div class="glbl">Mode</div>
-      <div id="modes">
-        <button class="mode-btn active" data-mode="dm"><span class="mt">Deathmatch</span><span class="md">Free-for-all. First to 20 kills, five minutes.</span></button>
-        <button class="mode-btn" data-mode="tdm"><span class="mt">Team Deathmatch</span><span class="md">You and two allies against three. First team to 25.</span></button>
-        <button class="mode-btn" data-mode="sv"><span class="mt">Survival</span><span class="md">Endless waves that keep growing. Score is your kills.</span></button>
-        <button class="mode-btn" data-mode="duel"><span class="mt">1v1 Duel</span><span class="md">One life a round against the elite bot. First to seven, mirrored loadout.</span></button>
-      </div>
+      <button id="mode-card" class="sel-card" type="button"><span class="sc-name" id="mode-name">Deathmatch</span><span class="sc-desc" id="mode-desc"></span><span class="sc-change">CHANGE</span></button>
     </section>
 
     <section class="grp">
       <div class="glbl">Map</div>
-      <div id="maps"><button class="pill" data-map="port">Port</button><button class="pill active" data-map="warehouse">Warehouse</button><button class="pill" data-map="foundry">Foundry</button><button class="pill" data-map="dungeon">Dungeon</button></div>
-      <div id="map-blurb"></div>
+      <button id="map-card" class="sel-card" type="button"><span class="sc-name" id="map-name">Warehouse</span><span class="sc-desc" id="map-blurb"></span><span class="sc-change">CHANGE</span></button>
+    </section>
+
+    <section class="grp">
+      <div class="glbl">Loadout</div>
+      <button id="locker-open" class="sel-card" type="button"><span class="sc-name">Locker</span><span class="sc-desc" id="locker-sum"></span><span class="sc-change">EDIT</span></button>
     </section>
 
     <section class="grp" id="diffgrp">
@@ -89,9 +88,23 @@
       <input id="nameinput" maxlength="12" value="PLAYER" spellcheck="false" />
     </section>
 
-    <div class="actions"><button id="play" disabled>LOADING</button><button id="locker-open" class="ghost-btn">Locker</button><button id="settings-open" class="ghost-btn">Settings</button></div>
+    <div class="actions"><button id="play" disabled>LOADING</button><button id="settings-open" class="ghost-btn">Settings</button></div>
     <div id="loading">Preparing arena…</div>
   </div>
+  <div id="mode-pop" class="pop"><div class="pop-card"><div class="pop-head"><h2>GAME MODE</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
+    <div id="modes" class="pop-grid">
+      <button class="mode-btn tile active" data-mode="dm"><span class="ti-art"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg></span><span class="mt">Deathmatch</span><span class="md">Free-for-all. First to 20 kills, five minutes.</span></button>
+      <button class="mode-btn tile" data-mode="tdm"><span class="ti-art"><svg viewBox="0 0 24 24"><circle cx="8" cy="7" r="3"/><circle cx="16" cy="7" r="3"/><path d="M2 20c0-4 3-6 6-6s6 2 6 6M10 20c0-4 3-6 6-6s6 2 6 6"/></svg></span><span class="mt">Team Deathmatch</span><span class="md">You and two allies against three. First team to 25.</span></button>
+      <button class="mode-btn tile" data-mode="sv"><span class="ti-art"><svg viewBox="0 0 24 24"><path d="M2 15c3-3 5 3 8 0s5 3 8 0 3-1 4-1M2 20c3-3 5 3 8 0s5 3 8 0 3-1 4-1M12 3l2 5h-4z"/></svg></span><span class="mt">Survival</span><span class="md">Endless waves that keep growing. Score is your kills.</span></button>
+      <button class="mode-btn tile" data-mode="duel"><span class="ti-art"><svg viewBox="0 0 24 24"><path d="M4 4l10 10M20 4L10 14M3 17l4 4M21 17l-4 4M6 15l3 3M18 15l-3 3"/></svg></span><span class="mt">1v1 Duel</span><span class="md">One life a round against the elite bot. First to seven, mirrored loadout.</span></button>
+    </div></div></div>
+  <div id="map-pop" class="pop"><div class="pop-card"><div class="pop-head"><h2>MAP</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
+    <div id="maps" class="pop-grid">
+      <button class="tile map-tile" data-map="port"><span class="ti-art art-port"></span><span class="mt">Port</span><span class="md"></span></button>
+      <button class="tile map-tile active" data-map="warehouse"><span class="ti-art art-warehouse"></span><span class="mt">Warehouse</span><span class="md"></span></button>
+      <button class="tile map-tile" data-map="foundry"><span class="ti-art art-foundry"></span><span class="mt">Foundry</span><span class="md"></span></button>
+      <button class="tile map-tile" data-map="dungeon"><span class="ti-art art-dungeon"></span><span class="mt">Dungeon</span><span class="md"></span></button>
+    </div></div></div>
   <div id="keyhelp"><span><kbd>WASD</kbd> Move</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span><span><kbd>1</kbd>–<kbd>5</kbd> Weapons</span><span><kbd>G</kbd> Frag</span><span><kbd>F</kbd> Smoke</span><span><kbd>Tab</kbd> Scores</span></div>
 </div>
 <script>if('serviceWorker' in navigator&&location.protocol.startsWith('http')){addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}</script>

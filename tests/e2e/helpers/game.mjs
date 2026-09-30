@@ -178,7 +178,10 @@ export async function bootGame(page) {
 }
 
 export async function startMatch(page, { mode = 'dm', map = 'warehouse', diff = 'medium' } = {}) {
+  // Mode and map are picked from popouts that each open from a card in the lobby.
+  await page.locator('#mode-card').click();
   await page.locator(`.mode-btn[data-mode="${mode}"]`).click();
+  await page.locator('#map-card').click();
   await page.locator(`#maps [data-map="${map}"]`).click();
   await page.locator(`#diffs [data-diff="${diff}"]`).click();
   await page.locator('#play').click();

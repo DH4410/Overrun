@@ -56,6 +56,8 @@ import {
 import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
+import { createLocker } from './locker.js';
+import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import {
   ADS_FOV,
   CONFIG,
@@ -1194,6 +1196,27 @@ const {
   endMatch,
 });
 
+
+// The locker opens from the lobby and from the pause screen. A change applies at once: keys
+// 1-4 follow it, and if the gun in your hands was taken out you are handed slot 1.
+player.loadout = loadLoadout();
+const locker = createLocker({
+  getLoadout: () => player.loadout,
+  setLoadout: (list) => {
+    if (!validLoadout(list)) return;
+    player.loadout = list;
+    saveLoadout(list);
+    if (player.current !== 'frag' && !list.includes(player.current)) switchWeapon(list[0]);
+    if (match.running) updateAmmoHud();
+  },
+  onOpen: () => {
+    document.exitPointerLock?.();
+    if (match.running) appState = APP_STATE.SETTINGS;
+  },
+  onClose: () => { if (match.running) requestLock(); },
+});
+$('locker-open')?.addEventListener('click', () => locker.open());
+$('locker-open-pause')?.addEventListener('click', () => locker.open());
 
 /**
  * Load optional extra bot animation clips.

@@ -470,7 +470,7 @@ kbd {
 .lk-label span { letter-spacing: 0; font-family: var(--f-body); font-weight: 400; font-size: 13px; margin-left: 10px; text-transform: none; }
 .lk-slots, .lk-armory { display: grid; gap: clamp(6px, 1.2vw, 12px); }
 .lk-slots { grid-template-columns: repeat(5, 1fr); }
-.lk-armory { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.lk-armory { grid-template-columns: repeat(5, 1fr); }
 
 .lk-gun { --tier: #8a939e; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   padding: 8px 10px 10px; text-align: left; cursor: pointer; border: 0; border-radius: 6px; overflow: hidden;

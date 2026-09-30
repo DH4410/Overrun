@@ -15,6 +15,7 @@ import { HB_PLAYER, HB_PLAYER_CROUCH } from './projectiles.js';
 import { settings } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
+import { DEFAULT_LOADOUT } from './loadout.js';
 
 export function createPlayerState() {
   return {
@@ -37,6 +38,7 @@ export function createPlayerState() {
   grounded: false, crouching: false, sprinting: false,
   slideTime: 0,                      // seconds of slide left (sprint, then crouch)
   current: 'pistol',
+  loadout: [...DEFAULT_LOADOUT],     // guns on keys 1-4, in order (see loadout.js)
   ammo: {},
   cooldown: 0, reloading: 0, reloadTotal: 0,
   // Overshoot left over when the fire cooldown expired mid-frame, spent on the next shot so
@@ -495,6 +497,7 @@ function resetStance() {
 function switchWeapon(id) {
   if (player.current === id || !WEAPON_BY_ID[id]) return;
   if (id === 'frag' && player.fragCount <= 0) return;
+  if (id !== 'frag' && !player.loadout.includes(id)) return;   // not carried
   player.current = id;
   player.reloading = 0;
   player.cooldown = Math.max(player.cooldown, 0.25);
@@ -601,7 +604,7 @@ function releaseCook() {
   const power = throwAim(dir);
   const origin = player.eye.clone().addScaledVector(dir, 0.7);
   throwGrenade(player, origin, dir, power, kind, kind === 'frag' ? CONFIG.FRAG_FUSE : CONFIG.SMOKE_FUSE);
-  if (player.current === 'frag' && player.fragCount <= 0) switchWeapon('pistol');
+  if (player.current === 'frag' && player.fragCount <= 0) switchWeapon(player.loadout[0]);
   updateAmmoHud();
 }
 
@@ -657,10 +660,10 @@ function bindInput() {
     if (e.code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
 
     switch (e.code) {
-      case 'Digit1': switchWeapon('pistol'); break;
-      case 'Digit2': switchWeapon('ar'); break;
-      case 'Digit3': switchWeapon('shotgun'); break;
-      case 'Digit4': switchWeapon('sniper'); break;
+      case 'Digit1': switchWeapon(player.loadout[0]); break;
+      case 'Digit2': switchWeapon(player.loadout[1]); break;
+      case 'Digit3': switchWeapon(player.loadout[2]); break;
+      case 'Digit4': switchWeapon(player.loadout[3]); break;
       case 'Digit5': switchWeapon('frag'); break;
       case 'KeyR': startReload(); break;
       case 'KeyG': startCook('frag'); break;
@@ -774,10 +777,10 @@ function pollGamepad(dt) {
   if (!down(4) && player.cookSource === 'pad') releaseCook();
   if (pressed(2)) startReload();                            // X
   if (pressed(3)) switchWeapon('frag');                     // Y
-  if (pressed(12)) switchWeapon('pistol');
-  if (pressed(13)) switchWeapon('ar');
-  if (pressed(14)) switchWeapon('shotgun');
-  if (pressed(15)) switchWeapon('sniper');
+  if (pressed(12)) switchWeapon(player.loadout[0]);
+  if (pressed(13)) switchWeapon(player.loadout[1]);
+  if (pressed(14)) switchWeapon(player.loadout[2]);
+  if (pressed(15)) switchWeapon(player.loadout[3]);
   if (pressed(9)) {                                          // start: pause or resume
     if (getAppState() === playingState) showPause(true);
     else if (getAppState() === pausedState) requestLock();

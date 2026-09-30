@@ -95,6 +95,10 @@ export function createAudio({ getCamera, getPlayer }) {
           this.burst({ dur: 0.13, gain: 0.36 * v, type: 'bandpass', freq: 1100, q: 0.8, decay: 0.09, ...P });
           this.tone({ f0: 240, f1: 55, dur: 0.11, gain: 0.30 * v, type: 'sawtooth', ...P });
           break;
+        case 'smg':
+          this.burst({ dur: 0.08, gain: 0.3 * v, type: 'bandpass', freq: 1700, q: 0.9, decay: 0.06, ...P });
+          this.tone({ f0: 300, f1: 90, dur: 0.07, gain: 0.22 * v, type: 'sawtooth', ...P });
+          break;
         case 'shotgun':
           this.burst({ dur: 0.34, gain: 0.55 * v, type: 'lowpass', freq: 900, decay: 0.28, ...P });
           this.tone({ f0: 150, f1: 32, dur: 0.28, gain: 0.42 * v, type: 'sine', ...P });

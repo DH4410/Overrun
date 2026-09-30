@@ -276,15 +276,17 @@ function updateAmmoHud() {
   }
   // Slot strip.
   el.slots.innerHTML = '';
-  for (const wp of WEAPONS) {
+  [...player.loadout, 'frag'].forEach((id, i) => {
+    const wp = WEAPONS.find((w) => w.id === id);
     const d = document.createElement('div');
-    d.textContent = wp.slot;
+    d.textContent = i + 1;
+    d.title = wp.name;
     if (wp.id === player.current) d.className = 'on';
     else if (wp.thrown ? player.fragCount <= 0 : player.ammo[wp.id].mag + player.ammo[wp.id].reserve <= 0) {
       d.className = 'empty';
     }
     el.slots.appendChild(d);
-  }
+  });
 }
 
 /* ------------------------------ kill feed ------------------------------ */

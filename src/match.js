@@ -1,4 +1,5 @@
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
+import { loadLoadout } from './loadout.js';
 import {
   CONFIG,
   SPAWN_INVULN,
@@ -111,9 +112,12 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
   player.kills = 0; player.deaths = 0;
   player.team = mode === 'tdm' ? TEAM.BLUE : TEAM.SOLO;
-  // A duel is a mirror match, so both sides start on the same gun rather than the player
-  // opening on a pistol against whatever the bot happened to roll.
-  match.loadout = mode === 'duel' ? CONFIG.DUEL_WEAPON : 'pistol';
+  // A duel is a mirror match, so both sides start on the same gun (when the player carries
+  // it) rather than the player opening on whatever the bot did not roll. Otherwise you spawn
+  // holding slot 1.
+  player.loadout = loadLoadout();
+  match.loadout = mode === 'duel' && player.loadout.includes(CONFIG.DUEL_WEAPON)
+    ? CONFIG.DUEL_WEAPON : player.loadout[0];
   player.current = match.loadout;
   player.cooking = null;
   player.cooldown = 0; player.reloading = 0;
@@ -214,7 +218,7 @@ function respawnPlayer(immediate = false, at = null) {
   player.reloading = 0;
   player.cooldown = 0.4;
   resetPlayerAmmo();                  // includes the one-smoke-per-life reset
-  player.current = match.loadout ?? 'pistol';
+  player.current = player.loadout.includes(match.loadout) ? match.loadout : player.loadout[0];
   player.pitch = 0;
   // Face the middle of the arena, never the wall you happened to spawn against. Forward is
   // (-sin yaw, -cos yaw), so aiming it at the origin from (x, z) gives yaw = atan2(x, z).

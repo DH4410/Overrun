@@ -50,6 +50,20 @@ export const WEAPONS = [
     color: 0x33372f, sound: 'ar',
   },
   {
+    // Built to be used on the move: the lightest movement penalty of the automatics and the
+    // fastest rate of fire, paid for with damage that falls behind the rifle past close range.
+    id: 'smg', name: 'SMG', slot: 2, auto: true,
+    damage: 17, speed: 360, cooldown: 0.066, mag: 30, reserve: 210, reload: 1.7,
+    spread: 0.035, pellets: 1, recoil: 0.009, kick: 0.03, zoom: false,
+    rest: 0.0040, move: 0.0065, air: 0.045,
+    bloomStep: 0.0028, bloomMax: 0.050, bloomDecay: 0.150,
+    pattern: [
+      [0, 1.0], [0.15, 1.0], [-0.2, 0.95], [0.3, 0.9], [-0.35, 0.85], [0.4, 0.8],
+      [-0.4, 0.75], [0.35, 0.7], [-0.3, 0.7], [0.25, 0.65],
+    ],
+    color: 0x2a2d31, sound: 'smg',
+  },
+  {
     id: 'shotgun', name: 'SHOTGUN', slot: 3, auto: false,
     damage: 10, speed: 280, cooldown: 0.9, mag: 8, reserve: 40, reload: 2.5,
     spread: 0.08, pellets: 8, recoil: 0.06, kick: 0.16, zoom: false,
@@ -141,6 +155,7 @@ for (const w of WEAPONS) {
 const VM_HOME = {
   pistol: new THREE.Vector3(0.12, -0.13, -0.3),
   ar: new THREE.Vector3(0.14, -0.155, -0.3),
+  smg: new THREE.Vector3(0.14, -0.15, -0.3),
   shotgun: new THREE.Vector3(0.14, -0.15, -0.3),
   sniper: new THREE.Vector3(0.15, -0.165, -0.36),
   frag: new THREE.Vector3(0.16, -0.14, -0.3),

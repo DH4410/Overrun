@@ -234,6 +234,72 @@ function buildRifle(M) {
   });
 }
 
+/* ------------------------------- SMG ------------------------------- */
+
+/**
+ * A compact 9 mm SMG: one boxy receiver, a straight 30-round stick ahead of the trigger, a
+ * short shroud into a suppressor, a skeleton stock, and a small open reflex sight.
+ */
+function buildSmg(M) {
+  const g = new THREE.Group();
+  const add = (...ms) => { for (const m of ms) g.add(m); return ms[0]; };
+
+  // Receiver, top rail and its cross-slots, and the side charging handle.
+  add(box(0.046, 0.06, 0.3, M.alloy, 0.06, 0.024, 0, 0.004));
+  add(box(0.03, 0.01, 0.2, M.alloy, 0.07, 0.059, 0, 0.0015));
+  for (let i = 0; i < 10; i++) add(box(0.032, 0.004, 0.0055, M.dark, -0.02 + i * 0.02, 0.0645, 0, 0));
+  add(box(0.012, 0.01, 0.03, M.polymer, 0.15, 0.036, -0.028, 0.002));
+  add(box(0.003, 0.02, 0.06, M.dark, 0.05, 0.03, 0.0235, 0.001));      // ejection port
+
+  // Lower frame, trigger guard and trigger, and the rifle's raked grip.
+  add(slab([[-0.04, 0.0], [0.13, 0.0], [0.13, -0.032], [-0.04, -0.032]], 0.04, M.polymer, { bevel: 0.003 }));
+  add(slab([[0.07, -0.032], [0.006, -0.032], [0.006, -0.056], [0.072, -0.056]], 0.012, M.polymer, {
+    holes: [[[0.064, -0.036], [0.012, -0.036], [0.012, -0.051], [0.064, -0.051]]], bevel: 0.001,
+  }));
+  add(box(0.005, 0.019, 0.006, M.steel, 0.042, -0.041, 0, 0));
+  add(slab([[0.022, -0.03], [-0.022, -0.03], [-0.064, -0.142], [-0.052, -0.152], [-0.018, -0.15],
+    [-0.012, -0.12, 0.0, -0.09], [0.022, -0.03]], 0.031, M.polymer, { bevel: 0.005 }));
+
+  // Straight stick magazine and its baseplate.
+  add(slab([[0.082, -0.032], [0.118, -0.032], [0.126, -0.21], [0.088, -0.21]], 0.024, M.dark, { bevel: 0.003 }));
+  add(box(0.028, 0.01, 0.046, M.polymer, 0.107, -0.212, 0, 0.003));
+
+  // Shroud, barrel and a fat suppressor with an end cap.
+  add(tube(0.021, 0.021, 0.21, 0.32, M.polymer, 0.026, 0, 20));
+  for (let i = 0; i < 4; i++) add(box(0.044, 0.006, 0.014, M.dark, 0.23 + i * 0.025, 0.026, 0, 0.001));
+  add(tube(0.009, 0.009, 0.32, 0.345, M.steel, 0.026));
+  add(tube(0.02, 0.02, 0.345, 0.52, M.dark, 0.026, 0, 24));
+  add(ring(0.02, 0.0025, 0.35, M.polymer, 0.026));
+  add(disc(0.0065, 0.5205, M.polymer, 0.026));
+
+  // Skeleton stock: two rods and a butt plate.
+  for (const side of [-1, 1]) add(tube(0.0055, 0.0055, -0.27, -0.09, M.steel, 0.028, side * 0.016, 10));
+  add(tube(0.0055, 0.0055, -0.27, -0.12, M.steel, -0.02, 0, 10));
+  add(box(0.044, 0.1, 0.014, M.polymer, -0.276, 0.004, 0, 0.004));
+
+  // Open reflex sight: a base, a square frame, the glass, and the dot on axis.
+  const AXIS = 0.09;
+  add(box(0.03, 0.012, 0.05, M.alloy, 0.085, 0.07, 0, 0.002));
+  const postL = add(box(0.004, 0.036, 0.012, M.polymer, 0.095, AXIS, -0.016, 0.001));
+  const postR = add(box(0.004, 0.036, 0.012, M.polymer, 0.095, AXIS, 0.016, 0.001));
+  const bar = add(box(0.036, 0.004, 0.012, M.polymer, 0.095, AXIS + 0.018, 0, 0.001));
+  const lens = add(box(0.028, 0.03, 0.0015, M.glass, 0.095, AXIS, 0, 0));
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.00085, 10, 8), M.dot);
+  dot.position.set(0, AXIS, -0.096);
+  dot.renderOrder = 20;
+  add(dot);
+  lens.renderOrder = 10;
+
+  return finish(g, {
+    muzzle: new THREE.Vector3(0, 0.026, -0.521),
+    sight: new THREE.Vector3(0, AXIS, -0.085),
+    adsEye: 0.15,
+    grip: new THREE.Vector3(0, -0.085, 0.03),
+    support: new THREE.Vector3(0, 0.026, -0.27),
+    sightParts: [postL, postR, bar, lens, dot],
+  });
+}
+
 /* ------------------------------ pistol ------------------------------ */
 
 /** A polymer-frame striker pistol: slide with cocking serrations, railed frame, 3-dot sights. */
@@ -479,6 +545,10 @@ const HANDS = {
     right: { centre: [0, -0.086, 0.02], axis: [0, 0.115, -0.045], palm: [1, 0, 0], radius: 0.017, forearm: FIRING_FOREARM },
     left: { centre: [0, 0.029, -0.37], axis: [0, 0, -1], palm: [0, -1, 0], radius: 0.034, forearm: SUPPORT_FOREARM },
   },
+  smg: {
+    right: { centre: [0, -0.086, 0.02], axis: [0, 0.115, -0.045], palm: [1, 0, 0], radius: 0.017, forearm: FIRING_FOREARM },
+    left: { centre: [0, 0.026, -0.27], axis: [0, 0, -1], palm: [0, -1, 0], radius: 0.024, forearm: SUPPORT_FOREARM },
+  },
   pistol: {
     right: { centre: [0, -0.07, 0.006], axis: [0, 0.109, -0.05], palm: [1, 0, 0], radius: 0.016, forearm: [0.12, -0.95, 1] },
     left: { centre: [-0.012, -0.08, 0.004], axis: [0, 0.109, -0.05], palm: [-1, 0, 0], radius: 0.03, forearm: [-0.16, -0.95, 1] },
@@ -503,7 +573,7 @@ function addHands(g, id, M) {
   if (spec.left) placeHand(g, M, spec.left, -1);
 }
 
-const BUILDERS = { ar: buildRifle, pistol: buildPistol, shotgun: buildShotgun, sniper: buildSniper, frag: buildFrag };
+const BUILDERS = { ar: buildRifle, smg: buildSmg, pistol: buildPistol, shotgun: buildShotgun, sniper: buildSniper, frag: buildFrag };
 
 /**
  * Build a gun. `hands` adds gloved hands and sleeves (the first-person view); bots use their

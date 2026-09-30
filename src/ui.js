@@ -226,7 +226,7 @@ function bindSettings() {
   });
   // Leaving the match from the pause overlay.
   $('quit-match')?.addEventListener('click', () => {
-    endMatch('MATCH ABANDONED', 'returned to menu');
+    endMatch('MATCH ABANDONED', 'returned to menu', { instant: true });
   });
 }
 

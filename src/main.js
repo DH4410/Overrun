@@ -882,6 +882,7 @@ const {
   dmLeader,
   checkWinConditions,
   updateMatch,
+  updateOutro,
   formatTime,
 } = createMatchRuntime({
   match,
@@ -1075,6 +1076,7 @@ function frameBudget() {
 
 let framesDrawn = 0;
 let shadowFrame = 0;
+const OUTRO_TIME_SCALE = 0.3;
 
 function frame() {
   requestAnimationFrame(frame);
@@ -1100,8 +1102,11 @@ function frame() {
   }
 
   if (appState === APP_STATE.PLAYING) {
+    // The end-of-match outro: the world runs slowed, its timer runs on real time.
+    const realDt = dt;
+    if (match.outro) dt *= OUTRO_TIME_SCALE;
     pollGamepad(dt);
-    applyLook(dt);
+    applyLook(realDt);
 
     if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
 
@@ -1152,6 +1157,7 @@ function frame() {
     updatePlates(dt);
     updateAllyMarkers();
     updateHudTimers(dt);
+    updateOutro(realDt);
   }
 
   // The one shadow refresh of the frame (see renderer.shadowMap.autoUpdate), halved in battery
@@ -1348,7 +1354,7 @@ async function boot() {
     forceRenderTick: (dt) => {
       updateBursts(dt); updateExplosionFx(dt); updateSmoke(dt); updateBrass(dt);
       updatePickups(dt); updateAmmoChests(dt); updateConsumables(dt);
-      updateShake(dt); updateSpotting(dt); updateMatch(dt); updateLights();
+      updateShake(dt); updateSpotting(dt); updateMatch(dt); updateLights(); updateOutro(dt);
     },
     forceUpdateConsumables: (dt) => updateConsumables(dt),
     // Frame pacing, so a test can prove the cap actually skips frames and that the adaptive

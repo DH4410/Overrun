@@ -111,7 +111,10 @@ test('Duel ends at DUEL_ROUNDS and returns to the menu', async ({ page }) => {
     const bot = g.bots[0];
     bot.health = 0;
     g.killCombatant(bot, g.player, false);
+    const outro = !!g.match.outro;
+    for (let i = 0; i < 24; i++) g.forceRenderTick(0.25);   // the 5 s victory outro
     return {
+      outro,
       running: g.match.running,
       roundsA: g.match.roundsA,
       target,
@@ -121,6 +124,7 @@ test('Duel ends at DUEL_ROUNDS and returns to the menu', async ({ page }) => {
   });
 
   expect(ended.roundsA).toBe(ended.target);
+  expect(ended.outro).toBe(true);
   expect(ended.running).toBe(false);
   expect(ended.menuVisible).toBe(true);
   expect(ended.result).toContain('DUEL WON');

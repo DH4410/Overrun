@@ -38,6 +38,7 @@ test('Deathmatch HUD and time-limit result use the canonical leader', async ({ p
     const hudLeader = document.querySelector('#tb-b').textContent;
     game.match.timeLeft = 0.01;
     game.forceRenderTick(0.02);
+    for (let i = 0; i < 24; i++) game.forceRenderTick(0.25);   // the 5 s outro
     return {
       hudLeader,
       result: document.querySelector('#menuresult').textContent,

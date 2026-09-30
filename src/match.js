@@ -107,6 +107,10 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   match.kills = 0; match.wave = 1; match.waveBreak = 0;
   match.roundsA = 0; match.roundsB = 0;
   match.roundTime = CONFIG.DUEL_ROUND_SECONDS; match.roundReset = 0;
+  match.outro = null;
+  document.body.classList.remove('outro');
+  $id('outro').className = '';
+  $id('podium').className = '';
   nameSeed = 0;
 
   player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
@@ -160,42 +164,119 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   requestLock();
 }
 
-function endMatch(title, sub) {
+/**
+ * A match that is won or lost does not cut straight to the menu. The world keeps running at
+ * OUTRO_TIME_SCALE for OUTRO_SECONDS of real time under a big VICTORY / DEFEAT, then the podium
+ * comes up over the lobby. match.running is false from the first frame of it, so nobody can
+ * fire, score or take damage; only leaving from the pause screen (instant) skips it.
+ */
+const OUTRO_SECONDS = 5;
+const OUTCOME_WORD = { win: 'VICTORY', loss: 'DEFEAT', draw: 'DRAW' };
+const $id = (id) => document.getElementById(id);
+const span = (className, text) => Object.assign(document.createElement('span'), { className, textContent: String(text) });
+
+function outcomeOf(title) {
+  if (title.includes('DRAW')) return 'draw';
+  // In TDM the player is always blue.
+  if (title.includes('VICTORY') || title.includes('WON') || title.includes('BLUE')) return 'win';
+  return 'loss';
+}
+
+/** Everyone, best first: kills, then fewest deaths. */
+function standings() {
+  return [player, ...bots].sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+}
+
+function endMatch(title, sub, { instant = false } = {}) {
+  if (match.outro) return;
   match.running = false;
-  setAppState(APP_STATE.MENU);
+  stopFiring();
   showBoard(false);
   showPause(false);
+  el.pause.classList.remove('dead');
+  if (instant) { finishMatch(title, sub, false); return; }
+  const outcome = outcomeOf(title);
+  match.outro = { t: 0, title, sub, outcome };
+  $id('o-kicker').textContent = title === OUTCOME_WORD[outcome] ? MODE_LABEL[match.mode] : title;
+  $id('o-title').textContent = OUTCOME_WORD[outcome];
+  $id('o-sub').textContent = sub;
+  $id('outro').className = `on ${outcome}`;
+  document.body.classList.add('outro');
+  Audio.stinger?.(outcome);
+}
+
+/** Advanced on real time by the frame loop, not on the slowed world clock. */
+function updateOutro(dt) {
+  if (!match.outro) return;
+  match.outro.t += dt;
+  if (match.outro.t >= OUTRO_SECONDS) finishMatch(match.outro.title, match.outro.sub, true);
+}
+
+function finishMatch(title, sub, podium) {
+  const outcome = match.outro?.outcome ?? outcomeOf(title);
+  match.outro = null;
+  setAppState(APP_STATE.MENU);
   document.exitPointerLock?.();
+  document.body.classList.remove('outro');
+  $id('outro').className = '';
   el.hud.classList.add('hidden');
   el.menu.classList.remove('hidden');
   el.menuResult.textContent = `${title} — ${sub}`;
-  el.menuResult.appendChild(standingsTable());
+  if (podium) showPodium(outcome, title, sub);
   clearEffects();
 }
 
 /**
- * The final standings, shown on the menu under the result line.
- *
- * A match used to end by dropping you on the menu with one line of text, so there was no way to
- * see how it went. The live scoreboard cannot be reused here because it sits inside #hud, which
- * is hidden the moment the match ends. Built with DOM calls so names are never parsed as HTML.
+ * The final standings: the top three on a podium, the winner in the middle and biggest, and
+ * everyone else in rows underneath. Built with DOM calls so names are never parsed as HTML.
  */
-function standingsTable() {
-  const rows = [player, ...bots].sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
-  const table = document.createElement('table');
-  for (const c of rows) {
-    const tr = document.createElement('tr');
-    if (c === player) tr.className = 'self';
-    const cells = [c.name, c.kills, c.deaths];
-    cells.forEach((value, i) => {
-      const td = document.createElement('td');
-      if (i > 0) td.className = 'num';
-      td.textContent = String(value);
-      tr.appendChild(td);
-    });
-    table.appendChild(tr);
+function showPodium(outcome, title, sub) {
+  const rows = standings();
+  $id('pd-kicker').textContent = title === OUTCOME_WORD[outcome] ? MODE_LABEL[match.mode] : `${MODE_LABEL[match.mode]} · ${title}`;
+  $id('pd-title').textContent = OUTCOME_WORD[outcome];
+  $id('pd-sub').textContent = sub;
+  const stands = $id('pd-stands');
+  stands.textContent = '';
+  for (const i of [1, 0, 2]) {                 // 2nd, 1st, 3rd, left to right
+    const c = rows[i];
+    if (!c) continue;
+    const d = document.createElement('div');
+    d.className = `pd-place p${i + 1}${c === player ? ' self' : ''}`;
+    const block = document.createElement('div');
+    block.className = 'pd-block';
+    block.appendChild(span('pd-rank', i + 1));
+    d.append(span('pd-name', c.name), span('pd-kd', `${c.kills} K · ${c.deaths} D`), block);
+    stands.appendChild(d);
   }
-  return table;
+  const rest = $id('pd-rest');
+  rest.textContent = '';
+  rows.slice(3).forEach((c, j) => {
+    const r = document.createElement('div');
+    r.className = `pd-row${c === player ? ' self' : ''}`;
+    r.append(span('pd-n', `#${j + 4}`), span('pd-nm', c.name), span('pd-k', `${c.kills} K · ${c.deaths} D`));
+    rest.appendChild(r);
+  });
+  $id('podium').className = `on ${outcome}`;
+  $id('podium-close').focus({ preventScroll: true });
+}
+$id('podium-close')?.addEventListener('click', () => { $id('podium').className = ''; });
+
+/** While you wait to respawn: where you stand, and the table, refreshed a few times a second. */
+let deathBoardTimer = 0;
+function renderDeathBoard() {
+  const rows = standings();
+  const host = $id('p-board');
+  host.textContent = '';
+  const place = document.createElement('div');
+  place.className = 'pb-place';
+  place.append('YOU ARE ', span('pb-rank', `#${rows.indexOf(player) + 1}`), ` OF ${rows.length}`);
+  host.appendChild(place);
+  rows.slice(0, 8).forEach((c, i) => {
+    const r = document.createElement('div');
+    r.className = `pb-row${c === player ? ' self' : ''}`;
+    r.append(span('pb-n', `#${i + 1}`), span('pb-nm', c.name), span('pb-k', `${c.kills} K`), span('pb-d', `${c.deaths} D`));
+    host.appendChild(r);
+  });
 }
 
 function respawnPlayer(immediate = false, at = null) {
@@ -410,7 +491,9 @@ function updateMatch(dt) {
   // a respawn.
   if (!player.alive) {
     player.respawnTimer -= dt;
-    el.pause.classList.add('on');
+    el.pause.classList.add('on', 'dead');
+    deathBoardTimer -= dt;
+    if (deathBoardTimer <= 0) { deathBoardTimer = 0.25; renderDeathBoard(); }
     el.pBig.textContent = 'ELIMINATED';
     el.pSm.textContent = match.mode === 'duel'
       ? `ROUND ${match.roundsA + match.roundsB + 1} IN ${Math.max(0, match.roundReset).toFixed(1)}s`
@@ -419,11 +502,15 @@ function updateMatch(dt) {
     el.pCta.style.display = isPointerLocked() ? 'none' : '';
     if (player.respawnTimer <= 0 && match.mode !== 'duel') {
       respawnPlayer();
+      el.pause.classList.remove('dead');
+      deathBoardTimer = 0;
       el.pCta.style.display = '';
       if (isPointerLocked()) el.pause.classList.remove('on');
     }
   } else if (match.mode === 'duel' && el.pBig.textContent === 'ELIMINATED') {
     // startDuelRound() revived the player; clear the overlay it left behind.
+    el.pause.classList.remove('dead');
+    deathBoardTimer = 0;
     el.pCta.style.display = '';
     el.pBig.textContent = 'PAUSED';
     el.pSm.textContent = '';        // otherwise the round countdown lingers under PAUSED
@@ -474,6 +561,7 @@ return {
   dmLeader,
   checkWinConditions,
   updateMatch,
+  updateOutro,
   formatTime,
   pickSpawn,
 };

@@ -25,7 +25,7 @@ PORT, and clicking back in from the pause screen no longer leaves it over the ga
 |---|---|
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
-| Pushed? | Sessions 1-7 are all on PR DH4410/shooting-game#7. |
+| Pushed? | Sessions 1-5 were merged to master by PR DH4410/Overrun#7. **Sessions 6 and 7 are pushed to this branch but have no PR yet.** |
 | Tests | 98/98 Playwright, 19/19 unit, lint 0 errors (12 warnings, all pre-existing) |
 
 ```bash

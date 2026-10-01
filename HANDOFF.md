@@ -25,7 +25,7 @@ PORT, and clicking back in from the pause screen no longer leaves it over the ga
 |---|---|
 | Branch | `claude/game-improvements-ai-modes-9f6246` |
 | Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
-| Pushed? | Sessions 1-5 were merged to master by PR DH4410/Overrun#7. **Sessions 6 and 7 are pushed to this branch but have no PR yet.** |
+| Pushed? | Sessions 1-5 were merged to master by PR DH4410/Overrun#7. **Sessions 6 and 7 were pushed straight to master on 2026-10-01, with no PR.** |
 | Tests | 98/98 Playwright, 19/19 unit, lint 0 errors (12 warnings, all pre-existing) |
 
 ```bash
@@ -386,7 +386,8 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 
 ## Open items
 
-- [ ] **Decide what to do with the branch** — push, open a PR, or keep local. Waiting on you.
+- [x] **Decide what to do with the branch** — done: it is on master (sessions 1-5 by PR #7,
+      sessions 6 and 7 pushed directly).
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.

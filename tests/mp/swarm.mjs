@@ -50,13 +50,23 @@ class SwarmPlayer {
     this.intent = { ix: 0, iz: 1, yaw: Math.random() * 6.28, buttons: 0, until: 0 };
     this.active = true;
     this.sentAt = 0;
+    this.corrections = [];
+    this.lastPump = 0; this.maxGap = 0;   // the longest stall of this process's own pump since the last correction
     this.bot.onSnap = (s) => {
       if (!s.you) return;
       this.pred.setMap(MAP_IDS[s.map], colliders[MAP_IDS[s.map]], MAP_DATA[MAP_IDS[s.map]].half);
       if (!this.started) { this.pred.apply(s.you); this.started = true; this.t0 = performance.now(); return; }
-      for (const e of s.events) if (e.kind === EV.SPAWN && e.id === s.youId) this.pred.clear();
-      if (this.predicts) this.pred.reconcile(s, s.phase === PHASE.PLAYING);
-      else this.pred.apply(s.you);
+      const spawned = s.events.some((e) => e.kind === EV.SPAWN && e.id === s.youId);
+      if (spawned) this.pred.clear();
+      if (!this.predicts) { this.pred.apply(s.you); return; }
+      // Each correction is tagged with its cause: a death or a respawn the client could not
+      // have predicted (the browser snaps those), or neither, which is the drift that blends.
+      const wasAlive = this.pred.p.alive, replays = this.pred.stats.replays;
+      const err = this.pred.reconcile(s, s.phase === PHASE.PLAYING);
+      if (this.pred.stats.replays === replays) return;
+      const cause = spawned ? 'spawn' : wasAlive !== s.you.alive ? 'death' : 'drift';
+      this.corrections.push({ err, cause, gap: this.maxGap });
+      this.maxGap = 0;
     };
   }
 
@@ -93,6 +103,8 @@ class SwarmPlayer {
   /** Run every tick owed by wall time, and send a packet when one is due. */
   pump(now) {
     if (!this.started || this.bot.closed) return;
+    if (this.lastPump) this.maxGap = Math.max(this.maxGap, now - this.lastPump);
+    this.lastPump = now;
     const s = this.bot.snap;
     const owed = Math.floor((now - this.t0) * TICK_HZ / 1000) - this.ticks;
     for (let k = 0; k < Math.min(owed, 60); k++) {
@@ -207,8 +219,10 @@ async function run() {
   const pred = players.filter((p) => p.predicts).map((p) => p.pred.stats);
   const compares = pred.reduce((n, s) => n + s.compares, 0), agreed = pred.reduce((n, s) => n + s.agreed, 0);
   const replays = pred.reduce((n, s) => n + s.replays, 0), replayed = pred.reduce((n, s) => n + s.replayedTicks, 0);
-  const errs = pred.flatMap((s) => s.errors);
-  const small = errs.filter((e) => e < 3);   // bigger is a respawn or a teleport, not drift
+  const corr = players.filter((p) => p.predicts).flatMap((p) => p.corrections);
+  const byCause = (c) => corr.filter((x) => x.cause === c).map((x) => x.err);
+  const drift = byCause('drift');
+  const bigDrift = corr.filter((x) => x.cause === 'drift' && x.err >= 1);
   console.log('\n--- swarm', SECONDS, 's,', PLAYERS, 'players +', SPECTATORS, 'spectators, rtt 60-160 ms + jitter 0-30 ms');
   console.log('server ms/tick avg', a1.msPerTick.avg, 'p95', a1.msPerTick.p95, 'max', a1.msPerTick.max, '| callback gap ms', JSON.stringify(a1.callbackGapMs));
   console.log('ticks dropped', f1.totals.ticksDropped, '| cmds repeated', f1.totals.cmdsRepeated, 'trimmed', f1.totals.cmdsTrimmed, '| input dropped', f1.totals.inputDropped, 'bad', f1.totals.inputBad);
@@ -219,7 +233,9 @@ async function run() {
   console.log(`prediction: ${compares} checks, ${agreed} agreed (${(100 * agreed / Math.max(1, compares)).toFixed(1)}%), ${replays} replays of ${(replayed / Math.max(1, replays)).toFixed(1)} ticks avg`);
   console.log('  (with no network in between prediction matches the room tick for tick: tests/unit/mp-predict.test.mjs;');
   console.log('   these replays follow late input the server had to stand in for, pickups and respawns)');
-  console.log(`correction distance (excluding >3 m respawns, n=${small.length}): p50 ${pct(small, 0.5).toFixed(4)} p95 ${pct(small, 0.95).toFixed(4)} p99 ${pct(small, 0.99).toFixed(4)} max ${Math.max(0, ...small).toFixed(4)} m`);
+  console.log(`corrections: ${byCause('death').length} at a death, ${byCause('spawn').length} at a respawn (both snap), ${drift.length} drift`);
+  console.log(`drift correction distance (n=${drift.length}): p50 ${pct(drift, 0.5).toFixed(4)} p95 ${pct(drift, 0.95).toFixed(4)} p99 ${pct(drift, 0.99).toFixed(4)} max ${Math.max(0, ...drift).toFixed(4)} m`);
+  if (bigDrift.length) console.log('  drift >= 1 m:', bigDrift.map((x) => `${x.err.toFixed(2)} m (swarm pump stalled up to ${x.gap.toFixed(0)} ms before it)`).join(', '));
   console.log('rtt seen by the server', JSON.stringify(a1.rtt), '| budget', JSON.stringify(f1.budget));
   console.log('---\n');
 
@@ -233,7 +249,7 @@ async function run() {
   check(players.every((p) => p.bot.closed === null || p.bot === cheat), 'nobody but the cheater was disconnected');
   check(compares > SECONDS * 20 * PREDICTING * 0.5, 'prediction was checked against most snapshots');
   check(agreed / Math.max(1, compares) > 0.95, 'prediction agrees with the server on at least 95% of snapshots');
-  check(Math.max(0, ...small) < 1, `no correction big enough to snap (max ${Math.max(0, ...small).toFixed(3)} m)`);
+  check(bigDrift.length === 0, `no drift correction big enough to snap (max ${Math.max(0, ...drift).toFixed(3)} m)`);
 
   for (const p of players) p.bot.close();
   for (const s of specs) s.close();

@@ -158,6 +158,7 @@ export class Room {
   message(conn, data) {
     const c = this.clients.get(conn);
     if (!c) return;
+    this.governor.poll();   // a new UTC day first, so this message counts toward it
     this.governor.add(1);
     this.stats.msgsIn++;
     this.stats.window.msgs++;

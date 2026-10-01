@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node --test tests/unit/**/*.test.mjs",
     "test:e2e": "playwright test",
-    "lint": "eslint src/**/*.js game.js tests/**/*.mjs scripts/**/*.mjs",
+    "lint": "eslint src/**/*.js game.js tests/**/*.mjs scripts/**/*.mjs server/**/*.js",
     "test:ci": "npm run lint && npm test && npm run test:e2e"
   },
   "devDependencies": {

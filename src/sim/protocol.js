@@ -156,13 +156,14 @@ export const PF = { ALIVE: 1, CROUCH: 2, AIM: 4, INVULN: 8, GROUNDED: 16, SPRINT
 
 /**
  * Snapshot layout (all big-endian):
- *   u8 type, u32 tick, u16 echoClientTime, u16 echoAge, u32 ackSeq,
+ *   u8 type, u32 tick, u16 echoClientTime, u16 echoAge, u32 ackSeq, u16 ackAge,
  *   u8 phase, u8 mode, u8 map, u16 timeLeft (1/10 s), u16 scoreA, u16 scoreB,
  *   u8 inputRate, u8 budgetFlags, u8 youId
  *   [you block when youId != NO_ID]
  *   u8 nPlayers, players..., u16 chestMask, u16 consumableMask,
  *   u8 nGrenades, grenades..., u8 nSmokes, smokes..., u8 nEvents, events...
- * The header and you-block are per recipient; everything from nPlayers on is shared.
+ * The header and you-block are per recipient; everything from nPlayers on is shared. The
+ * you-block is the state after command ackSeq and then ackAge ticks without a new command.
  */
 export function writeYou(w, p) {
   const b = p.body;
@@ -314,7 +315,7 @@ export function readSnapshot(buf) {
   const r = new Reader(buf);
   if (r.u8() !== MSG_SNAPSHOT) return null;
   const s = {
-    tick: r.u32(), echoClientTime: r.u16(), echoAge: r.u16(), ackSeq: r.u32(),
+    tick: r.u32(), echoClientTime: r.u16(), echoAge: r.u16(), ackSeq: r.u32(), ackAge: r.u16(),
     phase: r.u8(), mode: MODE_IDS[r.u8()] ?? 'dm', map: r.u8(), timeLeft: r.u16() / 10,
     scoreA: r.u16(), scoreB: r.u16(), inputRate: r.u8(), budgetFlags: r.u8(), youId: r.u8(),
     you: null, players: [], grenades: [], smokes: [], events: [],

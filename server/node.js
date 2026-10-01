@@ -15,7 +15,7 @@ import { Room } from './room.js';
  * all on one port. `node server/node.js [port]` (default 8790, or $PORT).
  *
  * The budget counter persists to .mp-budget.json next to this file; MP_BUDGET_LIMIT overrides
- * the daily limit (tests use it to walk the governor's tiers).
+ * the daily limit (tests use it to walk the governor's tiers) and MP_BUDGET_FILE the file.
  */
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -107,5 +107,6 @@ export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.argv[2] || process.env.PORT || 8790);
   const limit = process.env.MP_BUDGET_LIMIT ? Number(process.env.MP_BUDGET_LIMIT) : undefined;
-  startServer({ port, host: process.env.HOST || '127.0.0.1', limit });
+  const budgetFile = process.env.MP_BUDGET_FILE || undefined;
+  startServer({ port, host: process.env.HOST || '127.0.0.1', limit, budgetFile });
 }

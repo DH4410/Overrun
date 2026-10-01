@@ -121,21 +121,25 @@ export function setCrouch(world, player, on) {
     }
   }
 
+  const from = player.body.shapes[0].radius;
+  crouchShape(player, on);
+  // The sphere grows about its centre, so standing up buries the lower half in the floor and
+  // the solver answers by launching the body ~0.8 m into the air. Shift the centre by the
+  // radius delta instead, which keeps the feet exactly where they were.
+  p.y += player.body.shapes[0].radius - from;
+}
+
+/** The collider and hitbox for a stance, with no clearance check and no move. */
+export function crouchShape(player, on) {
   player.crouching = on;
   player.hb = on ? HB_PLAYER_CROUCH : HB_PLAYER;
   const shape = player.body.shapes[0];
-  const from = shape.radius;
-  const to = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
-  shape.radius = to;
+  shape.radius = on ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS;
   shape.updateBoundingSphereRadius();
   const offsets = on ? BODY_OFFSETS.crouch : BODY_OFFSETS.stand;
   offsets.forEach((y, i) => { player.body.shapeOffsets[i + 1].y = y; });
   player.body.updateBoundingRadius();
   player.body.aabbNeedsUpdate = true;
-  // The sphere grows about its centre, so standing up buries the lower half in the floor and
-  // the solver answers by launching the body ~0.8 m into the air. Shift the centre by the
-  // radius delta instead, which keeps the feet exactly where they were.
-  p.y += to - from;
 }
 
 const _stepFrom = new CANNON.Vec3();

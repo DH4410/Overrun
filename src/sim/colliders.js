@@ -1,7 +1,7 @@
 import * as CANNON from 'cannon-es';
 import { Euler, Quaternion, Vector3 } from 'three';
 
-import { RAY_OPTS } from './world.js';
+import { RAY_OPTS, createWorld, makeStaticBox, makeStaticCylinder } from './world.js';
 
 /**
  * A map's colliders from its Blender JSON (assets/maps/<file>.json), plus the blockers and the
@@ -75,6 +75,21 @@ export function buildMapColliders(data, half, deps) {
   const [HX, HZ] = half;
   addBlocker(0, -HZ, HX, 1.2); addBlocker(0, HZ, HX, 1.2);
   addBlocker(-HX, 0, 1.2, HZ); addBlocker(HX, 0, 1.2, HZ);
+}
+
+/**
+ * A physics world holding one map's level and nothing else: what the multiplayer server
+ * simulates in and what client prediction replays in, built the same way on both.
+ */
+export function buildMapWorld(data, half) {
+  const world = createWorld();
+  const blockers = [];
+  buildMapColliders(data, half, {
+    addStaticBox: (hx, hy, hz, pos, q) => world.addBody(makeStaticBox(hx, hy, hz, pos, q)),
+    addStaticCylinder: (r, h, pos) => world.addBody(makeStaticCylinder(r, h, pos)),
+    addBlocker: (x, z, hx, hz) => blockers.push({ x, z, hx, hz }),
+  });
+  return { world, blockers };
 }
 
 export function inBlockers(blockers, x, z, pad = 0) {

@@ -16,12 +16,18 @@ export const HASH = mapHash(
 );
 
 export class WsBot {
-  constructor(url, { name = 'BOT', spectate = false, hash = HASH, character = 'soldier', loadout } = {}) {
+  /**
+   * `lagMs` is the round trip added on top of the real one, `jitterMs` a random extra per
+   * message each way. Delivery stays in order, as on a real WebSocket.
+   */
+  constructor(url, { name = 'BOT', spectate = false, hash = HASH, character = 'soldier', loadout, lagMs = 0, jitterMs = 0 } = {}) {
     this.ws = new WebSocket(url);
     this.ws.binaryType = 'arraybuffer';
     this.snaps = 0; this.snap = null; this.welcome = null; this.json = []; this.closed = null;
     this.seq = 0; this.sent = 0; this.rtt = 0; this.ticks = 0; this.t0 = null;
-    this.lagMs = 0;
+    this.lagMs = lagMs; this.jitterMs = jitterMs;
+    this.lanes = { in: 0, out: 0 };
+    this.bytesIn = 0;
     this.ready = new Promise((resolve, reject) => {
       this.ws.on('open', () => this.ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, hash, name, character, loadout, spectate })));
       this.ws.on('error', reject);
@@ -44,7 +50,8 @@ export class WsBot {
           }
           this.onSnap?.(s);
         };
-        if (this.lagMs) setTimeout(handle, this.lagMs / 2); else handle();
+        this.bytesIn += data.byteLength ?? data.length;
+        this.delay('in', handle);
       });
     });
   }
@@ -63,13 +70,24 @@ export class WsBot {
     for (let i = 0; i < n; i++) cmds.push({ ix, iz, yawQ: quantYaw(yaw), pitchQ: quantPitch(pitch), buttons, weapon, emote });
     const buf = encodeInput(cmds, this.seq + 1, Date.now() & 0xffff, this.rtt, 100, viewTick);
     this.seq += n;
-    this.sent++;
-    const go = () => { if (this.ws.readyState === 1) this.ws.send(buf); };
-    if (this.lagMs) setTimeout(go, this.lagMs / 2); else go();
+    this.raw(buf);
   }
 
-  raw(buf) { this.ws.send(buf); this.sent++; }
-  sendJson(m) { this.ws.send(JSON.stringify(m)); this.sent++; }
+  /** Send these commands as one packet, the first numbered `firstSeq`. */
+  sendCmds(cmds, firstSeq, viewTick, interpMs = 100) {
+    this.raw(encodeInput(cmds, firstSeq, Date.now() & 0xffff, this.rtt, interpMs, viewTick));
+  }
+
+  /** Run `fn` after this lane's simulated delay, never before the lane's previous message. */
+  delay(lane, fn) {
+    if (!this.lagMs && !this.jitterMs) { fn(); return; }
+    const at = Math.max(this.lanes[lane], Date.now() + this.lagMs / 2 + Math.random() * this.jitterMs);
+    this.lanes[lane] = at;
+    setTimeout(fn, at - Date.now());
+  }
+
+  raw(buf) { this.sent++; this.delay('out', () => { if (this.ws.readyState === 1) this.ws.send(buf); }); }
+  sendJson(m) { this.raw(JSON.stringify(m)); }
   close() { this.ws.close(); }
 }
 

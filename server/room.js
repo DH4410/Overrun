@@ -3,18 +3,19 @@ import { Vector3 } from 'three';
 
 import { CONFIG, FIXED_DT, SPAWN_INVULN, TEAM } from '../src/config.js';
 import { DEFAULT_LOADOUT, validLoadout } from '../src/loadout.js';
-import { buildMapColliders, floorAt, inBlockers, validSpawnPoints } from '../src/sim/colliders.js';
-import { aimDirection, launchVelocity, resetAmmo, stepWeapons, throwAim } from '../src/sim/combat.js';
+import { buildMapWorld, floorAt, inBlockers, validSpawnPoints } from '../src/sim/colliders.js';
+import { aimDirection, launchVelocity, resetAmmo, throwAim } from '../src/sim/combat.js';
 import { HB_PLAYER, PLAYER_ZONE_MULT, HB_PLAYER_CROUCH, analyticHit } from '../src/sim/hitmath.js';
 import { MAP_DATA, MAP_IDS } from '../src/sim/mapData.js';
-import { createPlayerBody, setCrouch, stepMovement, syncPlayerPoints } from '../src/sim/movement.js';
+import { createPlayerBody, setCrouch, syncPlayerPoints } from '../src/sim/movement.js';
 import {
   BTN, BUDGET, CHARACTER_IDS, CLOSE, EV, HIT_BREAK, HIT_LETHAL, HIT_SHIELD, MAX_PLAYERS, MAX_SPECTATORS,
   MODE_IDS, MSG_SNAPSHOT, NO_ID, ONE_SHOT_BITS, PHASE, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ, WEAPON_IDS,
-  Writer, ZONE_IDS, decodeInput, dequantPitch, dequantYaw, mapHash, quantYaw, writeEvent, writePlayer, writeYou,
+  Writer, ZONE_IDS, decodeInput, mapHash, quantYaw, writeEvent, writePlayer, writeYou,
 } from '../src/sim/protocol.js';
+import { applyCommand } from '../src/sim/tick.js';
 import { WEAPONS } from '../src/sim/weaponData.js';
-import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS, createWorld, makeStaticBox, makeStaticCylinder } from '../src/sim/world.js';
+import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS } from '../src/sim/world.js';
 import { Governor } from './governor.js';
 
 /**
@@ -41,7 +42,6 @@ const CONSUMABLES = {
   shield: { amount: 40, respawn: 30, stat: 'armor', max: CONFIG.MAX_ARMOR },
 };
 const NADE_ROLL_SPEED = 2.6;
-const PITCH_LIMIT = Math.PI / 2 - 0.02;
 
 const _v = new Vector3();
 const _dir = new Vector3();
@@ -96,13 +96,7 @@ export class Room {
 
   loadMap(id) {
     const def = MAP_DATA[id];
-    const world = createWorld();
-    const blockers = [];
-    buildMapColliders(this.colliders[id], def.half, {
-      addStaticBox: (hx, hy, hz, pos, q) => world.addBody(makeStaticBox(hx, hy, hz, pos, q)),
-      addStaticCylinder: (r, h, pos) => world.addBody(makeStaticCylinder(r, h, pos)),
-      addBlocker: (x, z, hx, hz) => blockers.push({ x, z, hx, hz }),
-    });
+    const { world, blockers } = buildMapWorld(this.colliders[id], def.half);
     const castY = def.ceilY - 0.5;
     this.spawns = validSpawnPoints(world, blockers, def.spawns, def.spawns.slice(0, 4), castY).points;
     // Same placement rules as src/pickups.js.
@@ -258,7 +252,7 @@ export class Room {
       cooldown: 0, fireCarry: 0, reloading: 0, reloadTotal: 0, bloom: 0, sprayIndex: 0, sinceShot: 99,
       recoilPitch: 0, recoilYaw: 0, cooking: null, chargeTicks: 0, prevButtons: 0,
       emote: 0, emoteBlock: 0,
-      queue: [], lastCmd: IDLE_CMD, ackSeq: 0, lastSeq: 0, merge: 0, guesses: 0, minDepth: Infinity, depthAt: this.tick,
+      queue: [], lastCmd: IDLE_CMD, ackSeq: 0, ackTick: this.tick, lastSeq: 0, merge: 0, guesses: 0, minDepth: Infinity, depthAt: this.tick,
       rtt: 0, interpMs: 100, echoTime: 0, echoAt: 0,
       hist: new Float32Array(HIST * 5), histTick: new Int32Array(HIST).fill(-1),
     };
@@ -276,7 +270,7 @@ export class Room {
     p.connected = true;
     p.queue.length = 0;
     p.lastCmd = IDLE_CMD;
-    p.lastSeq = 0; p.ackSeq = 0; p.merge = 0;
+    p.lastSeq = 0; p.ackSeq = 0; p.ackTick = this.tick; p.merge = 0;
     c.player = p;
     this.respawn(p);
     this.log(`resume ${p.name} (#${p.id})`);
@@ -377,6 +371,7 @@ export class Room {
       cmd = p.queue.shift();
       if (p.merge) { cmd = { ...cmd, buttons: cmd.buttons | p.merge }; p.merge = 0; }
       p.ackSeq = cmd.seq;
+      p.ackTick = this.tick;
       p.guesses = 0;
     } else {
       const last = p.lastCmd;
@@ -429,23 +424,7 @@ export class Room {
     const armed = this.phase === PHASE.PLAYING;
     for (const p of this.players) {
       if (!p.connected) continue;
-      const cmd = p.cmd = this.nextCommand(p);
-      p.yaw = dequantYaw(cmd.yawQ);
-      p.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, dequantPitch(cmd.pitchQ)));
-      p.aiming = p.alive && (cmd.buttons & BTN.AIM) !== 0;
-      stepWeapons(p, cmd, dt, armed, this);
-      p.body.wakeUp();
-      if (p.alive) {
-        stepMovement(this.world, p, {
-          ix: cmd.ix, iz: cmd.iz,
-          crouch: (cmd.buttons & BTN.CROUCH) !== 0,
-          sprint: (cmd.buttons & BTN.SPRINT) !== 0,
-          aiming: p.aiming,
-          jump: (cmd.buttons & BTN.JUMP) !== 0,
-        }, dt);
-      } else {
-        p.body.velocity.x = 0; p.body.velocity.z = 0;
-      }
+      applyCommand(this.world, p, p.cmd = this.nextCommand(p), dt, armed, this);
     }
     this.world.step(dt);
     const slot = this.tick % HIST;
@@ -912,6 +891,7 @@ export class Room {
       w.u16(p ? p.echoTime : 0);
       w.u16(p ? Math.min(65535, t - p.echoAt) : 0);
       w.u32(p ? p.ackSeq : 0);
+      w.u16(p ? Math.min(65535, this.tick - p.ackTick) : 0);
       w.u8(this.phase); w.u8(MODE_IDS.indexOf(this.mode)); w.u8(MAP_IDS.indexOf(this.mapId));
       w.u16(Math.max(0, Math.round(this.timeLeft * 10)));
       w.u16(this.scoreA); w.u16(this.scoreB);

@@ -69,7 +69,7 @@ export class Room {
     this.rng = rng;
     this.log = log;
     this.governor = governor ?? new Governor({ now });
-    this.hash = mapHash(colliders, MAP_DATA, { CONFIG, WEAPONS });
+    this.hash = mapHash(colliders, MAP_DATA, CONFIG, WEAPONS);
     this.clients = new Map();            // conn -> { conn, player, spectator, ... }
     this.players = [];                   // seats, connected or held for reconnect
     this.tick = 0;
@@ -203,6 +203,9 @@ export class Room {
   }
 
   onHello(c, m) {
+    // A room closed for the day reopens here too, not only on the next tick.
+    this.governor.poll();
+    this.budgetCheck();
     if (m.v !== PROTOCOL_VERSION || m.hash !== this.hash) {
       this.refuse(c, CLOSE.REFRESH, 'A new version of the game is out. Refresh to update.');
       return;

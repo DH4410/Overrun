@@ -282,14 +282,31 @@ export function fnv1a(str) {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+/** The CONFIG keys the simulation reads. Presentation keys (MAX_DECALS, SENS...) change at runtime. */
+export const HASHED_CONFIG = [
+  'GRAVITY', 'PHYSICS_HZ', 'EYE_HEIGHT', 'CROUCH_HEIGHT', 'PLAYER_RADIUS', 'CROUCH_RADIUS', 'PLAYER_MASS',
+  'WALK_SPEED', 'SPRINT_MULT', 'CROUCH_MULT', 'GROUND_ACCEL', 'FRICTION', 'STOP_SPEED', 'AIR_ACCEL',
+  'PLAYER_GRAVITY', 'JUMP_SPEED', 'MAX_HEALTH', 'MAX_ARMOR', 'START_ARMOR', 'ARMOR_ABSORB', 'MAX_RANGE',
+  'FRAG_FUSE', 'THROW_CHARGE_TIME', 'FRAG_DAMAGE', 'FRAG_RADIUS', 'FRAG_IMPULSE', 'SMOKE_FUSE', 'SMOKE_LIFE',
+  'SMOKE_RADIUS', 'DM_TARGET', 'TDM_TARGET', 'MATCH_SECONDS', 'PLAYER_RESPAWN',
+];
+const HASHED_WEAPON = [
+  'id', 'auto', 'damage', 'speed', 'cooldown', 'mag', 'reserve', 'reload', 'spread', 'pellets', 'recoil',
+  'rest', 'move', 'air', 'bloomStep', 'bloomMax', 'bloomDecay', 'pattern',
+];
+const pick = (o, keys) => keys.map((k) => o[k]);
+
 /**
  * What both sides must agree on before they can play together: every map's colliders and
- * gameplay data, the gameplay constants and this protocol's version. `colliders` is
- * { mapId: parsed assets/maps/<id>.json }.
+ * gameplay data, the simulation's constants and weapons, and this protocol's version.
+ * `colliders` is { mapId: parsed assets/maps/<id>.json }.
  */
-export function mapHash(colliders, mapData, config) {
+export function mapHash(colliders, mapData, config, weapons) {
   const ids = Object.keys(mapData).sort();
-  return fnv1a(JSON.stringify([PROTOCOL_VERSION, ids.map((id) => [colliders[id], mapData[id]]), config]));
+  return fnv1a(JSON.stringify([
+    PROTOCOL_VERSION, ids.map((id) => [colliders[id], mapData[id]]),
+    pick(config, HASHED_CONFIG), weapons.map((w) => pick(w, HASHED_WEAPON)),
+  ]));
 }
 
 /** Parse a whole snapshot (see the layout above writeYou). */

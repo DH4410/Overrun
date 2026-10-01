@@ -12,7 +12,7 @@ import { WEAPONS } from '../../src/sim/weaponData.js';
 
 export const HASH = mapHash(
   Object.fromEntries(MAP_IDS.map((id) => [id, JSON.parse(readFileSync(new URL(`../../assets/maps/${id}.json`, import.meta.url), 'utf8'))])),
-  MAP_DATA, { CONFIG, WEAPONS },
+  MAP_DATA, CONFIG, WEAPONS,
 );
 
 export class WsBot {

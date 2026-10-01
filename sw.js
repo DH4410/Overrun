@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v17';
+const CACHE = 'overrun-v18';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
@@ -20,6 +20,9 @@ const PRECACHE = [
   './src/pickups.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
+  // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).
+  './src/sim/colliders.js', './src/sim/combat.js', './src/sim/hitmath.js', './src/sim/mapData.js',
+  './src/sim/movement.js', './src/sim/protocol.js', './src/sim/weaponData.js', './src/sim/world.js',
   './assets/bots/anim/manifest.json',
   // Characters and their clips are cache-first assets; listing them here means the
   // first offline load has a full roster rather than falling back to blocky humanoids.
@@ -36,6 +39,9 @@ const PRECACHE = [
 // than code and must not be network-first.
 const ASSET_RE = /\.(glb|gltf|fbx|bin|jpg|jpeg|png|webp|ktx2|hdr|json)(\?|$)/i;
 const CODE_RE = /\.(js|mjs|css|html)(\?|$)/i;
+// Map collider tables are data the multiplayer server must agree with byte for byte (the map
+// hash), so they are network-first like code: "refresh to update" has to actually update.
+const MAP_DATA_RE = /\/assets\/maps\/[^/]+\.json(\?|$)/i;
 
 self.addEventListener('install', (e) => {
   // Precache is best-effort: one 404 must not abort the whole install.
@@ -89,7 +95,7 @@ self.addEventListener('fetch', (e) => {
   // cross-origin and opaque; caching them here buys nothing and can poison the cache.
   if (url.origin !== self.location.origin) return;
 
-  if (req.mode === 'navigate' || CODE_RE.test(url.pathname)) {
+  if (req.mode === 'navigate' || CODE_RE.test(url.pathname) || MAP_DATA_RE.test(url.pathname)) {
     e.respondWith(networkFirst(req));
   } else if (ASSET_RE.test(url.pathname)) {
     e.respondWith(cacheFirst(req));

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 import { markShared } from './rendering.js';
+import { buildMapColliders } from './sim/colliders.js';
 
 /**
  * Maps modelled in Blender. Each one is a definition (src/mapPort.js, mapDesert.js,
@@ -60,31 +60,8 @@ export function createGlbMap(def, {
     mapGroup.add(root);
     mapGroup.add(skyDome(def.look.sky));
 
-    const { boxes, ramps, cylinders = [] } = source.data;
-    const Y = new CANNON.Vec3(0, 1, 0);
-    for (const [x, y, z, hx, hy, hz, yaw, block] of boxes) {
-      const quat = yaw ? new CANNON.Quaternion().setFromAxisAngle(Y, yaw) : null;
-      addStaticBox(hx, hy, hz, { x, y, z }, quat);
-      // Anything in the band a body occupies blocks spawns and pickups and shows on the
-      // minimap. Roofs, lintels and the ground are flagged out in the script.
-      if (block && y + hy > 0.7 && y - hy < 2.4) {
-        const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
-        addBlocker(x, z, hx * c + hz * s, hx * s + hz * c);
-      }
-    }
-    for (const r of ramps) addRampCollider(...r);
-    for (const [x, y, z, r, h, block] of cylinders) {
-      addStaticCylinder(r, h, { x, y, z });
-      if (block && y + h / 2 > 0.7 && y - h / 2 < 2.4) addBlocker(x, z, r, r);
-    }
+    buildMapColliders(source.data, def.half, { addStaticBox, addStaticCylinder, addRampCollider, addBlocker });
 
-    // The perimeter wall IS the boundary, so it is not a blocker (that would push spawns off
-    // the edge of the whole map); these strips keep spawns and pickups off its foot instead.
-    const [HX, HZ] = def.half;
-    addBlocker(0, -HZ, HX, 1.2); addBlocker(0, HZ, HX, 1.2);
-    addBlocker(-HX, 0, 1.2, HZ); addBlocker(HX, 0, 1.2, HZ);
-
-    // Interior lamps: the sun does not reach under a roof.
     for (const [x, y, z, intensity, distance, color = 0xffe1b8] of def.lamps) {
       addLightEmitter({ x, y, z, color, intensity, distance, priority: 0 });
     }

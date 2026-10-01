@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { MAP_DATA } from './sim/mapData.js';
+
 /**
  * DESERT: a walled desert town at mid-afternoon, modelled in Blender
  * (scripts/blender/build_desert.py). Loaded by src/mapGlb.js; this file is only what differs
@@ -13,13 +15,11 @@ import * as THREE from 'three';
  * Units are metres; +Z is south.
  */
 export const DESERT = {
+  ...MAP_DATA.desert,
   id: 'desert',
   file: 'desert',
   name: 'DESERT',
   blurb: 'Walled desert town at mid-afternoon. A market square in the middle, a souk and a caravanserai on each flank.',
-  half: [42, 32],
-  /** The arcade roofs and the souk slats start at 4.2 m; a cast from above them lands on top. */
-  ceilY: 4.2,
   mapView: 42,
   plates: { ground: 0x3a3026, solid: 0xc2a57e },
 
@@ -72,26 +72,6 @@ export const DESERT = {
     },
   },
 
-  /**
-   * Mirrored spawn candidates, listed in pairs. Each clears buildSpawnPoints' 2 m blocker pad,
-   * checked against the built layout: five in each spawn yard, the rest spread over the souk and
-   * the yard so "furthest from every enemy" has somewhere to choose from in deathmatch.
-   */
-  spawns: [
-    [0, 26.5], [0, -26.5], [-4.6, 27.6], [4.6, -27.6], [4.6, 27.4], [-4.6, -27.4], [-3.5, 24.4], [3.5, -24.4],
-    [3.5, 24.4], [-3.5, -24.4], [-30.5, 23.75], [30.5, -23.75], [-38.4, 4.0], [38.4, -4.0],
-    [-18.5, 10.6], [18.5, -10.6], [38.5, 19.5], [-38.5, -19.5], [28.5, 1.8], [-28.5, -1.8],
-    [24.2, 24.6], [-24.2, -24.6], [34.5, 2.5], [-34.5, -2.5], [-6.5, 1.2], [6.5, -1.2],
-  ],
-  // Ammo under the arcades and in the souk, health and shield out on the flanks.
-  ammo: [
-    [-1.5, 12.2], [1.5, -12.2], [-22.6, 13.8], [22.6, -13.8],
-    [29.0, 8.5], [-29.0, -8.5], [37.0, 25.6], [-37.0, -25.6],
-  ],
-  consumables: [
-    ['health', -40, 22.5], ['health', 40, -22.5], ['shield', 26.5, 22.4], ['shield', -26.5, -22.4],
-    ['health', -15.5, 4.5], ['health', 15.5, -4.5], ['shield', 9.0, 11.8], ['shield', -9.0, -11.8],
-  ],
   // Under the arcade roofs and the souk slats, beside the modelled lanterns.
   lamps: [1, -1].flatMap((s) => [
     [s * -9.25, 3.7, s * 11.8, 60, 14], [s * 9.25, 3.7, s * 11.8, 60, 14],

@@ -1,4 +1,4 @@
-import { WEAPONS } from './weapons.js';
+import { WEAPONS } from './sim/weaponData.js';
 
 /**
  * The player's loadout: four guns in slot order (keys 1-4, D-pad), with frags always on 5.

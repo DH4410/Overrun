@@ -35,6 +35,10 @@ const SHOT_SHOW = 0.3;              // s a puppet keeps its gun up after a shot
 const KEEPALIVE_MS = 10_000;
 const TOKEN_KEY = 'overrun-mp-token';
 const CHAR_KEY = 'overrun-mp-character';
+// soldier.glb is the fallback rig: the shared Mixamo clips do not fit its skeleton (see bots.js),
+// and drawn as a puppet it lies flat on the floor. Single player never gives it to a bot either.
+const FALLBACK_CHAR = 'soldier', DRAWABLE_IDS = CHARACTER_IDS.filter((id) => id !== FALLBACK_CHAR);
+const drawable = (id) => (DRAWABLE_IDS.includes(id) ? id : DRAWABLE_IDS[0]);
 
 const v3 = (p) => new THREE.Vector3(p.x, p.y, p.z);
 const wrapAngle = (a) => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
@@ -144,9 +148,9 @@ export function createNetClient(d) {
   function character() {
     const ss = storage('sessionStorage');
     let c = ss?.getItem(CHAR_KEY);
-    const loaded = d.loadedCharacters().filter((id) => CHARACTER_IDS.includes(id));
-    if (!c || !CHARACTER_IDS.includes(c)) {
-      c = loaded.length ? loaded[Math.floor(Math.random() * loaded.length)] : CHARACTER_IDS[0];
+    const loaded = d.loadedCharacters().filter((id) => DRAWABLE_IDS.includes(id));
+    if (!c || !DRAWABLE_IDS.includes(c)) {
+      c = loaded.length ? loaded[Math.floor(Math.random() * loaded.length)] : DRAWABLE_IDS[0];
       try { ss?.setItem(CHAR_KEY, c); } catch { /* private mode */ }
     }
     return c;
@@ -423,10 +427,11 @@ export function createNetClient(d) {
     const r = roster.get(id);
     if (!r) return null;
     let b = puppets.get(id);
-    if (b && (b.team !== team || b.characterId !== r.character)) { removePuppet(id); b = null; }
+    const character = drawable(r.character);   // an older client may still send the soldier
+    if (b && (b.team !== team || b.characterId !== character)) { removePuppet(id); b = null; }
     if (!b) {
-      b = new d.Bot(r.name, team, d.match.diff, null, { character: r.character, puppet: true });
-      b.characterId = r.character;
+      b = new d.Bot(r.name, team, d.match.diff, null, { character, puppet: true });
+      b.characterId = character;
       b.netId = id;
       puppets.set(id, b);
       bots.push(b);

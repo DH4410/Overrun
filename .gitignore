@@ -5,3 +5,4 @@ playwright-report/
 test-results/
 .wrangler/
 server/.mp-budget.json
+.cf-public/

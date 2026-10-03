@@ -195,6 +195,7 @@ export class Room {
     if (!m || typeof m !== 'object') return;
     if (m.t === 'hello' && !c.hello) this.onHello(c, m);
     else if (m.t === 'vote' && c.player && this.phase === PHASE.INTERMISSION) this.onVote(c.player, m);
+    // Anything else (the client's 'ka' keepalive) is only a message: on Cloudflare, that tops up the CPU allowance.
   }
 
   onHello(c, m) {

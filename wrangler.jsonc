@@ -1,0 +1,23 @@
+// OVERRUN on Cloudflare: static files plus one Durable Object room. See MULTIPLAYER.md.
+{
+  "name": "overrun",
+  "main": "server/worker.js",
+  "compatibility_date": "2025-09-01",
+  // The browser's files are copied into .cf-public first (see scripts/build-public.mjs).
+  "build": { "command": "node scripts/build-public.mjs", "watch_dir": "src" },
+  "assets": {
+    "directory": ".cf-public",
+    "binding": "ASSETS",
+    // The room's endpoints must never be answered by the static files.
+    "run_worker_first": ["/ws", "/stats"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "GameRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }],
+  "vars": {
+    // Incoming WebSocket messages a day: the free plan's 100,000 requests at 20 messages each.
+    "DAILY_MESSAGES": "2000000"
+  },
+  "observability": { "enabled": true }
+}

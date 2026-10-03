@@ -29,6 +29,10 @@ const BLEND_RATE = 30;              // 1/s: a correction is ~95% gone in 100 ms
 const INTERP_MIN = 0.1, INTERP_MAX = 0.15, EXTRAP_MAX = 0.1;   // s
 const SNAP_KEEP = 30;               // snapshots kept for interpolation (1.5 s)
 const SHOT_SHOW = 0.3;              // s a puppet keeps its gun up after a shot
+// A Durable Object's CPU allowance is topped up by incoming messages, and the room ticks whether
+// or not anyone sends. A silent client (idle, or spectating) says something this often, so a
+// room of idle players is never left running on an allowance nobody refills. ~18 requests/h.
+const KEEPALIVE_MS = 10_000;
 const TOKEN_KEY = 'overrun-mp-token';
 const CHAR_KEY = 'overrun-mp-character';
 
@@ -117,9 +121,11 @@ export function createNetClient(d) {
     setTimeout(fn, at - Date.now());
   }
 
+  let lastOut = 0;
   function send(data) {
     const sock = ws;
     if (!sock) return;
+    lastOut = performance.now();
     deliver('out', () => { if (sock.readyState === 1) sock.send(data); });
   }
   const sendJson = (m) => send(JSON.stringify(m));
@@ -912,6 +918,11 @@ export function createNetClient(d) {
 
   // A backgrounded tab stops drawing frames, so stop the player too rather than leave the
   // server repeating whatever was held.
+  // A timer rather than the frame loop, so it keeps going in a background tab.
+  setInterval(() => {
+    if (active && welcomed && ws?.readyState === 1 && performance.now() - lastOut >= KEEPALIVE_MS) sendJson({ t: 'ka' });
+  }, 2000);
+
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden || !active || !pred || !started || !lastSent) return;
     const L = lastSent;

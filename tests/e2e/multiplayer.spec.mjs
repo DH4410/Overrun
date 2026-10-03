@@ -23,7 +23,7 @@ const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0l
 test.describe.configure({ mode: 'serial' });
 // A GPU where Chromium can use one: software GL manages a few frames a second, which starves
 // the client's 120 Hz prediction. The assertions hold either way.
-if (process.platform === 'win32') {
+if (process.platform === 'win32' && !process.env.MP_SOFT_GL) {
   test.use({ launchOptions: { args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] } });
 }
 
@@ -58,7 +58,7 @@ const debug = (page) => page.evaluate(() => window.__game.net.debug());
 const roomStats = async () => (await fetch(`${BASE}/stats`)).json();
 
 test('two players and a spectator share one room, and see each other move', async ({ browser }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);   // about 2 min with software GL (MP_SOFT_GL=1, as on Linux CI)
   const a = await open(browser, 'ALPHA');
   const b = await open(browser, 'BRAVO');
   const spec = await open(browser, 'WATCHER');

@@ -59,12 +59,14 @@ import { createLocker } from './locker.js';
 import { createMinimap } from './minimap.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
+import { createNetClient } from './net/client.js';
 import {
   ADS_FOV,
   CONFIG,
   FIXED_DT,
   HIP_FOV,
   TEAM,
+  TEAM_COLOR,
 } from './config.js';
 import {
   QUALITY,
@@ -755,6 +757,9 @@ const {
   pausedState: APP_STATE.PAUSED,
 });
 
+/** The multiplayer client (src/net/client.js), made once the rest of the game exists below. */
+let net = null;
+
 const {
   keys,
   createPlayerBody,
@@ -781,6 +786,8 @@ const {
   isPointerLocked,
   isGamepadActive,
   stopFiring,
+  takeFireLatch,
+  readMoveInput,
 } = createPlayerRuntime({
   player,
   renderer,
@@ -799,8 +806,9 @@ const {
   showKillBanner,
   showDamageNumber,
   updateAmmoHud,
-  showBoard,
-  showPause,
+  showBoard: (on) => { showBoard(on); if (on) net?.decorateBoard(); },
+  // Online, the world cannot pause: the client puts up its own overlay instead.
+  showPause: (on) => (net?.active ? net.showPause(on) : showPause(on)),
   vmModels,
   fireWeapon,
   triggerMuzzleFlash,
@@ -812,6 +820,7 @@ const {
   getEnemies: () => bots,
   throwGrenade,
   showThrowArc,
+  getNet: () => net,
 });
 
 
@@ -1014,7 +1023,8 @@ function updateCamera(dt) {
  * pure battery burn, and 1/15 s is still instant to the eye.
  */
 function frameBudget() {
-  if (appState !== APP_STATE.PLAYING) return 1 / IDLE_FPS;
+  // Online, the match runs on whether or not this screen is paused.
+  if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
   return settings.frameCap > 0 ? 1 / settings.frameCap : 0;
 }
 
@@ -1045,7 +1055,30 @@ function frame() {
     resScaler.reset();
   }
 
-  if (appState === APP_STATE.PLAYING) {
+  if (net.active) {
+    // Online: the server runs the match. No local physics world, no bots, no match clock;
+    // the client predicts the player, draws everyone else and places the camera when spectating.
+    pollGamepad(dt);
+    applyLook(dt);
+    const cameraPlaced = net.update(interval, dt);
+    renderAlpha = 1;
+    updateBursts(dt);
+    updateExplosionFx(dt);
+    updateSmoke(dt);
+    updateBrass(dt);
+    updatePickups(dt);
+    updateAmmoChests(dt, true);
+    updateConsumables(dt, true);
+    updateLights();
+    updateShake(dt);
+    updateSpotting(dt);
+    if (cameraPlaced) vmRig.visible = false;
+    else { updateViewModel(dt); updateCamera(dt); }
+    emotes.update(dt, { running: net.playing, firing: isFiring() });
+    updatePlates(dt);
+    updateAllyMarkers();
+    updateHudTimers(dt);
+  } else if (appState === APP_STATE.PLAYING) {
     // The end-of-match outro: the world runs slowed, its timer runs on real time.
     const realDt = dt;
     if (match.outro) dt *= OUTRO_TIME_SCALE;
@@ -1119,15 +1152,16 @@ function frame() {
   renderer.clear(true, true, true);
   renderer.render(scene, camera);
 
-  if (!match.running && emotes.active) emotes.stop(false);   // abandoned mid-dance from the pause menu
-  if (match.running && vmRig.visible && !emotes.active) {
+  const inMatch = match.running || net.active;
+  if (!inMatch && emotes.active) emotes.stop(false);   // abandoned mid-dance from the pause menu
+  if (inMatch && vmRig.visible && !emotes.active) {
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
   }
-  if (match.running) minimap.draw();
+  if (inMatch) minimap.draw();
   if (appState === APP_STATE.PLAYING) {
     Audio.updateListener();
-    Audio.heartbeat(dt, match.running && player.alive && player.health < 35);
+    Audio.heartbeat(dt, (match.running || net.playing) && player.alive && player.health < 35);
   }
 }
 
@@ -1150,7 +1184,8 @@ const {
   setAppState: (state) => { appState = state; },
   settingsState: APP_STATE.SETTINGS,
   requestLock,
-  endMatch,
+  // LEAVE MATCH on the pause screen: online, that is leaving the server.
+  endMatch: (...args) => (net.active ? net.leave() : endMatch(...args)),
 });
 
 
@@ -1193,7 +1228,74 @@ const emotes = createEmotes({
   scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio,
 });
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING && match.running && !match.outro) emotes.openWheel();
+  if (e.code === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
+      && ((match.running && !match.outro) || net.playing)) emotes.openWheel();
+});
+
+net = createNetClient({
+  player, bots, Bot, el, Audio, camera, keys, match, scene, allyMarks, playerBlip, vmModels,
+  ammoChests, consumables, loadedCharacters, switchMap, getCurrentMapId, losClear,
+  readMoveInput, isFiring, isAiming, takeFireLatch, isPointerLocked, emotes,
+  fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
+  addViewModelRecoil: (amount) => { vmRecoil += amount; },
+  spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,
+  showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
+  setPaused: () => { appState = APP_STATE.PAUSED; },
+  onEnter: () => {
+    // Nothing of single player runs online: no bots, no local match, and the player is not
+    // something local bullets can hit.
+    clearBots();
+    clearEffects();
+    const i = combatants.indexOf(player);
+    if (i >= 0) combatants.splice(i, 1);
+    match.outro = null;
+    match.time = 0;
+    document.body.classList.remove('outro');
+    $('outro').className = '';
+    $('podium').className = '';
+    player.loadout = loadLoadout();
+    player.cooking = null; player.cookSource = null;
+    player.kills = 0; player.deaths = 0;
+    el.feed.innerHTML = '';
+    el.menuResult.textContent = '';
+    el.vname.textContent = player.name;
+    el.menu.classList.add('hidden');
+    el.hud.classList.remove('hidden');
+    appState = APP_STATE.PLAYING;
+    Audio.init();
+    Audio.startAmbient();
+    Audio.playMusic('match');
+    requestLock();
+  },
+  onLeave: (message) => {
+    clearBots();
+    clearEffects();
+    clearSmoke();
+    if (!combatants.includes(player)) combatants.unshift(player);
+    if (emotes.active) emotes.stop(false);
+    stopFiring();
+    showBoard(false);
+    // The predicted state was mirrored onto the player; put back what single player expects.
+    player.crouching = false;
+    player.team = TEAM.SOLO;
+    player.kills = 0; player.deaths = 0;
+    player.loadout = loadLoadout();
+    resetPlayerAmmo();
+    player.current = player.loadout[0];
+    player.cooking = null; player.reloading = 0; player.cooldown = 0;
+    player.recoilPitch = 0; player.recoilYaw = 0;
+    playerBlip.traverse((o) => { if (o.material) o.material.color.setHex(TEAM_COLOR[TEAM.SOLO]); });
+    el.pause.classList.remove('on', 'dead');
+    el.pBig.textContent = 'PAUSED'; el.pSm.textContent = ''; el.pCta.style.display = '';
+    el.hud.classList.add('hidden');
+    el.menu.classList.remove('hidden');
+    el.menuResult.textContent = message || 'Left the online match';
+    appState = APP_STATE.MENU;
+    document.exitPointerLock?.();
+    Audio.playMusic('lobby');
+    camera.position.set(-40, 13, 40);
+    camera.lookAt(0, 3, 0);
+  },
 });
 addEventListener('keyup', (e) => { if (e.code === 'KeyB') emotes.closeWheel(true); });
 $('locker-open')?.addEventListener('click', () => locker.open());
@@ -1294,6 +1396,12 @@ async function boot() {
   el.loading.textContent = '';
   el.play.disabled = false;
   el.play.textContent = 'DEPLOY';
+  for (const [id, spectate] of [['mp-play', false], ['mp-watch', true]]) {
+    const b = $(id);
+    if (!b) continue;
+    b.disabled = false;
+    b.addEventListener('click', () => net.join({ spectate }));
+  }
 
   // A framed view of the arena sits behind the menu instead of the inside of a platform.
   camera.position.set(-40, 13, 40);
@@ -1322,7 +1430,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades,
+    predictThrow, updateThrowPreview, grenades, net,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

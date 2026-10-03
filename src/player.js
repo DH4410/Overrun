@@ -94,12 +94,19 @@ export function createPlayerRuntime({
   getEnemies,
   throwGrenade,
   showThrowArc,
+  // Multiplayer: while getNet().active the server owns the weapons, so swaps and reloads become
+  // requests to it (see src/net/client.js) and nothing here fires or throws.
+  getNet = () => null,
 }) {
 const match = getMatch();
+const online = () => !!getNet()?.active;
 
 const keys = Object.create(null);
 let mouseDX = 0, mouseDY = 0;
 let firing = false, aiming = false;
+// A press that has not been seen by a multiplayer tick yet, so a click shorter than a frame
+// still fires.
+let fireLatch = false;
 let pointerLocked = false;
 
 // Shared gameplay scratch remains local to the player runtime; projectile simulation owns its
@@ -217,6 +224,27 @@ function stepPlayer(dt) {
 
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; return; }
 
+  readMoveInput(moveCmd);
+  stepMovement(world, player, moveCmd, dt, moveHooks);
+
+  // Footsteps.
+  const planar = Math.hypot(b.velocity.x, b.velocity.z);
+  if (player.grounded && planar > 1.2) {
+    player.stepTimer -= dt * (player.sprinting ? 1.5 : 1);
+    if (player.stepTimer <= 0) { Audio.step(); player.stepTimer = 0.4; }
+  } else {
+    player.stepTimer = 0;
+  }
+
+  player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
+  syncPlayerPoints();
+
+  // Fall out of the world guard.
+  if (b.position.y < -20) respawnPlayer();
+}
+
+/** The movement keys as a command, shared with the multiplayer client. */
+function readMoveInput(out) {
   let ix = 0, iz = 0;
   if (keys.KeyW || keys.GpForward || (settings.arrowKeys && keys.ArrowUp)) iz += 1;
   if (keys.KeyS || keys.GpBack || (settings.arrowKeys && keys.ArrowDown)) iz -= 1;
@@ -235,30 +263,15 @@ function stepPlayer(dt) {
   const wantSprint = (settings.toggleSprint ? sprintLatch : !!(keys.ShiftLeft || keys.GpSprint))
     || (settings.autoSprint && iz > 0);
 
-  moveCmd.ix = ix;
-  moveCmd.iz = iz;
+  out.ix = ix;
+  out.iz = iz;
   // Crouch reads from a latch when the player has chosen toggle-style bindings (see
   // settings.toggleCrouch), otherwise straight from the held key.
-  moveCmd.crouch = settings.toggleCrouch ? crouchLatch : !!(keys.KeyC || keys.GpCrouch);
-  moveCmd.sprint = wantSprint;
-  moveCmd.aiming = aiming;
-  moveCmd.jump = !!(keys.Space || keys.GpJump);
-  stepMovement(world, player, moveCmd, dt, moveHooks);
-
-  // Footsteps.
-  const planar = Math.hypot(b.velocity.x, b.velocity.z);
-  if (player.grounded && planar > 1.2) {
-    player.stepTimer -= dt * (player.sprinting ? 1.5 : 1);
-    if (player.stepTimer <= 0) { Audio.step(); player.stepTimer = 0.4; }
-  } else {
-    player.stepTimer = 0;
-  }
-
-  player.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
-  syncPlayerPoints();
-
-  // Fall out of the world guard.
-  if (b.position.y < -20) respawnPlayer();
+  out.crouch = settings.toggleCrouch ? crouchLatch : !!(keys.KeyC || keys.GpCrouch);
+  out.sprint = wantSprint;
+  out.aiming = aiming;
+  out.jump = !!(keys.Space || keys.GpJump);
+  return out;
 }
 
 function syncPlayerPoints() { sharedSyncPoints(player); }
@@ -278,6 +291,7 @@ function playerAimDirection(out) {
 function currentWeapon() { return WEAPON_BY_ID[player.current]; }
 
 function startReload() {
+  if (online()) { getNet().reload(); return; }
   const w = currentWeapon();
   if (w.thrown || player.reloading > 0) return;
   const a = player.ammo[w.id];
@@ -303,6 +317,7 @@ function resetStance() {
 }
 
 function switchWeapon(id) {
+  if (online()) { if (getNet().selectWeapon(id)) { Audio.equip(); aiming = false; sprintLatch = false; } return; }
   if (player.current === id || !WEAPON_BY_ID[id]) return;
   if (id === 'frag' && player.fragCount <= 0) return;
   if (id !== 'frag' && !player.loadout.includes(id)) return;   // not carried
@@ -369,6 +384,7 @@ function tryFire() {
 /* --------------------------- thrown ordnance --------------------------- */
 
 function startCook(kind, source = 'key') {
+  if (online()) return;           // multiplayer reads G and F as held buttons instead
   if (!player.alive || player.cooking) return;
   if (kind === 'frag' && player.fragCount <= 0) return;
   if (kind === 'smoke' && player.smokeCount <= 0) return;
@@ -439,7 +455,7 @@ function bindInput() {
     // With the frag selected, LMB cooks and releases exactly like G does.
     if (e.button === 0) {
       if (currentWeapon().thrown) startCook('frag', 'mouse');
-      else { firing = true; tryFire(); }
+      else { firing = true; fireLatch = true; tryFire(); }
     }
     if (e.button === 2) aiming = settings.toggleAim ? !aiming : true;
   });
@@ -493,7 +509,7 @@ function bindInput() {
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
     firing = false; aiming = false;
-    if (pointerLocked && match.running) {
+    if (pointerLocked && (match.running || online())) {
       resumePlay();
       // The death screen shares this overlay and the match loop keeps it up while you are dead.
       if (player.alive) showPause(false);
@@ -508,7 +524,7 @@ function bindInput() {
 }
 
 function requestLock() {
-  if (!match.running) return;
+  if (!match.running && !online()) return;
   // Chrome returns a promise here and rejects it when a lock is asked for too soon after the
   // player left one — press Esc, click straight back in. Unhandled, that was a console error
   // and a click that silently did nothing. The pause overlay is still up when it happens, so
@@ -573,7 +589,7 @@ function pollGamepad(dt) {
   else { aiming = down(6); }
 
   // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
-  if (down(7)) { if (!firing) { firing = true; tryFire(); } }
+  if (down(7)) { if (!firing) { firing = true; fireLatch = true; tryFire(); } }
   else firing = false;
 
   // Buttons get their own flags, like the stick does. Writing the keyboard's (keys.Space,
@@ -751,6 +767,8 @@ return {
   isAiming: () => aiming,
   setAiming: (on) => { aiming = !!on; },      // test and debug hook
   isFiring: () => firing,
+  takeFireLatch: () => { const f = fireLatch; fireLatch = false; return f; },
+  readMoveInput,
   isPointerLocked: () => pointerLocked,
   isGamepadActive: () => gamepadActive,
   stopFiring: () => { firing = false; },

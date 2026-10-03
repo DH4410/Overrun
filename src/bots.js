@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
-import { TEAM, TEAM_COLOR } from './config.js';
+import { CONFIG, TEAM, TEAM_COLOR } from './config.js';
 import { G_BODY, MAT_BODY, RAY_OPTS, world } from './physics.js';
 import { HB_BOT } from './projectiles.js';
 import { matte } from './rendering.js';
@@ -650,7 +650,9 @@ function buildSoldierMesh(_teamColor, gltf) {
 }
 
 /** Blocky humanoid, tinted by team so allies and enemies read instantly. */
-function buildBotMesh(teamColor, team = TEAM.SOLO) {
+function buildBotMesh(teamColor, team = TEAM.SOLO, characterId = null) {
+  // Multiplayer asks for the character the other player picked; bots draw from the roster.
+  if (characterId && characterGltf[characterId]) return buildSoldierMesh(teamColor, characterGltf[characterId]);
   const roster = rosterFor(team);
   if (roster.length) return buildSoldierMesh(teamColor, characterGltf[pick(roster).id]);
   return buildBlockyBotMesh(teamColor);
@@ -695,7 +697,11 @@ function buildBotGun(id) {
 }
 
 class Bot {
-  constructor(name, team, diff, weaponId = null) {
+  /**
+   * `puppet` makes a multiplayer stand-in for another player: drawn with `character`, driven by
+   * puppetStep() from the server's state, and given no body in the local physics world.
+   */
+  constructor(name, team, diff, weaponId = null, { character = null, puppet = false } = {}) {
     this.isPlayer = false;
     this.name = name;
     this.team = team;
@@ -762,7 +768,7 @@ class Bot {
     this.rangeBlocked = false;
 
     const color = TEAM_COLOR[team];
-    this.mesh = buildBotMesh(color, team);
+    this.mesh = buildBotMesh(color, team, character);
     this.mesh.scale.setScalar(BOT_MESH_SCALE);
     this.hb = HB_BOT;
     this.gunMesh = buildBotGun(this.weaponId);
@@ -787,7 +793,8 @@ class Bot {
     this.body.addShape(new CANNON.Sphere(0.36), new CANNON.Vec3(0, -0.38, 0));
     this.body.addShape(new CANNON.Sphere(0.36), new CANNON.Vec3(0, 0.34, 0));
     this.body.updateMassProperties();
-    world.addBody(this.body);
+    this.puppet = puppet;
+    if (!puppet) world.addBody(this.body);
     // Body position before the most recent physics step, for render interpolation.
     this.prevBodyPos = new THREE.Vector3().copy(this.body.position);
 
@@ -1794,7 +1801,7 @@ class Bot {
 
   /* ------------------------------ death ------------------------------ */
 
-  die() {
+  die(drop = true) {
     this.alive = false;
     this.state = ST.DEAD;
     this.deathTimer = 0;
@@ -1837,7 +1844,7 @@ class Bot {
     this.blip.visible = false;
     // The dropped pickup is the gun now; the hands no longer hold one.
     if (this.mesh.userData.bones?.RightHand) this.gunMesh.visible = false;
-    this.dropWeapon();
+    if (drop) this.dropWeapon();
   }
 
   /** Drop the (kinematic) body straight down onto whatever is below it. */
@@ -1892,6 +1899,43 @@ class Bot {
     this.blip.visible = true;
     this.plate.root.style.display = '';
     this.updateTransforms();
+  }
+
+  /**
+   * Multiplayer: draw another player from the server's interpolated state instead of thinking.
+   * `s` is in the player's conventions: { x, y, z } the body centre, view yaw and pitch, plus
+   * vx/vy/vz, crouching, aiming, firing (shot recently), alive, health and weapon. The AI
+   * fields are only set so animate() picks the right clips and raises the gun.
+   */
+  puppetStep(s, dt) {
+    if (s.alive && !this.alive) { this.fixedWeaponId = s.weapon; this.respawn({ x: s.x, y: s.y, z: s.z }); }
+    else if (!s.alive && this.alive) this.die(false);
+    if (this.alive) {
+      if (s.weapon !== this.weaponId && WEAPON_BY_ID[s.weapon] && !WEAPON_BY_ID[s.weapon].thrown) {
+        this.weaponId = s.weapon;
+        this.gunMesh.removeFromParent();
+        this.gunMesh = buildBotGun(s.weapon);
+        this.attachGun();
+      }
+      const foot = s.y - (s.crouching ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS);
+      this.body.position.set(s.x, foot + BOT_STAND_Y, s.z);
+      this.body.velocity.set(s.vx, s.vy, s.vz);
+      this.yaw = s.yaw + Math.PI;
+      this.health = s.health;
+      const engaged = s.aiming || s.firing;
+      this.state = s.crouching ? ST.COVER : (engaged ? ST.SHOOT : ST.PATROL);
+      this.peekTimer = engaged ? 1 : 0;
+      this.hasLOS = engaged;
+      // A point 20 m down the view, for the gun and the chest to aim at.
+      this.aimMark ??= { pos: new THREE.Vector3(), alive: true };
+      const cp = Math.cos(s.pitch), eyeY = foot + BOT_STAND_Y + BOT_EYE;
+      this.aimMark.pos.set(s.x - Math.sin(s.yaw) * cp * 20, eyeY + Math.sin(s.pitch) * 20, s.z - Math.cos(s.yaw) * cp * 20);
+      this.target = engaged ? this.aimMark : null;
+    } else {
+      this.deathTimer += dt;
+    }
+    this.prevBodyPos.copy(this.body.position);
+    this.renderStep(dt, 1);
   }
 }
 

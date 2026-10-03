@@ -78,7 +78,7 @@ export class Predictor {
     this.entries = [];             // { seq, rep, cmd, state } per tick, oldest first
     this.lastSeq = 0;
     this.lastRep = 0;
-    this.stats = { compares: 0, agreed: 0, replays: 0, replayedTicks: 0, errors: [] };
+    this.stats = { compares: 0, agreed: 0, replays: 0, replayedTicks: 0, resyncs: 0, errors: [] };
   }
 
   /** Build the level for a map. `colliders` is the parsed assets/maps/<id>.json. */
@@ -150,7 +150,15 @@ export class Predictor {
     const before = this.p.body.position.clone();
     this.apply(y);
     const rest = this.entries.slice(i + 1).filter((e) => e.seq > ackSeq || i >= 0);
+    const lastCmd = this.entries[this.entries.length - 1]?.cmd;
     this.entries.length = 0;
+    if (this.lastSeq === ackSeq && this.lastRep < ackAge && lastCmd) {
+      // Idle, and the server has run more ticks than this client (a slow frame dropped some):
+      // take its tick count as well as its state, or every later snapshot would disagree too.
+      this.lastRep = ackAge;
+      this.entries.push({ seq: ackSeq, rep: ackAge, cmd: lastCmd, state: capture(this.p) });
+      this.stats.resyncs++;
+    }
     for (const e of rest) {
       this.simulate(e.cmd, armed, null);
       e.state = capture(this.p);

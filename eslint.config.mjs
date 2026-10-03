@@ -35,6 +35,8 @@ const browserGlobals = {
   AudioContext: 'readonly',
   Blob: 'readonly',
   URL: 'readonly',
+  URLSearchParams: 'readonly',
+  WebSocket: 'readonly',
   Worker: 'readonly',
   Image: 'readonly',
   Event: 'readonly',

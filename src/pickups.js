@@ -144,7 +144,8 @@ function spawnAmmoChests(positions, max = 6) {
   }
 }
 
-function updateAmmoChests(dt) {
+/** `visualOnly`: multiplayer, where the server owns pickups; only the bob and the light run. */
+function updateAmmoChests(dt, visualOnly = false) {
   const t = performance.now() * 0.001;
   let prompt = false;
 
@@ -162,7 +163,7 @@ function updateAmmoChests(dt) {
     c.emitter.intensity = 22 + Math.sin(t * 3 + c.phase) * 7;
     c.emitter.y = c.mesh.position.y + 0.3;
 
-    if (!player.alive) continue;
+    if (!player.alive || visualOnly) continue;
     const d = c.mesh.position.distanceTo(player.body.position);
     if (d < AMMO_CHEST_PROMPT) prompt = true;
     if (d > AMMO_CHEST_RANGE) continue;
@@ -298,7 +299,7 @@ function spawnConsumables(entries, max = 8) {
   }
 }
 
-function updateConsumables(dt) {
+function updateConsumables(dt, visualOnly = false) {
   const t = performance.now() * 0.001;
   let prompt = null;
 
@@ -317,7 +318,7 @@ function updateConsumables(dt) {
     c.mesh.userData.ring.rotation.z += dt * 1.6;
     c.emitter.y = c.mesh.position.y + 0.2;
 
-    if (!player.alive) continue;
+    if (!player.alive || visualOnly) continue;
     const d = c.mesh.position.distanceTo(player.body.position);
     // Only offer what can actually be taken: "walk in to collect" at full health was a promise
     // the pickup then refused.

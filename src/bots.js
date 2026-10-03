@@ -1593,7 +1593,10 @@ class Bot {
     put('StrafeLeft', share(parts.left));
 
     const hiding = this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8;
-    if (hiding && clips.Crouch) {
+    if (this.emoteAction) {
+      // An online player's puppet dancing: the emote clip has the whole body.
+      for (const key of Object.keys(want)) want[key] = 0;
+    } else if (hiding && clips.Crouch) {
       for (const key of Object.keys(want)) want[key] = 0;
       want.Crouch = 1;
     } else {
@@ -1618,6 +1621,7 @@ class Bot {
       if (clips[name]) clips[name].timeScale = paceOf(name, comp);
     }
     mixer.update(dt);
+    if (this.emoteAction) { this.updateHitboxes(); return; }
 
     // Aim: raised whenever there is someone to point at, lowered to a ready carry otherwise.
     const engaging = this.target && this.hasLOS && (this.state === ST.SHOOT || this.state === ST.NADE

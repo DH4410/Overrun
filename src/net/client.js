@@ -81,7 +81,7 @@ export function createNetClient(d) {
   let wasAlive = false, ammoSig = '', stepTimer = 0, lastReloadFrom = 0;
   let voteMode = null, voteMap = null, endInfo = null;
   let debugOn = new URLSearchParams(location.search).has('netdebug');
-  const stats = { snaps: 0, bytes: 0, corrections: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
+  const stats = { snaps: 0, bytes: 0, corrections: 0, resyncs: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
 
   const offset = new THREE.Vector3();        // predicted-to-drawn smoothing, decays to zero
   const predPrev = new THREE.Vector3();      // predicted body before the latest tick
@@ -516,13 +516,13 @@ export function createNetClient(d) {
       selected = pred.p.loadout[0];
       faceSpawn(s.you);
     }
-    const aliveBefore = pred.p.alive, replays = pred.stats.replays;
+    const aliveBefore = pred.p.alive, replays = pred.stats.replays, resyncs = pred.stats.resyncs;
     _before.copy(pred.p.body.position);
     const err = pred.reconcile(s, s.phase === PHASE.PLAYING);
-    if (pred.stats.replays === replays) return;      // agreed
+    if (pred.stats.replays === replays && pred.stats.resyncs === resyncs) return;      // agreed
     const after = pred.p.body.position;
-    stats.corrections++;
-    stats.lastErr = err;
+    if (pred.stats.resyncs !== resyncs) stats.resyncs++;
+    else { stats.corrections++; stats.lastErr = err; }
     if (spawned || aliveBefore !== pred.p.alive || err > SNAP_DIST) {
       offset.set(0, 0, 0);
       predPrev.copy(after);
@@ -794,6 +794,14 @@ export function createNetClient(d) {
       if (!sample(q.id, rt, _s)) continue;
       _s.firing = now - (lastShot.get(q.id) ?? -1e9) < SHOT_SHOW * 1000;
       b.puppetStep(_s, dt);
+      // Emotes: the server ends them on any action, so the snapshot's emote is the truth.
+      const emote = b.alive && q.emote ? EMOTE_IDS[q.emote] : null;
+      if (emote !== (b.emoteId ?? null)) {
+        if (b.emoteAction) { d.emotes.stopOn(b.mesh, b.emoteAction); b.emoteAction = null; }
+        b.emoteId = null;
+        if (emote) { b.emoteAction = d.emotes.playOn(b.mesh, emote); if (b.emoteAction) b.emoteId = emote; }
+      }
+      if (b.gunMesh && b.alive) b.gunMesh.visible = !b.emoteAction;
     }
     // Seated players missing from the snapshot have dropped: their seat is held, their body is not.
     for (const [id, b] of puppets) {
@@ -970,7 +978,7 @@ export function createNetClient(d) {
       ui.debug.textContent = [
         `rtt ${rtt} ms · interp ${(interp * 1000).toFixed(0)} ms · input ${inputRate}/s · budget ${flags}`,
         `snapshots ${stats.snaps} · avg ${stats.snaps ? Math.round(stats.bytes / stats.snaps) : 0} B · sent ${stats.packets} pkts / ${stats.cmds} cmds`,
-        ps ? `prediction ${ps.compares ? (100 * ps.agreed / ps.compares).toFixed(1) : '-'}% agreed · corrections ${stats.corrections} (snapped ${stats.snapped}) · last ${stats.lastErr.toFixed(3)} m` : 'spectating',
+        ps ? `prediction ${ps.compares ? (100 * ps.agreed / ps.compares).toFixed(1) : '-'}% agreed · corrections ${stats.corrections} (snapped ${stats.snapped}) · resyncs ${stats.resyncs} · last ${stats.lastErr.toFixed(3)} m` : 'spectating',
       ].join('\n');
     }
   }

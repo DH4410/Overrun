@@ -152,21 +152,22 @@ export class Predictor {
     const rest = this.entries.slice(i + 1).filter((e) => e.seq > ackSeq || i >= 0);
     const lastCmd = this.entries[this.entries.length - 1]?.cmd;
     this.entries.length = 0;
-    if (this.lastSeq === ackSeq && this.lastRep < ackAge && lastCmd) {
+    const resync = this.lastSeq === ackSeq && this.lastRep < ackAge && !!lastCmd;
+    if (resync) {
       // Idle, and the server has run more ticks than this client (a slow frame dropped some):
       // take its tick count as well as its state, or every later snapshot would disagree too.
       this.lastRep = ackAge;
       this.entries.push({ seq: ackSeq, rep: ackAge, cmd: lastCmd, state: capture(this.p) });
-      this.stats.resyncs++;
     }
     for (const e of rest) {
       this.simulate(e.cmd, armed, null);
       e.state = capture(this.p);
       this.entries.push(e);
     }
+    const err = before.distanceTo(this.p.body.position);
+    if (resync) { this.stats.resyncs++; return err; }
     this.stats.replays++;
     this.stats.replayedTicks += rest.length;
-    const err = before.distanceTo(this.p.body.position);
     this.stats.errors.push(err);
     if (this.stats.errors.length > 5000) this.stats.errors.splice(0, 2500);
     return err;

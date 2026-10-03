@@ -63,7 +63,7 @@ class SwarmPlayer {
       // have predicted (the browser snaps those), or neither, which is the drift that blends.
       const wasAlive = this.pred.p.alive, replays = this.pred.stats.replays;
       const err = this.pred.reconcile(s, s.phase === PHASE.PLAYING);
-      if (this.pred.stats.replays === replays) return;
+      if (this.pred.stats.replays === replays) return;      // agreed, or an idle tick-count resync
       const cause = spawned ? 'spawn' : wasAlive !== s.you.alive ? 'death' : 'drift';
       this.corrections.push({ err, cause, gap: this.maxGap });
       this.maxGap = 0;
@@ -231,6 +231,7 @@ async function run() {
   console.log(`billed requests/hour/player: active ${perPlayerHour(msgsActive).toFixed(0)}, idle ${perPlayerHour(msgsIdle).toFixed(1)}`);
   console.log(`events (active, seen by a spectator): shots ${events.shots}, hits ${events.hits}, kills ${events.kills}`);
   console.log(`prediction: ${compares} checks, ${agreed} agreed (${(100 * agreed / Math.max(1, compares)).toFixed(1)}%), ${replays} replays of ${(replayed / Math.max(1, replays)).toFixed(1)} ticks avg`);
+  console.log(`   ${pred.reduce((n, s) => n + s.resyncs, 0)} idle resyncs (the client had run fewer ticks than the server; state and tick count taken, nothing replayed)`);
   console.log('  (with no network in between prediction matches the room tick for tick: tests/unit/mp-predict.test.mjs;');
   console.log('   these replays follow late input the server had to stand in for, pickups and respawns)');
   console.log(`corrections: ${byCause('death').length} at a death, ${byCause('spawn').length} at a respawn (both snap), ${drift.length} drift`);

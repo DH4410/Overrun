@@ -7,6 +7,7 @@ export const MAP_DATA = {
   port: {
     id: 'port',
     file: 'port',
+    modes: ['dm', 'tdm', 'sv', 'duel', 'ctf'],
     half: [50, 38],
     /** Flag stands (blue, red) in the middle of each spawn shed; also where each side's spawns are. */
     flags: [[0, 31], [0, -31]],
@@ -40,6 +41,7 @@ export const MAP_DATA = {
   desert: {
     id: 'desert',
     file: 'desert',
+    modes: ['dm', 'tdm', 'sv', 'duel', 'ctf'],
     half: [42, 32],
     flags: [[0, 26.5], [0, -26.5]],
     /** The arcade roofs and the souk slats start at 4.2 m; a cast from above them lands on top. */
@@ -68,6 +70,7 @@ export const MAP_DATA = {
   snow: {
     id: 'snow',
     file: 'snow',
+    modes: ['dm', 'tdm', 'sv', 'duel', 'ctf'],
     half: [44, 34],
     flags: [[0, 28], [0, -28]],
     /** The station and garage roofs start at 4.0 m; a cast from above them lands on top. */
@@ -93,6 +96,44 @@ export const MAP_DATA = {
     consumables: [
       ['health', 24, 23.5], ['health', -24, -23.5], ['shield', 0, 5.8], ['shield', 0, -5.8],
       ['health', -33, 22.9], ['health', 33, -22.9], ['shield', 36.8, -4.5], ['shield', -36.8, 4.5],
+    ],
+  },
+  warzone: {
+    id: 'warzone',
+    file: 'warzone',
+    /** The big map: only the deathmatches, the endless one above all. */
+    modes: ['dm', 'tdm', 'war'],
+    half: [70, 50],
+    flags: [[0, 44], [0, -44]],
+    /** Every roof is at 4.0 m; a cast from above them lands on top. */
+    ceilY: 4.0,
+    /**
+     * Mirrored spawn candidates, listed in pairs and picked from the built layout (2 m clear of every
+     * blocker, floor at ground level): the first six pairs are in the two walled bases, the rest are
+     * spread by furthest-point sampling over the districts, the boulevard and the plaza.
+     */
+    spawns: [
+      [0, 45.5], [0, -45.5], [1.5, 45.5], [-1.5, -45.5], [-3, 44], [3, -44],
+      [3, 44], [-3, -44], [-3, 42.5], [3, -42.5], [3, 42.5], [-3, -42.5],
+      [-66, 0.5], [66, -0.5], [51, 45.5], [-51, -45.5], [-58.5, 45.5], [58.5, -45.5],
+      [-19.5, 0.5], [19.5, -0.5], [-34.5, 27.5], [34.5, -27.5], [33, 24.5], [-33, -24.5],
+      [1.5, 17], [-1.5, -17], [-63, 23], [63, -23], [-43.5, 0.5], [43.5, -0.5],
+      [25.5, 45.5], [-25.5, -45.5], [55.5, 18.5], [-55.5, -18.5], [-24, 45.5], [24, -45.5],
+      [-16.5, 21.5], [16.5, -21.5], [15, 29], [-15, -29], [-42, 44], [42, -44],
+      [-33, 12.5], [33, -12.5], [66, 44], [-66, -44], [4.5, 0.5], [-4.5, -0.5],
+      [-48, 23], [48, -23], [15, 14], [-15, -14],
+    ],
+    ammo: [
+      [40.5, 36.5], [-40.5, -36.5], [42, 14], [-42, -14], [-66, 35], [66, -35],
+      [-51, 11], [51, -11], [-21, 33.5], [21, -33.5], [54, 6.5], [-54, -6.5],
+      [-9, 30.5], [9, -30.5],
+    ],
+    consumables: [
+      ['health', -9, 12.5], ['shield', 9, -12.5], ['health', -66, 12.5], ['shield', 66, -12.5],
+      ['health', 49.5, 27.5], ['shield', -49.5, -27.5], ['health', 57, 36.5], ['shield', -57, -36.5],
+      ['health', -46.5, 33.5], ['shield', 46.5, -33.5], ['health', -33, 38], ['shield', 33, -38],
+      ['health', -31.5, 2], ['shield', 31.5, -2], ['health', 66, 17], ['shield', -66, -17],
+      ['health', 30, 36.5], ['shield', -30, -36.5],
     ],
   },
 };

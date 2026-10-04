@@ -134,3 +134,28 @@ test('ctf: a carrier who disconnects drops the flag', () => {
   run(room, 0.1);
   assert.equal(enemy.state, 'dropped');
 });
+
+test('war: no clock and no limit, only the host ends it, and it only runs on the big map', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  A.say({ t: 'settings', mode: 'war' });
+  assert.equal(room.settings.mode, 'war');
+  assert.equal(room.settings.map, 'warzone', 'the mode moves the map to one that can host it');
+  A.say({ t: 'settings', map: 'port' });
+  assert.equal(room.settings.map, 'warzone', 'a small map cannot be picked for it');
+  A.say({ t: 'settings', mode: 'dm' });
+  assert.equal(room.settings.map, 'warzone', 'the big map hosts plain deathmatch too');
+  startRound(room, [A, B], { mode: 'war', map: 'warzone' });
+  assert.equal(room.timeLeft, 0);
+  run(room, 60);
+  assert.equal(room.phase, PHASE.PLAYING, 'no clock to run out');
+  const C = join(room, 'C');
+  assert.ok(C.p, 'the match is still open to late joiners');
+  kill(room, B.p, A.p);
+  run(room, 6);
+  assert.equal(room.phase, PHASE.PLAYING, 'kills do not end it');
+  B.say({ t: 'end' });
+  assert.equal(room.phase, PHASE.PLAYING, 'a guest cannot end it');
+  A.say({ t: 'end' });
+  assert.equal(room.phase, PHASE.INTERMISSION, 'the host ending it shows the results');
+});

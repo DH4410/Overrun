@@ -56,6 +56,7 @@ import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
+import { saveSkin, savedSkin, SKINS } from './skins.js';
 import { createMinimap } from './minimap.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
@@ -416,6 +417,8 @@ const {
   bots,
   Bot,
   loadSoldier,
+  loadCharacter,
+  isCharacterLoaded,
   loadedCharacters,
   buildCharacterMesh,
   registerBotClips,
@@ -566,8 +569,17 @@ let hudScale = 1;
 const frameGate = createFrameGate();
 const resScaler = createResScaler();
 
+/** The lobby stage is a still, simple scene: draw it at full resolution, supersampled, so edges are clean. */
+let sharp = false;
+function setSharp(on) {
+  if (sharp === on) return;
+  sharp = on;
+  applyRenderScale();
+}
+
 function applyRenderScale() {
-  renderScale = baseRenderScale * resScaler.scale;
+  renderScale = sharp ? 1 : baseRenderScale * resScaler.scale;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, sharp ? clamp(devicePixelRatio, 1.5, 2) : QUALITY[settings.quality].maxPixelRatio));
   resizeRenderer();
 }
 
@@ -1237,11 +1249,18 @@ function showLoadoutSummary() {
 }
 showLoadoutSummary();
 const locker = createLocker({
+  getSkin: () => savedSkin() ?? SKINS[0].id,
+  setSkin: async (id) => {
+    saveSkin(id);
+    net.gear(id, player.loadout);
+    await loadCharacter(id);
+  },
   getLoadout: () => player.loadout,
   setLoadout: (list) => {
     if (!validLoadout(list)) return;
     player.loadout = list;
     saveLoadout(list);
+    net.gear(savedSkin() ?? SKINS[0].id, list);
     showLoadoutSummary();
     if (player.current !== 'frag' && !list.includes(player.current)) switchWeapon(list[0]);
     if (match.running) updateAmmoHud();
@@ -1262,14 +1281,14 @@ addEventListener('keydown', (e) => {
 
 net = createNetClient({
   player, bots, Bot, el, Audio, camera, keys, match, scene, allyMarks, playerBlip, vmModels,
-  ammoChests, consumables, loadedCharacters, switchMap, getCurrentMapId, losClear,
+  ammoChests, consumables, loadedCharacters, loadCharacter, isCharacterLoaded, switchMap, getCurrentMapId, losClear,
   readMoveInput, isFiring, isAiming, takeFireLatch, isPointerLocked, emotes,
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,
   showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
   setPaused: () => { appState = APP_STATE.PAUSED; },
-  warmScene,
+  warmScene, setSharp,
   onEnter: () => {
     // Nothing of single player runs online: no bots, no local match, and the player is not
     // something local bullets can hit.
@@ -1400,7 +1419,7 @@ async function boot() {
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
-  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier(), loadViewModels(), loadGlbMaps()]);
+  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier([savedSkin()].filter(Boolean)), loadViewModels(), loadGlbMaps()]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
@@ -1451,7 +1470,7 @@ async function boot() {
     renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, anims: extraAnims,
               characters: loadedCharacters(), port: glbOk.port, maps: glbOk },
-    registerBotClips, botClipNames, buildCharacterMesh, emotes, Audio,
+    registerBotClips, botClipNames, buildCharacterMesh, loadCharacter, emotes, Audio,
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,

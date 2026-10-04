@@ -26,8 +26,7 @@ export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag'];
 /** Index 0 is "not emoting". Matches EMOTES in src/emotes.js. */
 export const EMOTE_IDS = [null, 'wave', 'hiphop', 'robot', 'chicken', 'macarena', 'ymca', 'thriller', 'victory'];
 export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival'];
-/** Matches CHARACTERS in src/bots.js. */
-export const CHARACTER_IDS = ['soldier', 'swat', 'trooper', 'gasmask', 'crypto', 'ely', 'steve'];
+export { CHARACTER_IDS } from '../skins.js';
 export const MAX_PLAYERS = 10;
 export const MAX_SPECTATORS = 16;
 /** Close codes the client explains to the player instead of reconnecting. */

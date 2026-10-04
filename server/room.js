@@ -65,7 +65,7 @@ function cleanName(raw) {
 
 export class Room {
   /**
-   * colliders: { port, desert, snow } parsed assets/maps/<id>.json
+   * colliders: { port, desert, snow, warzone } parsed assets/maps/<id>.json
    * now(): ms; rng(): [0, 1); governor: a Governor; mapId/mode: the lobby's first settings.
    * autostart skips the lobby and starts that round at once (tests and the swarm run).
    */
@@ -219,7 +219,9 @@ export class Room {
     if (m.t === 'hello' && !c.hello) this.onHello(c, m);
     else if (!c.player) { /* spectators only talk */ } else if (m.t === 'ready') this.onReady(c.player, m);
     else if (m.t === 'settings') this.onSettings(c.player, m);
+    else if (m.t === 'gear') this.onGear(c.player, m);
     else if (m.t === 'start') this.onStart(c.player);
+    else if (m.t === 'end') this.onEnd(c.player);
     // Anything else (the client's 'ka' keepalive) is only a message: on Cloudflare, that tops up the CPU allowance.
   }
 
@@ -272,7 +274,7 @@ export class Room {
    */
   canSeat() {
     if (this.players.length >= this.seatLimit()) return false;
-    if (this.phase === PHASE.PLAYING && this.timeLeft <= LATE_JOIN_CUTOFF) return false;
+    if (this.phase === PHASE.PLAYING && this.mode !== 'war' && this.timeLeft <= LATE_JOIN_CUTOFF) return false;
     return this.phase !== PHASE.CLOSED;
   }
 
@@ -540,7 +542,7 @@ export class Room {
       }
       if (this.mode === 'ctf') ctfStep(this, dt);
       if (this.mode === 'duel') this.stepDuel(dt);
-      else if ((this.timeLeft -= dt) <= 0) this.endOnTime();
+      else if (this.mode !== 'war' && (this.timeLeft -= dt) <= 0) this.endOnTime();
     } else if (this.phase === PHASE.COUNTDOWN) {
       if (this.players.filter((p) => p.connected).length < 2) this.toLobby('NOT ENOUGH PLAYERS');
       else if ((this.timeLeft -= dt) <= 0) this.beginPlay();
@@ -870,10 +872,24 @@ export class Room {
     this.broadcastRoster();
   }
 
+  /** The locker, opened in the lobby: a new skin and loadout, shown to everyone at once. */
+  onGear(p, m) {
+    if (this.phase !== PHASE.LOBBY) return;
+    if (CHARACTER_IDS.includes(m.character) && m.character !== CHARACTER_IDS[0]) p.character = m.character;
+    if (validLoadout(m.loadout)) { p.loadout = [...m.loadout]; p.chosen = [...m.loadout]; }
+    this.broadcastRoster();
+  }
+
   onSettings(p, m) {
     if (this.phase !== PHASE.LOBBY || p !== this.hostSeat) return;
     this.settings = cleanSettings(m, this.settings, MAP_DATA);
     this.broadcastRoster();
+  }
+
+  /** Warzone has no clock and no limit: the host ends it, and the standings are the result. */
+  onEnd(p) {
+    if (p !== this.hostSeat || this.phase !== PHASE.PLAYING || this.mode !== 'war') return;
+    this.endOnTime();
   }
 
   onStart(p) {
@@ -919,7 +935,7 @@ export class Room {
 
   beginPlay() {
     this.phase = PHASE.PLAYING;
-    this.timeLeft = this.settings.time;
+    this.timeLeft = this.mode === 'war' ? 0 : this.settings.time;
     this.roundReset = 0;
     if (this.mode === 'duel') this.startDuelRound();
     this.log(`round: ${this.mode} on ${this.mapId}`);
@@ -996,7 +1012,7 @@ export class Room {
   }
 
   checkWin() {
-    if (this.phase !== PHASE.PLAYING) return;
+    if (this.phase !== PHASE.PLAYING || this.mode === 'war') return;
     const limit = this.settings.limit;
     if (this.mode === 'duel') {
       const win = this.scoreA >= limit ? TEAM.BLUE : this.scoreB >= limit ? TEAM.RED : null;

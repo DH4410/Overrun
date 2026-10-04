@@ -46,6 +46,7 @@ function bindMenu() {
     }
     b.classList.toggle('active', b.dataset.map === map);
     b.addEventListener('click', () => {
+      if (b.disabled) return;
       map = b.dataset.map;
       document.querySelectorAll('#maps [data-map]').forEach((x) => x.classList.toggle('active', x === b));
       showMap();
@@ -53,6 +54,22 @@ function bindMenu() {
     });
   }
   showMap();
+
+  // A map that cannot host the chosen mode (the big one is deathmatch only) greys out, and the
+  // choice moves to the first map that can.
+  const hosts = (id) => !MAPS[id]?.modes || MAPS[id].modes.includes(mode);
+  const syncMaps = () => {
+    for (const b of document.querySelectorAll('#maps [data-map]')) {
+      const off = !hosts(b.dataset.map) || MAPS[b.dataset.map]?.available?.() === false;
+      b.disabled = off;
+      b.title = off ? 'Not available in this mode' : '';
+    }
+    if (!hosts(map)) {
+      map = Object.keys(MAPS).find(hosts) ?? map;
+      document.querySelectorAll('#maps [data-map]').forEach((x) => x.classList.toggle('active', x.dataset.map === map));
+      showMap();
+    }
+  };
 
   // The duel always runs the elite opponent, so the difficulty pills do not apply to it.
   // Grey them out rather than hiding them, so it is obvious why they stopped responding.
@@ -69,11 +86,13 @@ function bindMenu() {
       document.querySelectorAll('.mode-btn').forEach((x) => x.classList.toggle('active', x === b));
       showMode(b);
       syncDiffLock();
+      syncMaps();
       closePops();
     });
   }
   showMode(document.querySelector('.mode-btn.active'));
   syncDiffLock();
+  syncMaps();
   for (const b of document.querySelectorAll('#diffs .pill')) {
     b.addEventListener('click', () => {
       diff = b.dataset.diff;

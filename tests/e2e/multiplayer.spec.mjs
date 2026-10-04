@@ -73,7 +73,11 @@ test('two players and a spectator share one room, and see each other move', asyn
   await expect(a.locator('#mp-lobby .go')).toHaveText('START MATCH');
   await expect(a.locator('#mp-lobby .go')).toBeDisabled();
   await expect(b.locator('#mp-lobby .go')).toHaveText('READY');
-  await expect(b.locator('#mp-lobby .opts button').first()).toBeDisabled();   // a guest cannot change settings
+  await expect(b.locator('#mp-lobby button.mcard')).toHaveCount(0);   // a guest cannot change settings
+  await a.click('#mp-lobby .mcard.k-map');                           // the host's choices open as a popout
+  await expect(a.locator('#mp-lobby .pop .tile')).toHaveCount(4);
+  await a.keyboard.press('Escape');
+  await expect(a.locator('#mp-lobby .pop')).toHaveCount(0);
   await b.click('#mp-lobby .go');
   await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 10_000 });
   // Chat works in the lobby, and the spectator sees it too.

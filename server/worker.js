@@ -3,6 +3,7 @@ import { DurableObject } from 'cloudflare:workers';
 import desert from '../assets/maps/desert.json';
 import port from '../assets/maps/port.json';
 import snow from '../assets/maps/snow.json';
+import warzone from '../assets/maps/warzone.json';
 import { Governor } from './governor.js';
 import { Room } from './room.js';
 
@@ -16,7 +17,7 @@ import { Room } from './room.js';
  * reads ~0 here; measure cost with server/node.js and tests/mp/swarm.mjs.
  */
 
-const COLLIDERS = { port, desert, snow };
+const COLLIDERS = { port, desert, snow, warzone };
 
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {

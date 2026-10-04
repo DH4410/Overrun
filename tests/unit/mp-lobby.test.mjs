@@ -190,3 +190,24 @@ test('nobody walks in the lobby or the countdown, but they can once the round ru
   for (let i = 0; i < 120; i++) { walk(A.p, 400 + i); room.step(); }
   assert.ok(Math.hypot(A.p.body.position.x - start.x, A.p.body.position.z - start.z) > 1, 'did not move in the round');
 });
+
+test('the locker in the lobby changes your skin and loadout for everyone; nothing off the lists, nothing mid-round', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A', { character: 'swat' }), B = join(room, 'B');
+  A.say({ t: 'gear', character: 'ely', loadout: ['pistol', 'smg', 'ar', 'sniper'] });
+  assert.equal(A.p.character, 'ely');
+  assert.deepEqual(A.p.loadout, ['pistol', 'smg', 'ar', 'sniper']);
+  assert.deepEqual(A.p.chosen, ['pistol', 'smg', 'ar', 'sniper']);
+  A.say({ t: 'gear', character: 'not-a-skin', loadout: ['bazooka'] });
+  assert.equal(A.p.character, 'ely', 'a made-up skin is ignored');
+  assert.deepEqual(A.p.loadout, ['pistol', 'smg', 'ar', 'sniper'], 'so is a made-up loadout');
+  A.say({ t: 'gear', character: 'soldier' });
+  assert.equal(A.p.character, 'ely', 'the fallback rig is never offered');
+  assert.equal(lastJson(B.conn, 'roster').players.find((q) => q.id === A.p.id).character, 'ely', 'the lobby is told');
+  B.say({ t: 'ready', ready: true });
+  A.say({ t: 'start' });
+  run(room, COUNTDOWN + 0.1);
+  assert.equal(room.phase, PHASE.PLAYING);
+  A.say({ t: 'gear', character: 'crypto' });
+  assert.equal(A.p.character, 'ely', 'no wardrobe changes in a round');
+});

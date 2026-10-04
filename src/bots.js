@@ -9,6 +9,7 @@ import { matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
 import { buildGunModel, gunMaterials } from './gunmodels.js';
 import { BOT_GUN_IDS, WEAPON_BY_ID } from './weapons.js';
+import { SKINS } from './skins.js';
 
 /**
  * Bot aim error, in radians. These were tuned against a measured duel rather than guessed:
@@ -458,14 +459,14 @@ let soldierGltf = null;
  * Mixamo properly. The two sides' casts stay disjoint (tests/e2e/characters.spec.mjs asserts no
  * model appears on both sides): blue is police tactical, red is military and mercenary.
  */
+const BOT_TEAMS = {
+  swat: [TEAM.SOLO, TEAM.BLUE], trooper: [TEAM.SOLO, TEAM.BLUE], gasmask: [TEAM.SOLO, TEAM.BLUE],
+  crypto: [TEAM.SOLO, TEAM.RED], ely: [TEAM.SOLO, TEAM.RED], steve: [TEAM.SOLO, TEAM.RED],
+};
+/** Skins that are not in BOT_TEAMS are for players only: bots never draw them. */
 const CHARACTERS = [
-  { id: 'soldier', file: './assets/bots/soldier.glb', teams: [] },
-  { id: 'swat', file: './assets/bots/swat.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
-  { id: 'trooper', file: './assets/bots/trooper.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
-  { id: 'gasmask', file: './assets/bots/gasmask.glb', teams: [TEAM.SOLO, TEAM.BLUE] },
-  { id: 'crypto', file: './assets/bots/crypto.glb', teams: [TEAM.SOLO, TEAM.RED] },
-  { id: 'ely', file: './assets/bots/ely.glb', teams: [TEAM.SOLO, TEAM.RED] },
-  { id: 'steve', file: './assets/bots/steve.glb', teams: [TEAM.SOLO, TEAM.RED] },
+  { id: 'soldier', file: './assets/bots/soldier.glb', teams: [], boot: true },
+  ...SKINS.map((k) => ({ id: k.id, file: `./assets/bots/${k.id}.glb`, teams: BOT_TEAMS[k.id] ?? [], boot: !!k.boot })),
 ];
 
 /** Loaded character GLBs, keyed by id. Missing entries simply drop out of the roster. */
@@ -500,14 +501,21 @@ const CLIP_SCALE = BOT_TARGET_HEIGHT / SOLDIER_HEIGHT;
  * already are: a missing or broken file costs that character, and the game falls back
  * through the remaining roster to the stock soldier and finally to the blocky humanoid.
  */
-async function loadSoldier() {
-  await Promise.all(CHARACTERS.map(async (c) => {
-    try {
-      characterGltf[c.id] = await modelLoader.loadAsync(c.file);
-    } catch {
-      characterGltf[c.id] = null;
-    }
-  }));
+const characterLoads = {};
+/** One character's GLB, once. A missing file costs that character only. */
+function loadCharacter(id) {
+  const c = CHARACTERS.find((k) => k.id === id);
+  if (!c) return Promise.resolve(false);
+  characterLoads[id] ??= modelLoader.loadAsync(c.file).then(
+    (g) => { characterGltf[id] = g; return true; },
+    () => { characterGltf[id] = null; return false; },
+  );
+  return characterLoads[id];
+}
+
+async function loadSoldier(extra = []) {
+  const ids = new Set([...CHARACTERS.filter((c) => c.boot).map((c) => c.id), ...extra]);
+  await Promise.all([...ids].map(loadCharacter));
   soldierGltf = characterGltf.soldier ?? null;
   return Object.values(characterGltf).some(Boolean);
 }
@@ -2070,6 +2078,8 @@ return {
   Bot,
   loadSoldier,
   characters: CHARACTERS,
+  loadCharacter,
+  isCharacterLoaded: (id) => Boolean(characterGltf[id]),
   loadedCharacters: () => Object.entries(characterGltf)
     .filter(([, v]) => Boolean(v)).map(([k]) => k),
   /** A rigged mesh of one roster character, for tests that must cover every character. */

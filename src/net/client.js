@@ -8,6 +8,7 @@ import {
   NO_ID, PHASE, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ, WEAPON_IDS, ZONE_IDS, encodeInput, mapHash, quantPitch, quantYaw,
   readSnapshot,
 } from '../sim/protocol.js';
+import { savedSkin } from '../skins.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { MODE_INFO, teamScore } from '../sim/modes.js';
 import { createChat } from './chat.js';
@@ -152,6 +153,7 @@ export function createNetClient(d) {
   const flagsView = createFlags({ scene: d.scene, positionOf: footOf });
   const lobbyUI = createLobby({ send: (m) => sendJson(m), onLeave: () => leaveMatch() });
   const stage = createStage({ scene: d.scene, camera });
+  const stageShow = (v) => { stage.show(v); d.setSharp?.(v); };
 
   function drawLobby() {
     if (!lobbyInfo.settings) return;
@@ -185,6 +187,9 @@ export function createNetClient(d) {
     deliver('out', () => { if (sock.readyState === 1) sock.send(data); });
   }
   const sendJson = (m) => send(JSON.stringify(m));
+  // Warzone has no clock: the host ends it from the pause screen.
+  const endBtn = document.getElementById('end-match');
+  endBtn.addEventListener('click', () => { sendJson({ t: 'end' }); el.pause.classList.remove('on', 'dead'); });
 
   async function loadColliders() {
     if (colliders) return;
@@ -199,7 +204,7 @@ export function createNetClient(d) {
 
   function character() {
     const ss = storage('sessionStorage');
-    let c = ss?.getItem(CHAR_KEY);
+    let c = ss?.getItem(CHAR_KEY) ?? savedSkin();
     const loaded = d.loadedCharacters().filter((id) => DRAWABLE_IDS.includes(id));
     if (!c || !DRAWABLE_IDS.includes(c)) {
       c = loaded.length ? loaded[Math.floor(Math.random() * loaded.length)] : DRAWABLE_IDS[0];
@@ -528,7 +533,7 @@ export function createNetClient(d) {
     for (const n of [ui.end, ui.recon, ui.kc, ui.spec, ui.net, ui.count]) n.classList.remove('on');
     chat.clear(); chat.show(false); chat.dock(false); flagsView.clear();
     lobbyUI.show(false); wasLobby = false; queued = false; rosterList = [];
-    stage.show(false); stageReady = false; stageSig = ''; prevPhase = 0;
+    stageShow(false); stageReady = false; stageSig = ''; prevPhase = 0;
     if (loadScreen.active) loadScreen.hide(0);
     lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
     el.pause.classList.remove('kc');
@@ -588,6 +593,8 @@ export function createNetClient(d) {
     if (!r) return null;
     let b = puppets.get(id);
     const character = drawable(r.character);   // an older client may still send the soldier
+    // A skin nobody has worn yet on this device: fetch it, and draw the player when it lands.
+    if (!d.isCharacterLoaded(character)) { d.loadCharacter(character); return null; }
     if (b && (b.team !== team || b.characterId !== character)) { removePuppet(id); b = null; }
     if (!b) {
       b = new d.Bot(r.name, team, d.match.diff, null, { character, puppet: true });
@@ -1237,10 +1244,10 @@ export function createNetClient(d) {
   function stageStep(dt) {
     const want = active && welcomed && stageReady && (phase === PHASE.LOBBY || phase === PHASE.COUNTDOWN);
     if (!want) {
-      if (stage.on) { stage.show(false); stageSig = ''; removePuppet(myId); }
+      if (stage.on) { stageShow(false); stageSig = ''; removePuppet(myId); }
       return false;
     }
-    stage.show(true);
+    stageShow(true);
     const list = [...rosterList].sort((a, b) => (a.id === myId ? -1 : b.id === myId ? 1 : a.id - b.id));
     const entries = list.map((r) => ({ id: r.id, name: r.name, team: r.team, host: r.id === lobbyInfo.host, ready: phase === PHASE.COUNTDOWN || !!r.ready, self: r.id === myId }));
     const sig = entries.map((e) => `${e.id}${e.name}${e.team}${+e.host}${+e.ready}`).join();
@@ -1269,7 +1276,7 @@ export function createNetClient(d) {
       el.tbA.textContent = spectator ? '-' : player.kills;
       el.tbB.textContent = top;
     }
-    el.tbTime.textContent = { [PHASE.LOBBY]: 'LOBBY', [PHASE.COUNTDOWN]: 'GET READY', [PHASE.INTERMISSION]: 'RESULTS' }[phase] ?? formatTime(timeLeft);
+    el.tbTime.textContent = { [PHASE.LOBBY]: 'LOBBY', [PHASE.COUNTDOWN]: 'GET READY', [PHASE.INTERMISSION]: 'RESULTS' }[phase] ?? (MODE_INFO[mode]?.untimed ? '∞' : formatTime(timeLeft));
     const inLobby = phase === PHASE.LOBBY && welcomed;
     lobbyUI.show(inLobby);
     chat.show(active && welcomed);
@@ -1286,6 +1293,7 @@ export function createNetClient(d) {
     if (performance.now() - chatTick > 500) { chatTick = performance.now(); chat.refresh(); }
     if (endInfo) tickEndTimer();
     ui.debug.classList.toggle('on', netMode === 2);
+    endBtn.hidden = !(active && welcomed && phase === PHASE.PLAYING && MODE_INFO[mode]?.untimed && myId !== null && myId === lobbyInfo.host);
     // Ping and loss: on request (F3), and by itself when the connection is bad enough to matter.
     let seen = 0, missed = 0;
     for (const g of gaps) { seen += g.n; missed += g.missed; }
@@ -1327,6 +1335,11 @@ export function createNetClient(d) {
       return true;
     },
     reload() { reloadLatch = true; },
+    /** The locker changed skin or loadout: remember it for the next room, and tell this one. */
+    gear(character, loadout) {
+      try { storage('sessionStorage')?.setItem(CHAR_KEY, character); } catch { /* private mode */ }
+      if (active && welcomed && !spectator) sendJson({ t: 'gear', character, loadout });
+    },
     debug: () => ({
       myId, spectator, phase, mode, mapId, rtt, interp, inputRate, budgetFlags, started, seq,
       players: latest?.players.length ?? 0, puppets: puppets.size, stats: { ...stats }, pred: pred ? { ...pred.stats, errors: undefined } : null,

@@ -42,11 +42,86 @@ export function historyRow(h) {
   return row;
 }
 
+const mapSize = (id) => {
+  const h = MAP_DATA[id]?.half;
+  return h ? `${h[0] * 2} × ${h[1] * 2} M` : '';
+};
+
+const ICON = {
+  dm: '<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  tdm: '<circle cx="8" cy="7" r="3"/><circle cx="16" cy="7" r="3"/><path d="M2 20c0-4 3-6 6-6s6 2 6 6M10 20c0-4 3-6 6-6s6 2 6 6"/>',
+  duel: '<path d="M4 4l10 10M20 4L10 14M3 17l4 4M21 17l-4 4M6 15l3 3M18 15l-3 3"/>',
+  ctf: '<path d="M6 21V3M6 4h12l-3 4 3 4H6"/>',
+  survival: '<path d="M2 15c3-3 5 3 8 0s5 3 8 0 3-1 4-1M2 20c3-3 5 3 8 0s5 3 8 0 3-1 4-1M12 3l2 5h-4z"/>',
+  war: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/>',
+};
+
 export function createLobby({ send, onLeave }) {
   const root = document.createElement('div');
   root.id = 'mp-lobby';
   document.body.appendChild(root);
   let shown = false;
+  let pop = null;              // 'mode' | 'map' | 'rules' while a popout is open
+  let last = null;             // the state of the last render, so a popout can redraw itself
+
+  function openPop(kind) { pop = kind; if (last) render(last); }
+  function closePop() { pop = null; if (last) render(last); }
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Escape' || !pop || !shown) return;
+    e.preventDefault(); e.stopPropagation();
+    closePop();
+  }, true);
+
+  /** A tile in a popout: the same look as the single player menu's mode and map pickers. */
+  function tile(active, enabled, art, title, desc, onPick) {
+    const b = el('button', `tile${active ? ' active' : ''}`);
+    b.type = 'button';
+    b.disabled = !enabled;
+    b.append(art, el('span', 'mt', title), el('span', 'md', desc));
+    if (enabled) b.addEventListener('click', onPick);
+    return b;
+  }
+
+  function popout(kind, settings, info, pick) {
+    const wrap = el('div', 'pop on');
+    const cardEl = el('div', 'pop-card');
+    const head = el('div', 'pop-head');
+    const x = el('button', 'pop-x', '✕');
+    x.type = 'button'; x.setAttribute('aria-label', 'Close');
+    head.append(el('h2', '', kind === 'mode' ? 'GAME MODE' : kind === 'map' ? 'MAP' : 'RULES'), x);
+    cardEl.appendChild(head);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('.pop-x')) closePop(); });
+
+    if (kind === 'mode') {
+      const grid = el('div', 'pop-grid');
+      for (const id of PLAYABLE) {
+        const art = el('span', 'ti-art');
+        art.innerHTML = `<svg viewBox="0 0 24 24">${ICON[id] ?? ICON.dm}</svg>`;
+        grid.appendChild(tile(id === settings.mode, true, art, MODE_INFO[id].label, MODE_INFO[id].blurb, () => { pick({ mode: id }); closePop(); }));
+      }
+      grid.classList.add('modes');
+      cardEl.appendChild(grid);
+    } else if (kind === 'map') {
+      const grid = el('div', 'pop-grid');
+      for (const id of MAP_IDS) {
+        const ok = mapHosts(MAP_DATA, id, settings.mode);
+        grid.appendChild(tile(id === settings.map, ok, el('span', `ti-art art-${id}`), id.toUpperCase(), ok ? mapSize(id) : `NOT FOR ${MODE_INFO[settings.mode].short}`, () => { pick({ map: id }); closePop(); }));
+      }
+      cardEl.appendChild(grid);
+    } else {
+      const box = el('div', 'rulebox');
+      if (info.limits?.length) box.appendChild(group(info.unit, info.limits.map((n) => option(`${n}`, n === settings.limit, true, () => pick({ limit: n })))));
+      if (!info.untimed) box.appendChild(group('TIME LIMIT', TIME_OPTIONS.map((t) => option(minutes(t), t === settings.time, true, () => pick({ time: t })))));
+      box.appendChild(group('WEAPONS', WEAPON_RULES.map((w) => option(weaponLabel(w), w === settings.weapons, true, () => pick({ weapons: w })))));
+      const done = el('button', 'done', 'DONE');
+      done.type = 'button';
+      done.addEventListener('click', closePop);
+      box.appendChild(done);
+      cardEl.appendChild(box);
+    }
+    wrap.appendChild(cardEl);
+    return wrap;
+  }
 
   function option(label, active, enabled, onPick, title) {
     const b = el('button', active ? 'on' : '', label);
@@ -72,6 +147,8 @@ export function createLobby({ send, onLeave }) {
    */
   function render(state) {
     const { myId, host, roster, settings, blocker, spectators, spectating, history } = state;
+    last = state;
+    document.body.classList.toggle('mp-pop', !!pop);
     const isHost = myId !== null && myId === host && !spectating;
     const me = roster.find((r) => r.id === myId);
     const guests = roster.filter((r) => r.id !== host);
@@ -87,22 +164,32 @@ export function createLobby({ send, onLeave }) {
     );
     root.appendChild(top);
 
-    // Right: the match. The host's to change; everyone else reads it.
+    // Right: the match, as three cards. Each opens a popout with its choices, so the panel stays short.
     const info = MODE_INFO[settings.mode];
     const pick = (patch) => send({ t: 'settings', ...patch });
     const side = el('div', 'side');
     const sh = el('div', 'sh');
     sh.append(el('span', 'lbl', 'MATCH'), el('span', `tag${isHost ? ' host' : ''}`, isHost ? 'YOU ARE HOST' : 'HOST CHOOSES'));
     side.appendChild(sh);
-    const modes = el('div', 'modes');
-    for (const id of PLAYABLE) modes.appendChild(option(MODE_INFO[id].label, id === settings.mode, isHost, () => pick({ mode: id }), MODE_INFO[id].blurb));
+
+    const card = (kind, label, value, sub, art) => {
+      const c = el(isHost ? 'button' : 'div', `mcard k-${kind}${isHost ? '' : ' ro'}`);
+      if (isHost) { c.type = 'button'; c.addEventListener('click', () => openPop(kind)); }
+      if (art) c.appendChild(el('span', `ti-art ${art}`));
+      const t = el('span', 'ct');
+      t.append(el('span', 'lbl', label), el('b', '', value), el('span', 'cs', sub));
+      c.appendChild(t);
+      if (isHost) c.appendChild(el('span', 'chg', 'CHANGE'));
+      return c;
+    };
+    const rules = [];
+    if (info.limits?.length) rules.push(`${settings.limit} ${info.unit}`);
+    if (!info.untimed) rules.push(minutes(settings.time));
+    rules.push(weaponLabel(settings.weapons));
     side.append(
-      modes,
-      el('p', 'blurb', info.blurb),
-      group('MAP', MAP_IDS.map((id) => option(id.toUpperCase(), id === settings.map, isHost && mapHosts(MAP_DATA, id, settings.mode), () => pick({ map: id })))),
-      group('LIMIT', info.limits.map((n) => option(`${n} ${info.unit}`, n === settings.limit, isHost, () => pick({ limit: n })))),
-      group('TIME', TIME_OPTIONS.map((t) => option(minutes(t), t === settings.time, isHost, () => pick({ time: t })))),
-      group('WEAPONS', WEAPON_RULES.map((w) => option(weaponLabel(w), w === settings.weapons, isHost, () => pick({ weapons: w })))),
+      card('mode', 'MODE', info.label, info.blurb),
+      card('map', 'MAP', settings.map.toUpperCase(), mapSize(settings.map), `art-${settings.map}`),
+      card('rules', 'RULES', rules.slice(0, 2).join(' · ') || 'NO LIMITS', rules.slice(2).join(' · ') || (info.untimed ? 'GOES ON UNTIL THE HOST ENDS IT' : '')),
     );
     if (history.length) {
       const h = el('div', 'history');
@@ -111,6 +198,8 @@ export function createLobby({ send, onLeave }) {
       side.appendChild(h);
     }
     root.appendChild(side);
+    if (isHost && pop) root.appendChild(popout(pop, settings, info, pick));
+    else pop = null;
 
     // Bottom: ready up, or start.
     const act = el('div', 'actions');
@@ -146,6 +235,7 @@ export function createLobby({ send, onLeave }) {
       shown = on;
       root.classList.toggle('on', on);
       document.body.classList.toggle('mp-lobby', on);
+      if (!on) { pop = null; document.body.classList.remove('mp-pop'); }
     },
     get shown() { return shown; },
   };

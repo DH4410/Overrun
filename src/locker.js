@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { buildGunModel } from './gunmodels.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
+import { SKINS } from './skins.js';
 import { clamp } from './utils.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
@@ -76,12 +77,13 @@ function gunIcons() {
 }
 
 /**
- * The locker: four gun slots and the frag slot along the top, the armory below. Pick a slot,
- * then a gun (or drag a gun onto a slot); a gun already carried swaps places. Every change is
- * applied and saved at once, so there is nothing to confirm.
+ * The locker. WEAPONS: four gun slots and the frag slot along the top, the armory below. Pick a
+ * slot, then a gun (or drag a gun onto a slot); a gun already carried swaps places. SKINS: every
+ * character, all unlocked; the one you wear is what other players see. Every change is applied
+ * and saved at once, so there is nothing to confirm.
  */
-export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClose = () => {} }) {
-  let root = null, sel = 0;
+export function createLocker({ getLoadout, setLoadout, getSkin, setSkin, onOpen = () => {}, onClose = () => {} }) {
+  let root = null, sel = 0, tab = 'gear';
 
   function build() {
     root = document.createElement('div');
@@ -90,13 +92,18 @@ export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClos
     root.innerHTML = `
       <div class="lk-card">
         <div class="lk-head">
-          <div><h2>LOCKER</h2><div class="lk-sub">Your loadout. Keys 1-4 follow the slots; 5 is always the frag.</div></div>
+          <div><h2>LOCKER</h2><div class="lk-sub" id="lk-sub"></div></div>
+          <div class="lk-tabs"><button type="button" data-tab="gear">WEAPONS</button><button type="button" data-tab="skins">SKINS</button></div>
           <div class="set-actions"><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
         </div>
-        <div class="lk-slots" id="lk-slots"></div>
-        <div class="lk-label">ARMORY <span>pick a slot above, then a weapon, or drag one onto a slot</span></div>
-        <div class="lk-armory" id="lk-armory"></div>
+        <div id="lk-gear" class="lk-panel">
+          <div class="lk-slots" id="lk-slots"></div>
+          <div class="lk-label">ARMORY <span>pick a slot above, then a weapon, or drag one onto a slot</span></div>
+          <div class="lk-armory" id="lk-armory"></div>
+        </div>
+        <div id="lk-skins" class="lk-panel"><div class="lk-wear" id="lk-wear"></div><div class="lk-wardrobe" id="lk-wardrobe"></div></div>
       </div>`;
+    for (const b of root.querySelectorAll('.lk-tabs button')) b.addEventListener('click', () => { tab = b.dataset.tab; render(); });
     document.body.appendChild(root);
     root.querySelector('#locker-close').addEventListener('click', close);
     root.querySelector('#locker-reset').addEventListener('click', () => { apply([...DEFAULT_LOADOUT]); sel = 0; render(); });
@@ -129,7 +136,32 @@ export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClos
     return el;
   }
 
+  function renderSkins() {
+    const wearing = getSkin();
+    const now = SKINS.find((s) => s.id === wearing) ?? SKINS[0];
+    root.querySelector('#lk-wear').innerHTML = `<span>WEARING</span><b>${now.name}</b><i>${now.tag}</i>`;
+    const wardrobe = root.querySelector('#lk-wardrobe');
+    wardrobe.innerHTML = '';
+    for (const s of SKINS) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = `lk-skin${s.id === wearing ? ' worn' : ''}`;
+      el.dataset.skin = s.id;
+      el.innerHTML = `<span class="lk-pic"><img alt="" loading="lazy" src="./assets/skins/${s.id}.jpg"></span><span class="lk-name">${s.name}</span><span class="lk-cls">${s.tag}</span>`;
+      el.addEventListener('click', async () => { await setSkin(s.id); render(); });
+      wardrobe.appendChild(el);
+    }
+  }
+
   function render() {
+    for (const b of root.querySelectorAll('.lk-tabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+    root.querySelector('#lk-gear').hidden = tab !== 'gear';
+    root.querySelector('#lk-skins').hidden = tab !== 'skins';
+    root.querySelector('#locker-reset').hidden = tab !== 'gear';
+    root.querySelector('#lk-sub').textContent = tab === 'gear'
+      ? 'Your loadout. Keys 1-4 follow the slots; 5 is always the frag.'
+      : 'Every skin is unlocked. The one you wear is what other players see.';
+    if (tab === 'skins') { renderSkins(); return; }
     const loadout = getLoadout();
     const slots = root.querySelector('#lk-slots');
     slots.innerHTML = '';

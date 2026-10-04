@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { CONFIG } from './config.js';
+import { savedSkin } from './skins.js';
 
 /**
  * Emotes, for the player only: hold B for the wheel, point the mouse at one, let go to dance.
@@ -32,7 +33,7 @@ const CAM_DIST = 3.4, CAM_HEIGHT = 1.5, LOOK_HEIGHT = 1.1;
 export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio }) {
   const clips = {};
   let loading = null;
-  let avatar = null, action = null, active = null;
+  let avatar = null, avatarId = null, action = null, active = null;
   let startYaw = 0, camDist = CAM_DIST;
   let wheelOpen = false, pick = -1, mx = 0, my = 0;
 
@@ -80,9 +81,10 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
 
   function makeAvatar() {
     const ids = loadedCharacters();
-    const id = ['swat', 'soldier', ...ids].find((c) => ids.includes(c));
+    const id = [savedSkin(), 'swat', 'soldier', ...ids].find((c) => ids.includes(c));
     const g = id ? buildCharacterMesh(id) : null;
     if (!g) return null;
+    avatarId = id;
     g.scale.setScalar(AVATAR_SCALE);
     // Its locomotion clips stay bound but silent; the emote takes the whole body.
     for (const a of Object.values(g.userData.clips)) a.weight = 0;
@@ -148,6 +150,11 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
   function start(id) {
     const clip = clips[id];
     if (!clip || !player.alive) return;
+    // Wearing a different skin since the last dance: the old avatar goes, a new one is built.
+    if (avatar && !avatar.visible && savedSkin() && savedSkin() !== avatarId && loadedCharacters().includes(savedSkin())) {
+      scene.remove(avatar);
+      avatar = null;
+    }
     avatar ??= makeAvatar();
     if (!avatar) return;
     stop();

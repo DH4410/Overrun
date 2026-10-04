@@ -192,6 +192,9 @@ export async function startMatch(page, { mode = 'dm', map = 'port', diff = 'medi
       && globalThis.__game.currentMapId() === expectedMap
     ),
     { expectedMode: mode, expectedMap: map },
+    // The deploy screen takes a moment now, and this page may not run animation frames at all,
+    // which is what the default polling waits on.
+    { polling: 100 },
   );
   await page.evaluate(() => {
     globalThis.__game.player.invulnTimer = Number.POSITIVE_INFINITY;

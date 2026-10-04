@@ -1,6 +1,6 @@
 # Multiplayer
 
-One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch, Team Deathmatch, 1v1 Duel or Capture the Flag on PORT, DESERT or SNOW, played from a lobby (see below). Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
+One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch, Team Deathmatch, 1v1 Duel, Capture the Flag or the endless Warzone on PORT, DESERT, SNOW or WARZONE, played from a lobby (see below). Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
 
 ## Layout
 
@@ -83,4 +83,5 @@ npx wrangler deploy       # builds .cf-public, uploads it, creates the GameRoom 
 - **Grenades.** Gamepads cannot throw grenades online. There is no aim assist online. Grenades and smoke are not rewound for lag compensation.
 - **Seats.** A dropped player's seat is held for 60 s and counts toward the 10.
 - **Duel** is one life per round, 75 s, first to 3, 5 or 7 rounds; if the opponent leaves you win. **CTF** needs your own flag at home to capture, a dropped flag returns after 20 s, and the carrier is drawn with the flag on their back.
+- **Warzone** is deathmatch with no clock and no kill limit, on the big WARZONE map (140 by 100 m, deathmatch modes only; the lobby greys out the other maps for it). It runs until the host presses END MATCH in the pause menu, and anyone can join at any time. Plain DM and TDM also run on WARZONE.
 - **Not yet built.** Server bots and Survival (the lobby lists only the modes that run).

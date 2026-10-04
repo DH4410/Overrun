@@ -101,3 +101,33 @@ test('a bot aims where you were for a beat after you crouch, then finds you', as
   expect(r.after100ms).toBeGreaterThan(0.1);
   expect(r.after1s).toBeLessThan(0.02);
 });
+
+test('jumping from a crouch keeps you crouched in the air and on landing', async ({ page }) => {
+  await setup(page);
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const { player, keys } = g;
+    const out = {};
+    for (const toggle of [true, false]) {
+      g.settings.toggleCrouch = toggle;
+      g.respawnPlayer(true, { x: -18, y: 0, z: 3 });
+      g.step(60);
+      if (toggle) { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyC' })); window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyC' })); }
+      else keys.KeyC = true;
+      g.step(30);
+      const before = player.crouching;
+      keys.Space = true;
+      const air = [];
+      for (let i = 0; i < 90; i++) { g.step(1); if (i === 5) keys.Space = false; air.push(player.crouching); }
+      out[toggle ? 'toggle' : 'held'] = { before, everStood: air.includes(false), airborne: !player.grounded };
+      keys.KeyC = false;
+      if (toggle) { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyC' })); window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyC' })); }
+    }
+    return out;
+  });
+  console.log(JSON.stringify(r));
+  expect(r.toggle.before).toBe(true);
+  expect(r.toggle.everStood).toBe(false);
+  expect(r.held.before).toBe(true);
+  expect(r.held.everStood).toBe(false);
+});

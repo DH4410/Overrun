@@ -28,6 +28,17 @@ const MAPS = [
     minSpawns: 16,
     modes: ['duel', 'dm', 'tdm'],
   },
+  {
+    id: 'bastion',
+    touch: ['grass', 'paving', 'castle', 'rock', 'wood', 'slates', 'trunk'],
+    castY: 4.2,
+    half: [31.4, 54.4],
+    ghostStep: 0.997,
+    symStep: [6.173, 9.737],
+    minBoxes: 60,
+    minSpawns: 30,
+    modes: ['dm', 'tdm'],   // capture the flag is multiplayer only; tests/unit/mp-newmaps.test.mjs starts it
+  },
 ];
 
 for (const M of MAPS) {

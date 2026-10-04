@@ -163,6 +163,38 @@ export const MAP_DATA = {
       ['health', 9.5, -1.5], ['health', -9.5, 1.5],
     ],
   },
+  bastion: {
+    id: 'bastion',
+    file: 'bastion',
+    /** The capture-the-flag map: two stone keeps and the grass between them. */
+    modes: ['ctf', 'dm', 'tdm'],
+    half: [32, 55],
+    /** Each flag stands on its plinth at the back of its keep's flag hall. */
+    flags: [[0, 49.8], [0, -49.8]],
+    /** The flag halls' roofs are at 4.6 m; a cast from above them lands on the roof slab. */
+    ceilY: 4.6,
+    /**
+     * Mirrored spawn candidates, listed in pairs and picked from the built layout (2 m clear of every
+     * blocker, floor at ground level): the first six pairs are in the two keeps, the rest are spread
+     * by furthest-point sampling over the field, the trails and the groves.
+     */
+    spawns: [
+      [0, 46], [0, -46], [-19.5, 50.5], [19.5, -50.5], [19.5, 50.5], [-19.5, -50.5],
+      [0, 43], [0, -43], [-4, 50.5], [4, -50.5], [4, 50.5], [-4, -50.5], [-12, 43], [12, -43],
+      [-28.5, -0.5], [28.5, 0.5], [28.5, -32], [-28.5, 32], [28.5, 32.5], [-28.5, -32.5],
+      [-4.5, 16], [4.5, -16], [-16.5, -17], [16.5, 17], [-10.5, -0.5], [10.5, 0.5],
+      [-22.5, 16], [22.5, -16], [7.5, 31], [-7.5, -31], [-12, 31], [12, -31],
+      [28.5, 13], [-28.5, -13], [18, 37], [-18, -37], [-6, -20], [6, 20],
+      [-19.5, -6.5], [19.5, 6.5], [-27, -23], [27, 23], [-1.5, 35.5], [1.5, -35.5],
+    ],
+    ammo: [
+      [25.5, 29.5], [-25.5, -29.5], [-24, 28], [24, -28], [-4.5, -14], [4.5, 14], [-19.5, 46], [19.5, -46],
+    ],
+    consumables: [
+      ['health', -21, -50], ['health', 21, 50], ['shield', -16.5, 11.5], ['shield', 16.5, -11.5],
+      ['health', 21, 14.5], ['health', -21, -14.5], ['shield', -12, -36.5], ['shield', 12, 36.5],
+    ],
+  },
 };
 
 export const MAP_IDS = Object.keys(MAP_DATA);

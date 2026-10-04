@@ -7,7 +7,7 @@ import { mapHash } from '../../src/sim/protocol.js';
 import { WEAPONS } from '../../src/sim/weaponData.js';
 import { HASH } from '../mp/wsclient.mjs';
 
-const colliders = { port: { boxes: [[0, 0, 0, 1, 1, 1, 0, 1]] }, desert: {}, snow: {}, warzone: {}, depot: {} };
+const colliders = { port: { boxes: [[0, 0, 0, 1, 1, 1, 0, 1]] }, desert: {}, snow: {}, warzone: {}, depot: {}, bastion: {} };
 
 test('the map hash ignores presentation settings the game changes at runtime', () => {
   const a = mapHash(colliders, MAP_DATA, CONFIG, WEAPONS);

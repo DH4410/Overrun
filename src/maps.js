@@ -14,6 +14,7 @@ import { DESERT } from './mapDesert.js';
 import { PORT } from './mapPort.js';
 import { SNOW } from './mapSnow.js';
 import { WARZONE } from './mapWarzone.js';
+import { DEPOT } from './mapDepot.js';
 import { disposeTree, markShared } from './rendering.js';
 import { settings } from './settings.js';
 
@@ -30,7 +31,7 @@ export function createMapRuntime({
   clearMapItems,
 }) {
 /** The Blender maps, in menu order. The first one that loads is the map the game opens on. */
-const GLB_MAPS = [PORT, DESERT, SNOW, WARZONE];
+const GLB_MAPS = [PORT, DESERT, SNOW, WARZONE, DEPOT];
 
 // 2k maps on the QUALITY preset only: four times the texels, and on a laptop four times the
 // memory traffic, for detail you only see with your nose against a wall. Read once at boot.

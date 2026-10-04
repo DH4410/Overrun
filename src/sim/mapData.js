@@ -136,6 +136,33 @@ export const MAP_DATA = {
       ['health', 30, 36.5], ['shield', -30, -36.5],
     ],
   },
+  depot: {
+    id: 'depot',
+    file: 'depot',
+    /** The small map: a warehouse hall built for the one-on-one duel and the quick deathmatches. */
+    modes: ['duel', 'dm', 'tdm'],
+    half: [18, 26],
+    flags: [[0, 21], [0, -21]],
+    /** The roof's underside is at 7.0 m; a cast from above it would land on the roof slab. */
+    ceilY: 7.0,
+    /**
+     * Mirrored spawn candidates, listed in pairs and picked from the built layout (2 m clear of every
+     * blocker, floor at ground level): the first four pairs sit in the two spawn ends, the rest are
+     * spread by furthest-point sampling over the lanes and round the stage.
+     */
+    spawns: [
+      [0, 21], [0, -21], [-1.5, 22], [1.5, -22], [1.5, 22], [-1.5, -22], [0, 19.5], [0, -19.5],
+      [-14.5, 0], [14.5, 0], [5, -9], [-5, 9], [-7, -9], [7, 9], [-8.5, 3], [8.5, -3],
+      [-2.5, -15], [2.5, 15], [-8.5, -15], [8.5, 15],
+    ],
+    ammo: [
+      [-8.5, -4.5], [8.5, 4.5], [2, -15], [-2, 15], [-5.5, -22.5], [5.5, 22.5], [-5.5, 22.5], [5.5, -22.5],
+    ],
+    consumables: [
+      ['health', -8.5, 7.5], ['health', 8.5, -7.5], ['shield', 5, 10.5], ['shield', -5, -10.5],
+      ['health', 9.5, -1.5], ['health', -9.5, 1.5],
+    ],
+  },
 };
 
 export const MAP_IDS = Object.keys(MAP_DATA);

@@ -478,6 +478,7 @@ button { font: inherit; color: inherit; }
 .art-desert { background: #d7b98c url(assets/maps/thumbs/desert.jpg) center / cover; }
 .art-snow { background: #cfd6de url(assets/maps/thumbs/snow.jpg) center / cover; }
 .art-warzone { background: #8a8578 url(assets/maps/thumbs/warzone.jpg) center / cover; }
+.art-depot { background: #3a3d42 url(assets/maps/thumbs/depot.jpg) center / cover; }
 @media (max-width: 700px) { .pop-grid { grid-template-columns: repeat(2, 1fr); } .tile { height: clamp(130px, 34vh, 240px); } }
 
 /* After a match: the result line. */

@@ -149,3 +149,34 @@ test('a client whose map file differs from the server is told to refresh', async
   await expect(page.locator('#menu')).toBeVisible();
   await page.context().close();
 });
+
+/**
+ * A player who joins a round already under way has no lobby yet, but the room can fall back to
+ * one at any moment. The stage must be ready then, or they get the lobby panel over the live
+ * world: in the match and in the lobby at once.
+ */
+test('a player who joined mid-match has the lobby stage ready for when the room falls back', async ({ browser }) => {
+  test.setTimeout(240_000);
+  // The earlier tests leave a round running and their seats held for reconnecting: start a fresh room.
+  await server.stop();
+  server = await startServer({ port: PORT, budgetFile: path.join(mkdtempSync(path.join(tmpdir(), 'overrun-mp-')), 'budget.json'), log: () => {} });
+  const a = await open(browser, 'ONE');
+  const b = await open(browser, 'TWO');
+  await a.click('#mp-play');
+  await b.click('#mp-play');
+  await expect(b.locator('#mp-lobby .go')).toHaveText('READY', { timeout: 30_000 });
+  await b.click('#mp-lobby .go');
+  await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 10_000 });
+  await a.click('#mp-lobby .go');
+  for (const p of [a, b]) await expect.poll(async () => (await debug(p)).phase, { timeout: 30_000 }).toBe(1);
+
+  const c = await open(browser, 'LATE');
+  await c.click('#mp-play');
+  await expect.poll(async () => (await debug(c)).started, { timeout: 30_000 }).toBeTruthy();
+  await expect.poll(async () => (await debug(c)).stageReady, { timeout: 30_000 }).toBe(true);   // once the loading screen has done its warm-up
+  const d = await debug(c);
+  expect(d.phase).toBe(1);
+  expect(d.staged).toBe(false);   // not on stage while the match is running
+
+  for (const p of [a, b, c]) await p.context().close();
+});

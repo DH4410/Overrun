@@ -14,6 +14,20 @@ export const SKINS = [
   { id: 'crypto', name: 'Crypto', tag: 'MERCENARY', boot: true },
   { id: 'ely', name: 'Ely', tag: 'MILITARY', boot: true },
   { id: 'steve', name: 'Steve', tag: 'MERCENARY', boot: true },
+  { id: 'alien', name: 'Alien Soldier', tag: 'ALIEN' },
+  { id: 'ninja', name: 'Ninja', tag: 'STEALTH' },
+  { id: 'racer', name: 'Racer', tag: 'CIVILIAN' },
+  { id: 'shadow', name: 'Shadow', tag: 'STEALTH' },
+  { id: 'street', name: 'Street', tag: 'CIVILIAN' },
+  { id: 'paladin', name: 'Paladin', tag: 'KNIGHT' },
+  { id: 'warzombie', name: 'Warzombie', tag: 'UNDEAD' },
+  { id: 'skeleton', name: 'Skeleton', tag: 'UNDEAD' },
+  { id: 'prisoner', name: 'Prisoner', tag: 'CIVILIAN' },
+  { id: 'mutant', name: 'Mutant', tag: 'MONSTER' },
+  { id: 'vampire', name: 'Vampire', tag: 'MONSTER' },
+  { id: 'operative', name: 'Operative', tag: 'AGENT' },
+  { id: 'scout', name: 'Scout', tag: 'CIVILIAN' },
+  { id: 'runner', name: 'Runner', tag: 'CIVILIAN' },
 ];
 
 const SKIN_KEY = 'overrun-skin';

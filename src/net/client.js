@@ -350,8 +350,10 @@ export function createNetClient(d) {
       await loadScreen.step(0.4, 'Loading graphics');
       await d.warmScene((f) => (active ? loadScreen.step(0.4 + f * 0.45, 'Loading graphics') : null));
       if (!active) return;
+      // Joined mid-match or not, the stage is ready once the scene is warm: the room can fall back
+      // to the lobby at any point (everyone else left, the round ended).
+      stageReady = true;
       if (phase === PHASE.LOBBY) {
-        stageReady = true;
         await loadScreen.step(0.92, 'Setting the stage');
       } else {
         for (let i = 0; i < 120 && active && !(spectator ? latest : started); i++) await loadScreen.step(0.92, 'Waiting for the match');
@@ -1345,7 +1347,7 @@ export function createNetClient(d) {
       players: latest?.players.length ?? 0, puppets: puppets.size, stats: { ...stats }, pred: pred ? { ...pred.stats, errors: undefined } : null,
       you: pred ? { x: pred.p.body.position.x, y: pred.p.body.position.y, z: pred.p.body.position.z, alive: pred.p.alive } : null,
       remotes: latest ? latest.players.filter((q) => q.id !== myId).map((q) => ({ id: q.id, pos: q.pos, alive: q.alive })) : [],
-      hash, lobby: lobbyUI.shown, queued,
+      hash, lobby: lobbyUI.shown, queued, stageReady, staged: stage.on,
     }),
   };
 }

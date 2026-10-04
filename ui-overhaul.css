@@ -677,3 +677,45 @@ body.outro #hud > *:not(#smokeveil):not(#lowhp) { opacity: 0; transition: opacit
 .ew-slot.on { color: var(--accent-ink); background: var(--accent); transform: translate(-50%, -50%) scale(1.12); }
 .ew-slot.off { opacity: .3; pointer-events: none; }
 body.emoting #crosshair, body.emoting #hitmarker { display: none; }
+
+/* ==========================================================================
+   Multiplayer: the lobby entry, the connection line, the debug overlay (F3) and the vote screen.
+   ========================================================================== */
+.actions { flex-wrap: wrap; row-gap: 10px; }
+.mp-row { flex-basis: 100%; display: flex; align-items: center; gap: 28px; }
+#mp-play { pointer-events: auto; cursor: pointer; padding: 8px 22px; background: transparent; color: var(--accent);
+  border: 2px solid var(--accent); font-family: var(--f-display); font-size: 17px; font-weight: 800; letter-spacing: 4px; }
+#mp-play:hover:not(:disabled) { background: rgba(243, 181, 63, .12); }
+#mp-play:disabled, #mp-watch:disabled { opacity: .35; cursor: default; }
+#mp-status { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 30; display: none; padding: 6px 16px;
+  background: rgba(5, 7, 10, .72); color: var(--ink); font-family: var(--f-display); font-size: 15px; font-weight: 700; letter-spacing: 3px;
+  pointer-events: none; white-space: nowrap; }
+#mp-status.on { display: block; }
+#mp-debug { position: fixed; left: 10px; top: 10px; z-index: 30; display: none; padding: 8px 10px; background: rgba(0, 0, 0, .7);
+  color: #cfe; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre; pointer-events: none; }
+#mp-debug.on { display: block; }
+#mp-end { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center;
+  background: rgba(4, 6, 9, .8); pointer-events: auto; }
+#mp-end.on { display: flex; }
+.mpe-card { width: min(560px, calc(100vw - 32px)); max-height: 94vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.mpe-card h2 { margin: 0; font-family: var(--f-display); font-size: clamp(30px, 6vh, 48px); font-weight: 800; letter-spacing: 3px; line-height: 1; }
+.mpe-sub { color: var(--ink-2); font-size: 14px; }
+.mpe-rows { display: flex; flex-direction: column; gap: 2px; }
+.mpe-row { display: grid; grid-template-columns: 34px 6px 1fr auto; gap: 10px; align-items: center; padding: 5px 10px;
+  background: rgba(255, 255, 255, .05); font-size: 14px; }
+.mpe-row.self { background: rgba(243, 181, 63, .16); }
+.mpe-row .n { color: var(--ink-3); }
+.mpe-row .tag { width: 6px; height: 16px; }
+.mpe-row .k { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mpe-vote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mpe-vote .lbl { width: 52px; font-family: var(--f-display); font-weight: 700; letter-spacing: 2px; color: var(--ink-3); }
+.mpe-vote button { cursor: pointer; display: flex; gap: 8px; padding: 6px 12px; border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .05); color: var(--ink); font-family: var(--f-display); font-weight: 700; letter-spacing: 1px; }
+.mpe-vote button.on { border-color: var(--accent); background: rgba(243, 181, 63, .18); }
+.mpe-vote .vc { color: var(--accent); }
+.mpe-time { color: var(--ink-2); font-size: 13px; letter-spacing: 1px; }
+.mpe-warn { color: var(--enemy); font-size: 14px; }
+.mpe-leave { align-self: flex-start; cursor: pointer; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--ink-2); font-family: var(--f-display); font-weight: 700; letter-spacing: 3px; }
+.mpe-leave:hover { color: var(--ink); border-bottom-color: var(--accent); }
+body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: none; }

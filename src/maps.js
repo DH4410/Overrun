@@ -9,6 +9,7 @@ import {
   world,
 } from './physics.js';
 import { createGlbMap, skyEnvironment } from './mapGlb.js';
+import { addRampCollider as sharedRampCollider, inBlockers, validSpawnPoints } from './sim/colliders.js';
 import { DESERT } from './mapDesert.js';
 import { PORT } from './mapPort.js';
 import { SNOW } from './mapSnow.js';
@@ -135,89 +136,21 @@ function meanLuminance(img) {
 /** Ground-plane footprints that block walking — used to lay out the bot waypoint graph. */
 const blockers = [];
 function addBlocker(cx, cz, hx, hz) { blockers.push({ x: cx, z: cz, hx, hz }); }
-function inBlocker(x, z, pad = 0) {
-  for (const b of blockers) {
-    if (Math.abs(x - b.x) < b.hx + pad && Math.abs(z - b.z) < b.hz + pad) return true;
-  }
-  return false;
-}
+function inBlocker(x, z, pad = 0) { return inBlockers(blockers, x, z, pad); }
 
 const mapGroup = new THREE.Group();
 scene.add(mapGroup);
 
-/**
- * The collider for a solid ramp from (x0,y0,z0) up to (x1,y1,z1); its mesh is modelled in
- * Blender. The walking surface is one tilted 0.4 m slab, sunk by half its thickness so its top
- * face runs exactly through both end points, and a row of boxes fills everything beneath it: a
- * slab in mid-air let a jump underneath put the camera through the ramp.
- */
 function addRampCollider(x0, y0, z0, x1, y1, z1, width) {
-  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
-  const run = Math.hypot(dx, dz);
-  const len = Math.hypot(run, dy);
-  const yaw = Math.atan2(dx, dz);
-  const pitch = -Math.atan2(dy, run);
-  const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
-  const T = 0.4;
-  const n = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
-  addStaticBox(width / 2, T / 2, len / 2, {
-    x: (x0 + x1) / 2 - n.x * T / 2,
-    y: (y0 + y1) / 2 - n.y * T / 2,
-    z: (z0 + z1) / 2 - n.z * T / 2,
-  }, new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w));
-
-  // Fill. Each box's top sits at the slab's underside at the box's LOW end, so it is always
-  // below the walking surface, and the sliver left between them is far too thin for anything.
-  const ux = dx / run, uz = dz / run;
-  const slope = dy / run;
-  const under = T * len / run;                 // the slab's thickness measured vertically
-  const yawQ = new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw);
-  const SEG = 0.8;
-  for (let a = 0; a < run; a += SEG) {
-    const b = Math.min(run, a + SEG);
-    const h = slope * a - under;
-    if (h < 0.05) continue;
-    const mid = (a + b) / 2;
-    addStaticBox(width / 2, h / 2, (b - a) / 2, { x: x0 + ux * mid, y: y0 + h / 2, z: z0 + uz * mid }, yawQ);
-  }
-
-  // Footprint of the rotated ramp, for spawn validation and the minimap plan.
-  addBlocker((x0 + x1) / 2, (z0 + z1) / 2,
-    Math.abs(ux) * run / 2 + Math.abs(uz) * width / 2,
-    Math.abs(uz) * run / 2 + Math.abs(ux) * width / 2);
+  sharedRampCollider(x0, y0, z0, x1, y1, z1, width, { addStaticBox, addBlocker });
 }
 
 const spawnPoints = [];
 
-const _spFrom = new CANNON.Vec3();
-const _spTo = new CANNON.Vec3();
-const _spRes = new CANNON.RaycastResult();
-
-/**
- * Spawn points from a map's candidates, validated against the built level rather than trusted:
- * each must clear every blocker by 2 m and have a floor under it.
- *
- * `castY` is the height the ground-finding rays start from, and it must sit BELOW the map's
- * lowest roof collider: a ray from above a roof lands on it, and the match then opens with
- * everyone standing on top of the building.
- */
+/** Spawn points from a map's candidates, validated against the built level (sim/colliders.js). */
 function buildSpawnPoints(candidates, fallback, castY) {
-  let rejected = 0;
-  for (const [x, z] of candidates) {
-    if (inBlocker(x, z, 2.0)) { rejected++; continue; }        // pillar, ramp, crate, low wall
-    _spFrom.set(x, castY, z);
-    _spTo.set(x, -1, z);
-    _spRes.reset();
-    world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
-    if (!_spRes.hasHit) { rejected++; continue; }               // no floor under it at all
-    spawnPoints.push(new THREE.Vector3(x, _spRes.hitPointWorld.y + 0.9, z));
-  }
-  // Never leave the game unable to spawn anyone.
-  if (spawnPoints.length < 4) {
-    for (const [x, z] of fallback) {
-      spawnPoints.push(new THREE.Vector3(x, 0.9, z));
-    }
-  }
+  const { points, rejected } = validSpawnPoints(world, blockers, candidates, fallback, castY);
+  for (const p of points) spawnPoints.push(new THREE.Vector3(p.x, p.y, p.z));
   return { accepted: spawnPoints.length, rejected };
 }
 

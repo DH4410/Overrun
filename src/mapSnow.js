@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { MAP_DATA } from './sim/mapData.js';
+
 /**
  * SNOW: a research outpost in a mountain valley at the end of a winter afternoon, modelled in
  * Blender (scripts/blender/build_snow.py). Loaded by src/mapGlb.js; this file is only what
@@ -13,13 +15,11 @@ import * as THREE from 'three';
  * Units are metres; +Z is south.
  */
 export const SNOW = {
+  ...MAP_DATA.snow,
   id: 'snow',
   file: 'snow',
   name: 'SNOW',
   blurb: 'Research outpost at the end of a winter afternoon. A frozen pond in the middle, a station and a garage on each flank.',
-  half: [44, 34],
-  /** The station and garage roofs start at 4.0 m; a cast from above them lands on top. */
-  ceilY: 4.0,
   mapView: 44,
   plates: { ground: 0x2a3036, solid: 0xc9d2da },
 
@@ -77,28 +77,6 @@ export const SNOW = {
     },
   },
 
-  /**
-   * Mirrored spawn candidates, listed in pairs. Each clears buildSpawnPoints' 2 m blocker pad,
-   * checked against the built layout: four in each spawn yard, the rest spread over the pond, the
-   * approaches, both station rooms and the garage yards, so "furthest from every enemy" has
-   * somewhere to choose from in deathmatch.
-   */
-  spawns: [
-    [0, 28], [0, -28], [-2.5, 30.3], [2.5, -30.3], [2.5, 30.3], [-2.5, -30.3], [0, 25.8], [0, -25.8],
-    [-10.5, 25.9], [10.5, -25.9], [10.5, 25.9], [-10.5, -25.9], [-6.5, 20.4], [6.5, -20.4],
-    [6.8, 11], [-6.8, -11], [6.5, -1], [-6.5, 1], [24.5, 4], [-24.5, -4], [38.5, -1], [-38.5, 1],
-    [22.8, 12.3], [-22.8, -12.3], [33.5, 12.3], [-33.5, -12.3], [32, 18.7], [-32, -18.7],
-    [22, 20], [-22, -20], [-27, 11.6], [27, -11.6], [-17, 26], [17, -26],
-  ],
-  // Ammo in the station halls, the garages and behind the approach containers; health and
-  // shield out on the flanks and by the mast.
-  ammo: [
-    [28, 10.2], [-28, -10.2], [-29, 16.5], [29, -16.5], [0, 20.8], [0, -20.8], [27, 7], [-27, -7],
-  ],
-  consumables: [
-    ['health', 24, 23.5], ['health', -24, -23.5], ['shield', 0, 5.8], ['shield', 0, -5.8],
-    ['health', -33, 22.9], ['health', 33, -22.9], ['shield', 36.8, -4.5], ['shield', -36.8, 4.5],
-  ],
   // Under the station and garage roofs: one in each station room and hall, one in each garage.
   lamps: [1, -1].flatMap((s) => [
     [s * 22, 3.6, s * 12.5, 60, 12], [s * 34, 3.6, s * 12.5, 60, 12],

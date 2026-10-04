@@ -3,3 +3,6 @@ assets/*-tmp/
 node_modules/
 playwright-report/
 test-results/
+.wrangler/
+server/.mp-budget.json
+.cf-public/

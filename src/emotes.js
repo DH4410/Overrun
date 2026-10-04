@@ -7,7 +7,8 @@ import { CONFIG } from './config.js';
  *
  * The player has no body in first person, so an emote builds one (a roster character, the same
  * rig the bots use), swings the camera out in front of it, and plays a Mixamo clip on it.
- * Moving, jumping, firing, dying or the match ending puts the camera back. Bots never emote.
+ * Moving, jumping, firing, dying or the match ending puts the camera back. Bots never emote;
+ * online, other players' puppets do (playOn).
  *
  * The clips are 8 MB of FBX, so nothing is fetched until the wheel is first opened.
  */
@@ -219,8 +220,27 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     camera.lookAt(_look);
   }
 
+  /**
+   * Online: play emote `id` on someone else's character mesh (a puppet). Returns the action, or
+   * null while the clips are still loading (the first call starts the load).
+   */
+  function playOn(mesh, id) {
+    load();
+    const clip = clips[id];
+    const mixer = mesh?.userData.mixer;
+    if (!clip || !mixer) return null;
+    const a = mixer.clipAction(retarget(clip, mesh));
+    a.reset().play();
+    return a;
+  }
+
+  function stopOn(mesh, a) {
+    a.stop();
+    mesh.userData.mixer?.uncacheAction(a.getClip());
+  }
+
   return {
-    openWheel, closeWheel, update, stop, load,
+    openWheel, closeWheel, update, stop, load, playOn, stopOn,
     get active() { return active; },
     get wheelOpen() { return wheelOpen; },
   };

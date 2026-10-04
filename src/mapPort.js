@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { MAP_DATA } from './sim/mapData.js';
+
 /**
  * PORT: a container port in daylight, modelled in Blender (scripts/blender/build_port.py).
  * Loaded by src/mapGlb.js; this file is only what differs from the other Blender maps.
@@ -16,17 +18,11 @@ import * as THREE from 'three';
  * Units are metres; +Z is south.
  */
 export const PORT = {
+  ...MAP_DATA.port,
   id: 'port',
   file: 'port',
   name: 'PORT',
   blurb: 'Container port in daylight. A raised dock in the middle, a yard and a warehouse on each flank.',
-  half: [50, 38],
-  /**
-   * Spawn, pickup and nav casts start just below this, and it must be under every roof: the spawn
-   * sheds' roofs start at y = 6.0, and a cast from above them would put the spawns on the roof.
-   * Stacked containers top out at 5.18 m, safely below the cast.
-   */
-  ceilY: 6.0,
   mapView: 46,
   plates: { ground: 0x2c3238, solid: 0x9aa7b3 },
 
@@ -72,26 +68,6 @@ export const PORT = {
     },
   },
 
-  /**
-   * Mirrored spawn candidates, listed in pairs. Each clears buildSpawnPoints' 2 m blocker pad,
-   * checked against the built layout: four in each spawn shed, the rest spread over the flanks so
-   * "furthest from every enemy" has somewhere to choose from in deathmatch.
-   */
-  spawns: [
-    [0, 31], [0, -31], [-5, 33], [5, -33], [5, 33], [-5, -33], [-12, 31], [12, -31],
-    [-34, 34], [34, -34], [46, 34], [-46, -34], [-46, 3], [46, -3],
-    [26, 20], [-26, -20], [-34, 16], [34, -16], [44, 16], [-44, -16], [-17, 21], [17, -21],
-  ],
-  // Ammo in the lanes, health and shield out on the flanks.
-  ammo: [
-    [3.5, 15.5], [-3.5, -15.5], [17.5, 0], [-17.5, 0],
-    [26, 21], [-26, -21], [-30, 16], [30, -16],
-  ],
-  consumables: [
-    ['health', 40, 1], ['health', -40, -1],
-    ['shield', -33, 13], ['shield', 33, -13],
-    ['health', 0, 0], ['shield', 17, 25], ['shield', -17, -25],
-  ],
   // The sheds and warehouses have roofs, so the sun does not reach inside.
   lamps: [1, -1].flatMap((s) => [
     [s * -7, 5.4, s * 32.5, 90, 22], [s * 7, 5.4, s * 32.5, 90, 22],

@@ -35,6 +35,8 @@ const browserGlobals = {
   AudioContext: 'readonly',
   Blob: 'readonly',
   URL: 'readonly',
+  URLSearchParams: 'readonly',
+  WebSocket: 'readonly',
   Worker: 'readonly',
   Image: 'readonly',
   Event: 'readonly',
@@ -102,12 +104,30 @@ export default [
     },
   },
 
+  // ── server/**/*.js  ───────────────────────────────────────────────────────
+  // The multiplayer room and its adapters: Node (server/node.js) and a Cloudflare Worker
+  // (server/worker.js), which has the Web platform globals Node 18+ shares.
+  {
+    files: ['server/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node, WebSocketPair: 'readonly', Response: 'readonly' },
+    },
+    rules: {
+      'no-undef': 'error',
+      'no-unused-vars': ['warn', { vars: 'all', varsIgnorePattern: '^_', args: 'none' }],
+    },
+  },
+
   // ── Ignore generated / vendored files  ───────────────────────────────────
   {
     ignores: [
       'node_modules/**',
       'sw.js',           // service worker — separate global environment
       'test-results/**',
+      '.wrangler/**',
+      'spike/**',
     ],
   },
 ];

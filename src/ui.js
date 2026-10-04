@@ -163,6 +163,8 @@ const SETTINGS_SCHEMA = [
         + 'target. The individual options below are left as you set them.' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
+  { key: 'fov', type: 'range', label: 'Field of view', min: 60, max: 100, step: 1, unit: '\u00b0',
+    hint: 'Vertical field of view while hip-firing. Wider sees more of the sides but makes enemies smaller.' },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
   { key: 'viewBob', type: 'toggle', label: 'View bob' },
   { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle' ,

@@ -5,7 +5,7 @@
  * Bump PROTOCOL_VERSION whenever anything here or in the shared simulation changes meaning: it
  * is folded into the map hash, so a stale client is told to refresh instead of desyncing.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -245,7 +245,7 @@ export function writeEvent(w, e) {
   switch (e.kind) {
     case EV.SHOT: w.u8(e.shooter); w.u8(WEAPON_IDS.indexOf(e.weapon)); w.pos(e.o.x, e.o.y, e.o.z); w.dir(e.d.x, e.d.y, e.d.z); w.u16(e.seed); break;
     case EV.HIT: w.u8(e.attacker); w.u8(e.victim); w.u8(Math.min(255, Math.round(e.dmg))); w.u8(e.zone); w.u8(e.flags); w.pos(e.p.x, e.p.y, e.p.z); break;
-    case EV.KILL: w.u8(e.killer); w.u8(e.victim); w.u8(e.head ? 1 : 0); w.u8(WEAPON_IDS.indexOf(e.weapon)); break;
+    case EV.KILL: w.u8(e.killer); w.u8(e.victim); w.u8(e.head ? 1 : 0); w.u8(WEAPON_IDS.indexOf(e.weapon)); w.u8(e.flags ?? 0); w.u8(Math.min(255, Math.round(e.dist ?? 0))); break;
     case EV.EXPLODE: case EV.SMOKE: w.pos(e.p.x, e.p.y, e.p.z); break;
     case EV.PICKUP: w.u8(e.who); w.u8(e.what); w.u8(e.index); break;
     case EV.SPAWN: w.u8(e.id); break;
@@ -259,7 +259,7 @@ export function readEvent(r) {
   switch (kind) {
     case EV.SHOT: return { kind, shooter: r.u8(), weapon: WEAPON_IDS[r.u8()], o: r.pos(), d: r.dir(), seed: r.u16() };
     case EV.HIT: return { kind, attacker: r.u8(), victim: r.u8(), dmg: r.u8(), zone: r.u8(), flags: r.u8(), p: r.pos() };
-    case EV.KILL: return { kind, killer: r.u8(), victim: r.u8(), head: r.u8() === 1, weapon: WEAPON_IDS[r.u8()] };
+    case EV.KILL: return { kind, killer: r.u8(), victim: r.u8(), head: r.u8() === 1, weapon: WEAPON_IDS[r.u8()], flags: r.u8(), dist: r.u8() };
     case EV.EXPLODE: case EV.SMOKE: return { kind, p: r.pos() };
     case EV.PICKUP: return { kind, who: r.u8(), what: r.u8(), index: r.u8() };
     case EV.SPAWN: return { kind, id: r.u8() };

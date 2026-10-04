@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 
-import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from './config.js';
+import { CONFIG, TEAM, TEAM_COLOR } from './config.js';
 import { codeOf, keyName } from './keybinds.js';
-import { settings } from './settings.js';
+import { killIcon } from './killicons.js';
+import { killTags } from './sim/killinfo.js';
+import { hipFov, settings } from './settings.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
 
@@ -54,10 +56,13 @@ function showHitMarker(kind) {
 }
 
 /** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
-function showKillBanner(target, headshot) {
+function showKillBanner(target, headshot, info = {}) {
   if (!el.killbanner) return;
   el.kbName.textContent = target.name;
-  el.killbanner.classList.toggle('headshot', !!headshot);
+  const tags = killTags({ head: headshot, flags: info.flags, dist: info.dist });
+  const tag = document.getElementById('kb-tag');
+  if (tag) tag.textContent = tags.join('  \u00b7  ');
+  el.killbanner.classList.toggle('headshot', tags.length > 0);
   el.killbanner.classList.remove('show');
   void el.killbanner.offsetWidth;            // restart the animation for back-to-back kills
   el.killbanner.classList.add('show');
@@ -311,16 +316,25 @@ function kfSpan(c, label) {
   return sp;
 }
 
-function addKillFeed(source, target, headshot) {
+/**
+ * One feed row: who, the weapon that did it, how (NOSCOPE, HEADSHOT, MIDAIR, distance), and who.
+ * `info` is { weapon, flags, dist }; without a weapon the arrow stands in.
+ */
+function addKillFeed(source, target, headshot, info = {}) {
   const row = document.createElement('div');
   row.className = source === player || target === player ? 'kf mine' : 'kf';
   const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
     : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
-  const arrow = Object.assign(document.createElement('span'), {
-    className: headshot ? 'arrow hs' : 'arrow', textContent: headshot ? 'HEADSHOT' : '›',
-  });
+  const how = document.createElement('span');
+  how.className = 'how';
+  const icon = source && source !== target ? killIcon(info.weapon) : null;
+  if (icon) how.append(icon);
+  else how.append(Object.assign(document.createElement('span'), { className: 'arrow', textContent: source === target ? '\u2620' : '\u203a' }));
+  for (const t of killTags({ head: headshot, flags: info.flags, dist: info.dist })) {
+    how.append(Object.assign(document.createElement('span'), { className: t === 'HEADSHOT' ? 'chip hs' : 'chip', textContent: t }));
+  }
   const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
-  row.append(sSpan, arrow, tSpan);
+  row.append(sSpan, how, tSpan);
   el.feed.appendChild(row);
   while (el.feed.children.length > 5) el.feed.firstChild.remove();
   setTimeout(() => { row.style.opacity = '0'; }, 4200);
@@ -439,7 +453,7 @@ function updateCrosshairSpread() {
   });
   // Half the vertical FOV maps to half the viewport height, so radians convert to pixels
   // through the same projection the world is drawn with.
-  const pxPerRad = (window.innerHeight * 0.5) / Math.tan((HIP_FOV * Math.PI) / 360);
+  const pxPerRad = (window.innerHeight * 0.5) / Math.tan((hipFov() * Math.PI) / 360);
   const gap = settings.crosshairGap + Math.min(90, cone * pxPerRad);
   document.documentElement.style.setProperty('--xhair-gap', `${gap.toFixed(1)}px`);
 }

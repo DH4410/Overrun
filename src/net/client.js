@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from '../config.js';
+import { CONFIG, TEAM, TEAM_COLOR } from '../config.js';
+import { hipFov } from '../settings.js';
 import { aimDirection } from '../sim/combat.js';
 import { MAP_DATA, MAP_IDS } from '../sim/mapData.js';
 import {
@@ -10,6 +11,7 @@ import {
 } from '../sim/protocol.js';
 import { savedSkin } from '../skins.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
+import { killLine } from '../sim/killinfo.js';
 import { MODE_INFO, teamScore } from '../sim/modes.js';
 import { createChat } from './chat.js';
 import { createFlags } from './flags.js';
@@ -95,6 +97,7 @@ export function createNetClient(d) {
   const seenSmokes = new Set();
   let killerId = null;
   let specTarget = null, freeCam = false;
+  const shotLog = [];                // recent SHOT events with their tick: the killcam replays them
   let kc = null, lastDeath = null;   // the killcam being replayed; who killed you, with what
   const killedBy = new Map();        // victim id -> killer id, for the spectator's follow-killer
   let lastSnapTick = null;
@@ -729,6 +732,10 @@ export function createNetClient(d) {
   function onEvent(e, s) {
     switch (e.kind) {
       case EV.SHOT: {
+        if (!kc) {
+          shotLog.push({ tick: s.tick, shooter: e.shooter, weapon: e.weapon, o: e.o, d: e.d });
+          while (shotLog.length && shotLog[0].tick < s.tick - KC_FRAMES * 2) shotLog.shift();
+        }
         if (e.shooter === myId || kc) break;     // already drawn when it was predicted; the killcam shows the past
         lastShot.set(e.shooter, performance.now());
         const b = puppets.get(e.shooter);
@@ -766,18 +773,18 @@ export function createNetClient(d) {
       }
       case EV.KILL: {
         const killer = who(e.killer), victim = who(e.victim);
-        if (victim) d.addKillFeed(killer, victim, e.head);
+        if (victim) d.addKillFeed(killer, victim, e.head, { weapon: e.weapon, flags: e.flags, dist: e.dist });
         killedBy.set(e.victim, e.killer);
         if (spectator && e.victim === specTarget && !freeCam && puppets.get(e.killer)?.alive) specTarget = e.killer;
         if (e.killer === myId && e.victim !== myId && victim) {
           d.showHitMarker('kill');
-          d.showKillBanner(victim, e.head);
+          d.showKillBanner(victim, e.head, { weapon: e.weapon, flags: e.flags, dist: e.dist });
           if (e.head) Audio.headshot?.();
           Audio.kill();
         }
         if (e.victim === myId) {
           killerId = e.killer !== myId ? e.killer : null;
-          lastDeath = { name: who(e.killer)?.name ?? null, weapon: e.weapon, head: e.head, self: e.killer === myId || e.killer === NO_ID };
+          lastDeath = { name: who(e.killer)?.name ?? null, weapon: e.weapon, head: e.head, flags: e.flags, dist: e.dist, self: e.killer === myId || e.killer === NO_ID };
           if (!spectator && !lastDeath.self) startKillcam(e.killer);
         }
         break;
@@ -924,7 +931,7 @@ export function createNetClient(d) {
       el.pause.classList.add('on', 'dead');
       el.pBig.textContent = 'ELIMINATED';
       const by = lastDeath && !lastDeath.self && lastDeath.name
-        ? `KILLED BY ${lastDeath.name} · ${WEAPON_BY_ID[lastDeath.weapon]?.name ?? lastDeath.weapon}${lastDeath.head ? ' · HEADSHOT' : ''}` : '';
+        ? `KILLED BY ${lastDeath.name} \u00b7 ${killLine(WEAPON_BY_ID[lastDeath.weapon]?.name ?? lastDeath.weapon, { head: lastDeath.head, flags: lastDeath.flags, dist: lastDeath.dist })}` : '';
       const wait = phase !== PHASE.PLAYING ? '' : mode === 'duel' ? 'NEXT ROUND SOON' : `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s`;
       el.pSm.textContent = [by, wait].filter(Boolean).join('  ·  ');
       el.pCta.style.display = d.isPointerLocked() ? 'none' : '';
@@ -1124,8 +1131,11 @@ export function createNetClient(d) {
   function startKillcam(killer) {
     const frames = snaps.slice(-KC_FRAMES);
     if (frames.length < 10 || !frames.some((f) => f.players.get(killer))) return;
-    kc = { id: killer, frames, rt: frames[0].tick };
+    kc = { id: killer, frames, rt: frames[0].tick, shot: 0, dist: 2.4, shots: shotLog.filter((x) => x.tick >= frames[0].tick) };
     el.pause.classList.add('kc');
+    const w = lastDeath && WEAPON_BY_ID[lastDeath.weapon];
+    ui.kc.firstChild.textContent = lastDeath
+      ? `KILLCAM \u00b7 ${lastDeath.name ?? ''} \u00b7 ${killLine(w?.name ?? lastDeath.weapon, lastDeath)}` : 'KILLCAM';
     ui.kc.classList.add('on');
   }
 
@@ -1147,11 +1157,29 @@ export function createNetClient(d) {
     if (kc.rt > last + 24 || player.alive || phase !== PHASE.PLAYING || spectator) { endKillcam(); return false; }
     if (!sample(kc.id, kc.rt, _k, kc.frames)) { endKillcam(); return false; }
     const b = puppets.get(kc.id);
-    if (b) b.mesh.visible = false;            // the camera is inside its head
-    camera.position.set(_k.x, _k.y + (_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT), _k.z);
-    _e.set(_k.pitch, _k.yaw, 0, 'YXZ');
-    camera.quaternion.setFromEuler(_e);
-    if (camera.fov !== HIP_FOV) { camera.fov = HIP_FOV; camera.updateProjectionMatrix(); }
+    if (b) b.mesh.visible = true;
+    // Replay the killer's shots as they happened, so the muzzle flashes and tracers say where it came from.
+    while (kc.shot < kc.shots.length && kc.shots[kc.shot].tick <= kc.rt) {
+      const sh = kc.shots[kc.shot++];
+      const sb = puppets.get(sh.shooter), sw = WEAPON_BY_ID[sh.weapon];
+      lastShot.set(sh.shooter, performance.now());
+      if (sb && sw && !sw.thrown) d.fireWeapon(sb, sw, v3(sh.o), v3(sh.d), 1);
+    }
+    // Over the killer's right shoulder, looking where they aim: they and what they shot at are both in frame.
+    const sy = Math.sin(_k.yaw), cy = Math.cos(_k.yaw), cp = Math.cos(_k.pitch);
+    const eyeY = _k.y + (_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT);
+    _org.set(_k.x, eyeY, _k.z);
+    let reach = 1;
+    for (let i = 0; i < 5; i++) {
+      _mz.set(_k.x + sy * 2.4 * reach + cy * 0.65 * reach, eyeY + 0.45 * reach, _k.z + cy * 2.4 * reach - sy * 0.65 * reach);
+      if (d.losClear(_org.x, _org.y, _org.z, _mz.x, _mz.y, _mz.z)) break;
+      reach *= 0.65;
+    }
+    kc.dist += (reach - kc.dist) * (reach < kc.dist ? 1 : Math.min(1, dt * 6));      // pulled in at once, eased back out
+    _mz.set(_k.x + sy * 2.4 * kc.dist + cy * 0.65 * kc.dist, eyeY + 0.45 * kc.dist, _k.z + cy * 2.4 * kc.dist - sy * 0.65 * kc.dist);
+    camera.position.copy(_mz);
+    camera.lookAt(_k.x - sy * cp * 30, eyeY + Math.sin(_k.pitch) * 30, _k.z - cy * cp * 30);
+    if (camera.fov !== hipFov()) { camera.fov = hipFov(); camera.updateProjectionMatrix(); }
     camera.updateMatrixWorld();
     ui.kc.querySelector('i').style.width = `${Math.min(100, ((kc.rt - kc.frames[0].tick) / (last - kc.frames[0].tick)) * 100).toFixed(1)}%`;
     ui.spec.classList.remove('on');

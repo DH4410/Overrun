@@ -66,12 +66,13 @@ import {
   ADS_FOV,
   CONFIG,
   FIXED_DT,
-  HIP_FOV,
   TEAM,
   TEAM_COLOR,
 } from './config.js';
 import {
   QUALITY,
+  adsFov,
+  hipFov,
   loadSettings,
   saveSettings,
   settings,
@@ -546,7 +547,7 @@ function applySettings() {
   activeLightBudget = q.lights;
   CONFIG.MAX_DECALS = q.decals;
 
-  camera.fov = HIP_FOV;         // updateCamera() overrides this every frame; set for first render
+  camera.fov = hipFov();         // updateCamera() overrides this every frame; set for first render
   camera.updateProjectionMatrix();
   // The viewmodel camera keeps a narrower FOV: originally framed the gun at 72 against HIP 78.
   vmCamera.fov = 72;
@@ -1047,7 +1048,7 @@ function updateCamera(dt) {
   const w = currentWeapon();
   const aiming = isAiming();
   const scoped = aiming && w.zoom;
-  const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV);
+  const wantFov = scoped ? w.zoomFov : (aiming ? adsFov(ADS_FOV) : hipFov());
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
   camera.updateProjectionMatrix();
 

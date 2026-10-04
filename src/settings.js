@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS = {
   powerSaver: false,
   sensitivity: 1.0,
   adsSensitivity: 0.75,
-  fov: 68,
+  fov: 78,
   invertY: false,
   crosshairColor: '#00ff87',
   crosshairGap: 8,
@@ -56,6 +56,10 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
+
+/** The hip-fire vertical field of view the player chose; aiming narrows it in the same proportion. */
+export const hipFov = () => settings.fov;
+export const adsFov = (base) => base * (settings.fov / DEFAULT_SETTINGS.fov);
 
 /**
  * "I am on a touchpad" is one switch for what a touchpad player would otherwise hunt down in five
@@ -77,6 +81,8 @@ export function loadSettings() {
   // A cap that is not one of the offered values would be paced against nonsense, and a profile
   // saved before the setting existed carries no cap at all.
   if (!FRAME_CAPS.includes(settings.frameCap)) settings.frameCap = DEFAULT_SETTINGS.frameCap;
+  // A profile saved while the unused 68 default existed would otherwise zoom everyone in.
+  if (!(settings.fov >= 60 && settings.fov <= 100) || settings.fov === 68) settings.fov = DEFAULT_SETTINGS.fov;
 }
 
 export function saveSettings() {

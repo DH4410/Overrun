@@ -71,6 +71,23 @@ The multiplayer work is documented in MULTIPLAYER.md; this is what else changed 
   enemy plates (health bar fill, corner placement).
 - **UX:** secondary buttons (Settings, Spectate, Locker, Leave) have visible edges; the pause screen
   has a RESUME button and the key help; LEAVE MATCH is red.
+- **Kill context, feed and killcam** (protocol v3). `src/sim/killinfo.js` turns a kill into flags
+  (NOSCOPE = zoom weapon fired unscoped, LONGSHOT >= 45 m, MIDAIR = killer off the ground) plus a
+  distance; the server fills them (`room.kill`), the KILL event carries `flags`+`dist`, and the single
+  player path (`player.applyDamage` -> `killCombatant`) computes the same. Bots never get NOSCOPE
+  (they have no scope). `src/killicons.js` has an SVG silhouette per weapon for the feed
+  (`.kf .kicon`), with chips for HEADSHOT/NOSCOPE/MIDAIR/distance. The killcam now draws the killer
+  (a puppet from the recorded frames), replays their shots as cosmetic bullets, and sits an
+  over-the-shoulder camera behind them with a line-of-sight pull-in; the death text reads
+  `KILLED BY name · weapon · tags`, and your own HUD hides while dead. The map hash folds in
+  PROTOCOL_VERSION, so client and server must be deployed together.
+- **FOV setting** (`settings.fov`, 60-100, default 78; ADS scales in proportion).
+- **Playthrough findings (real GPU, headless Chromium):** WARZONE referenced a Poly Haven texture
+  that has no `diff` map (`fabric_pattern_07`), a 404 on every load; sandbags now use `hessian_230`.
+  Drivers must fake pointer lock (define `document.pointerLockElement` as the renderer canvas and
+  fire `pointerlockchange` *before* the countdown ends), or the game shows GET READY / CLICK TO
+  RESUME and nothing fires. `spike/play-mp.mjs` does this. Do not stub the CDN with a 1x1 PNG for
+  visual checks: it renders every surface black.
 - **Still open:** survival mode with server bots, small duel and CTF maps, a survival arena; the
   server still accepts `soldier` in hello; gamepad grenades/aim assist and dropped weapons are not
   online; `desert-map.spec` ("a sv match on DESERT starts cleanly") and `hitboxes.spec.mjs:85` flake.

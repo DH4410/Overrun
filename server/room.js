@@ -15,6 +15,7 @@ import {
   Writer, ZONE_IDS, decodeInput, mapHash, quantYaw, writeEvent, writePlayer, writeYou,
 } from '../src/sim/protocol.js';
 import { applyCommand } from '../src/sim/tick.js';
+import { killFlags } from '../src/sim/killinfo.js';
 import { WEAPONS } from '../src/sim/weaponData.js';
 import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS } from '../src/sim/world.js';
 import { ctfDrop, ctfInit, ctfStep, flagsWire } from './ctf.js';
@@ -706,7 +707,12 @@ export class Room {
     target.cooking = null;
     target.emote = 0;
     this.idleCommand(target);
-    this.events.push({ kind: EV.KILL, killer: source ? source.id : NO_ID, victim: target.id, head: !!headshot, weapon: weapon ?? 'frag' });
+    const w = weapon ?? 'frag';
+    const dist = source && source !== target ? source.pos.distanceTo(target.pos) : 0;
+    const flags = source && source !== target
+      ? killFlags({ weapon: w, zoom: !!WEAPONS.find((x) => x.id === w)?.zoom, scoped: source.aiming, dist, airborne: !source.grounded })
+      : 0;
+    this.events.push({ kind: EV.KILL, killer: source ? source.id : NO_ID, victim: target.id, head: !!headshot, weapon: w, flags, dist });
     if (this.mode === 'duel') this.duelRoundEnd(this.otherDuelist(target));
     else this.checkWin();
   }

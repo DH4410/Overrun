@@ -11,6 +11,7 @@ import { aimToggles, assistLevel, autoSprints, lookBoost, settings } from './set
 import { clamp, lerp, rand } from './utils.js';
 import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
 import { DEFAULT_LOADOUT } from './loadout.js';
+import { killFlags } from './sim/killinfo.js';
 import {
   createPlayerBody as createSharedBody,
   setCrouch as sharedSetCrouch,
@@ -137,7 +138,7 @@ function resetPlayerAmmo() {
  * Route damage through armour, then health. Handles kill bookkeeping for whoever fired.
  * Used by bullets and by explosions, for the player and for bots alike.
  */
-function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
+function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', weapon = null) {
   if (!target.alive || !match.running) return;
   // Spawn protection. Gated here as well as in Bot.canSee, because bullets already in flight
   // and grenades already thrown do not go back through target acquisition.
@@ -182,10 +183,20 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
 
   if (target.health <= 0) {
     target.health = 0;
-    killCombatant(target, source, headshot);
+    const dist = source && source !== target ? source.pos.distanceTo(target.pos) : 0;
+    const info = {
+      weapon, dist,
+      flags: source && source !== target
+        ? killFlags({
+          weapon, zoom: !!WEAPON_BY_ID[weapon]?.zoom, scoped: source !== player || aiming, dist,   // bots have no scope to skip
+          airborne: source === player && !player.grounded,
+        })
+        : 0,
+    };
+    killCombatant(target, source, headshot, info);
     if (source === player) {
       showHitMarker('kill');
-      showKillBanner(target, headshot);
+      showKillBanner(target, headshot, info);
       if (headshot) Audio.headshot?.();
       Audio.kill();
     }

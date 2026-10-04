@@ -49,7 +49,7 @@ export const WARZONE = {
       // only adds its scratches and weave, as luminance.
       container: pbrMat('box_profile_metal_sheet', { repeat: 1, ao: true, fallback: 0xffffff, rough: 0.55, metal: 0.3, detail: true, extra: { vertexColors: true } }),
       paint: pbrMat('rusty_metal_sheet', { repeat: 1, fallback: 0xffffff, rough: 0.65, metal: 0.25, detail: true, extra: { vertexColors: true } }),
-      sand: pbrMat('fabric_pattern_07', { repeat: 1, fallback: 0xffffff, rough: 0.95, detail: true, extra: { vertexColors: true } }),
+      sand: pbrMat('hessian_230', { repeat: 1, fallback: 0xffffff, rough: 0.95, detail: true, extra: { vertexColors: true } }),
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: true }),

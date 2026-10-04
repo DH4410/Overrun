@@ -134,7 +134,7 @@ function stepBullets(dt) {
       const table = cHit.target === getPlayer() ? PLAYER_ZONE_MULT : ZONE_MULT;
       const dmg = b.damage * (table[cHit.zone] ?? 1);
       spawnBlood(_hitPoint);
-      applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head, cHit.zone);
+      applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head, cHit.zone, b.weapon.id);
       despawnBullet(i);
       continue;
     }
@@ -358,7 +358,7 @@ function explode(pos, owner) {
     // Cover matters: no line of sight to the blast means no damage.
     if (!losClear(pos.x, pos.y, pos.z, c.pos.x, c.pos.y, c.pos.z)) continue;
     const dmg = CONFIG.FRAG_DAMAGE * (1 - d / CONFIG.FRAG_RADIUS);
-    if (dmg > 1) applyDamage(c, dmg, owner, _v1, false);
+    if (dmg > 1) applyDamage(c, dmg, owner, _v1, false, 'body', 'frag');
   }
 
   for (const body of world.bodies) {

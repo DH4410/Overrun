@@ -1,5 +1,7 @@
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
+import { killLine } from './sim/killinfo.js';
+import { WEAPON_BY_ID } from './sim/weaponData.js';
 import {
   CONFIG,
   SPAWN_INVULN,
@@ -26,6 +28,7 @@ export function createMatchState() {
     // interval between rounds and is <= 0 whenever a round is actually being played.
     roundsA: 0,
     roundsB: 0,
+    lastDeath: null,          // who killed the player, with what: { name, weapon, head, flags, dist }
     roundTime: 0,
     roundReset: 0,
   };
@@ -384,7 +387,7 @@ function endDuelRound(winner) {
 }
 
 /** The single place a death is booked, for the player and for bots alike. */
-function killCombatant(target, source, headshot) {
+function killCombatant(target, source, headshot, info = {}) {
   if (source && source !== target) {
     source.kills++;
     if (match.mode === 'tdm') {
@@ -406,7 +409,8 @@ function killCombatant(target, source, headshot) {
     }
   }
   target.deaths++;
-  addKillFeed(source, target, headshot);
+  addKillFeed(source, target, headshot, info);
+  if (target === player) match.lastDeath = source && source !== target ? { name: source.name, head: headshot, ...info } : null;
 
   if (target === player) {
     player.alive = false;
@@ -508,9 +512,11 @@ function updateMatch(dt) {
     deathBoardTimer -= dt;
     if (deathBoardTimer <= 0) { deathBoardTimer = 0.25; renderDeathBoard(); }
     el.pBig.textContent = 'ELIMINATED';
-    el.pSm.textContent = match.mode === 'duel'
+    const by = match.lastDeath
+      ? `KILLED BY ${match.lastDeath.name} \u00b7 ${killLine(WEAPON_BY_ID[match.lastDeath.weapon]?.name ?? '', match.lastDeath)}  \u00b7  ` : '';
+    el.pSm.textContent = by + (match.mode === 'duel'
       ? `ROUND ${match.roundsA + match.roundsB + 1} IN ${Math.max(0, match.roundReset).toFixed(1)}s`
-      : `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`;
+      : `RESPAWNING IN ${player.respawnTimer.toFixed(1)}s`);
     // The death screen is not a pause — the resume prompt would just be confusing here.
     el.pCta.style.display = isPointerLocked() ? 'none' : '';
     if (player.respawnTimer <= 0 && match.mode !== 'duel') {

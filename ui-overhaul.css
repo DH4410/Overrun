@@ -251,8 +251,11 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .42) 30%);
   transition: opacity .6s linear;
 }
-.kf .arrow { color: var(--ink-3); margin: 0 8px; font-size: 13px; }
-.kf .arrow.hs { color: var(--accent); }
+.kf .how { display: inline-flex; align-items: center; gap: 6px; margin: 0 9px; vertical-align: middle; }
+.kf .arrow { color: var(--ink-3); font-size: 13px; }
+.kf .kicon { height: 15px; width: 52px; fill: var(--ink); opacity: .92; }
+.kf .chip { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: var(--ink); padding: 1px 5px; border: 1px solid rgba(255, 255, 255, .35); border-radius: 2px; line-height: 1.2; }
+.kf .chip.hs { color: var(--accent); border-color: var(--accent); }
 .kf .me { color: var(--self); }
 .kf .en { color: var(--enemy); }
 .kf .al { color: var(--ally); }
@@ -789,13 +792,16 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 #mp-recon.ok { border-color: rgba(127, 220, 140, .5); }
 #mp-recon.ok b { color: var(--self); }
 #mp-recon.ok .bar i { background: var(--self); }
-#mp-kc { position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%); z-index: 30; display: none; align-items: center; gap: 12px;
-  font: 800 15px var(--f-display); letter-spacing: 4px; color: var(--ink); pointer-events: none; text-shadow: 0 1px 4px #000; }
+#mp-kc { position: fixed; left: 50%; bottom: 16vh; transform: translateX(-50%); z-index: 30; display: none; align-items: center; gap: 12px;
+  font: 800 15px var(--f-display); letter-spacing: 3px; color: var(--ink); pointer-events: none; text-shadow: 0 1px 4px #000; max-width: 94vw; }
+#mp-kc span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #mp-kc.on { display: flex; }
 #mp-kc .bar { width: 160px; height: 4px; background: rgba(255, 255, 255, .25); }
 #mp-kc .bar i { display: block; height: 100%; width: 0; background: var(--enemy); }
-#pause.dead.kc { background: linear-gradient(transparent 52%, rgba(40, 4, 4, .72)); backdrop-filter: none; justify-content: flex-end; padding-bottom: 14vh; gap: 4px; }
-#pause.dead.kc .big { font-size: 44px; }
+/* The killcam wants the middle of the screen for the killer: the verdict goes across the top, the buttons small under it. */
+#pause.dead.kc { background: linear-gradient(rgba(40, 4, 4, .78), transparent 34%); backdrop-filter: none; justify-content: flex-start; padding-top: 9vh; gap: 4px; pointer-events: none; }
+#pause.dead.kc .big { font-size: 40px; }
+#pause.dead.kc .pause-btns { margin-top: 6px; gap: 10px; transform: scale(.82); transform-origin: top center; pointer-events: auto; }
 #pause.dead.kc #p-board, #pause.dead.kc .cta { display: none; }
 #mp-spec { position: fixed; left: 50%; bottom: 5vh; transform: translateX(-50%); z-index: 30; display: none; flex-direction: column; align-items: center; gap: 4px;
   padding: 10px 22px; background: rgba(5, 7, 10, .72); font-family: var(--f-display); letter-spacing: 3px; pointer-events: none; text-align: center; }
@@ -936,3 +942,6 @@ body.mp-lobby #mp-flags { display: none; }
 .kb-reset:hover { color: var(--ink); border-color: var(--ink-2); }
 @keyframes kbpulse { 50% { opacity: .65; } }
 @media (max-width: 760px) { .kb { grid-template-columns: 1fr; } }
+
+/* Dead: your own health and ammo mean nothing, and they sat on top of the killcam. */
+body:has(#pause.dead) #vitals, body:has(#pause.dead) #ammo { opacity: 0; transition: opacity .25s; }

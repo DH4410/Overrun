@@ -35,6 +35,7 @@ import {
 } from './bots.js';
 import { createEffects } from './effects.js';
 import { createHud } from './hud.js';
+import { canon, loadKeybinds } from './keybinds.js';
 import { createMapController, createMapRuntime } from './maps.js';
 import {
   APP_STATE,
@@ -138,6 +139,7 @@ addEventListener('pointerover', (e) => {
  * and keep it running. The settings panel says these two apply on reload.
  */
 loadSettings();
+loadKeybinds();
 const bootQuality = QUALITY[settings.quality];
 
 const renderer = new THREE.WebGLRenderer({
@@ -1275,7 +1277,7 @@ const emotes = createEmotes({
   scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio,
 });
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
+  if (canon(e.code) === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
       && ((match.running && !match.outro) || net.playing)) emotes.openWheel();
 });
 
@@ -1345,7 +1347,7 @@ net = createNetClient({
     camera.lookAt(0, 3, 0);
   },
 });
-addEventListener('keyup', (e) => { if (e.code === 'KeyB') emotes.closeWheel(true); });
+addEventListener('keyup', (e) => { if (canon(e.code) === 'KeyB') emotes.closeWheel(true); });
 $('locker-open')?.addEventListener('click', () => locker.open());
 $('locker-open-pause')?.addEventListener('click', () => locker.open());
 

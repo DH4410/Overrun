@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from './config.js';
+import { codeOf, keyName } from './keybinds.js';
 import { settings } from './settings.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
@@ -378,7 +379,7 @@ function updateHudTimers(dt) {
   } else {
     const w = currentWeapon();
     const a = !w.thrown && player.ammo[w.id];
-    el.areload.textContent = (a && a.mag === 0) ? 'PRESS R' : '';
+    el.areload.textContent = (a && a.mag === 0) ? `PRESS ${keyName(codeOf('reload'))}` : '';
   }
   updateCrosshairSpread();
   updateShotReady();

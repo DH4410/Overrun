@@ -6,7 +6,8 @@ import {
 } from './config.js';
 import { world } from './physics.js';
 import { HB_PLAYER } from './projectiles.js';
-import { settings } from './settings.js';
+import { canon } from './keybinds.js';
+import { aimToggles, assistLevel, autoSprints, lookBoost, settings } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
 import { DEFAULT_LOADOUT } from './loadout.js';
@@ -261,7 +262,7 @@ function readMoveInput(out) {
    * reachable at all, which matters because sprinting is the widest accuracy cone in the game.
    */
   const wantSprint = (settings.toggleSprint ? sprintLatch : !!(keys.ShiftLeft || keys.GpSprint))
-    || (settings.autoSprint && iz > 0);
+    || (autoSprints() && iz > 0);
 
   out.ix = ix;
   out.iz = iz;
@@ -457,14 +458,14 @@ function bindInput() {
       if (currentWeapon().thrown) startCook('frag', 'mouse');
       else { firing = true; fireLatch = true; tryFire(); }
     }
-    if (e.button === 2) aiming = settings.toggleAim ? !aiming : true;
+    if (e.button === 2) aiming = aimToggles() ? !aiming : true;
   });
   addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       firing = false;
       if (player.cookSource === 'mouse') releaseCook();
     }
-    if (e.button === 2 && !settings.toggleAim) aiming = false;
+    if (e.button === 2 && !aimToggles()) aiming = false;
   });
   // Without this the browser context menu eats every right-click ADS.
   addEventListener('contextmenu', (e) => e.preventDefault());
@@ -475,16 +476,19 @@ function bindInput() {
     mouseDY += e.movementY;
   });
 
+  // Every key goes through canon(): a key the player rebound arrives as the default key of its
+  // action, so nothing below or elsewhere has to know about rebinding.
   addEventListener('keydown', (e) => {
     if (e.code === 'Tab') e.preventDefault();
-    if (keys[e.code]) return;                    // ignore auto-repeat
-    keys[e.code] = true;
+    const code = canon(e.code);
+    if (code === null || keys[code]) return;     // an unbound key, or auto-repeat
+    keys[code] = true;
 
     // Toggle latches for the trackpad-friendly bindings.
-    if (e.code === 'KeyC' && settings.toggleCrouch) crouchLatch = !crouchLatch;
-    if (e.code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
+    if (code === 'KeyC' && settings.toggleCrouch) crouchLatch = !crouchLatch;
+    if (code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
 
-    switch (e.code) {
+    switch (code) {
       case 'Digit1': switchWeapon(player.loadout[0]); break;
       case 'Digit2': switchWeapon(player.loadout[1]); break;
       case 'Digit3': switchWeapon(player.loadout[2]); break;
@@ -498,12 +502,14 @@ function bindInput() {
   });
 
   addEventListener('keyup', (e) => {
-    keys[e.code] = false;
+    const code = canon(e.code);
+    if (code === null) return;
+    keys[code] = false;
     if (player.cookSource === 'key') {
-      if (e.code === 'KeyG' && player.cooking === 'frag') releaseCook();
-      if (e.code === 'KeyF' && player.cooking === 'smoke') releaseCook();
+      if (code === 'KeyG' && player.cooking === 'frag') releaseCook();
+      if (code === 'KeyF' && player.cooking === 'smoke') releaseCook();
     }
-    if (e.code === 'Tab') showBoard(false);
+    if (code === 'Tab') showBoard(false);
   });
 
   document.addEventListener('pointerlockchange', () => {
@@ -585,7 +591,7 @@ function pollGamepad(dt) {
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
   // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off.
-  if (settings.toggleAim) { if (pressed(6)) aiming = !aiming; }
+  if (aimToggles()) { if (pressed(6)) aiming = !aiming; }
   else { aiming = down(6); }
 
   // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
@@ -659,7 +665,7 @@ const _assistVec = new THREE.Vector3();
  * assist off it would drag the crosshair over targets behind cover — an accidental wallhack.
  */
 function assistTarget() {
-  if (!(settings.aimAssist > 0) || !player.alive || !getMatch().running) return null;
+  if (!(assistLevel() > 0) || !player.alive || !getMatch().running) return null;
 
   const cp = Math.cos(player.pitch);
   _assistFwd.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
@@ -694,8 +700,8 @@ function assistTarget() {
  * and it fades to nothing as the crosshair arrives.
  */
 function applyAssistPull(assist, dt) {
-  if (settings.aimAssist <= 0.5) return;
-  const rate = ASSIST_PULL * (settings.aimAssist - 0.5) * 2 * assist.closeness * dt;
+  if (assistLevel() <= 0.5) return;
+  const rate = ASSIST_PULL * (assistLevel() - 0.5) * 2 * assist.closeness * dt;
   _assistVec.subVectors(assist.target.pos, player.eye);
   const len = _assistVec.length() || 1;
   let dYaw = Math.atan2(-_assistVec.x, -_assistVec.z) - player.yaw;
@@ -713,13 +719,13 @@ function applyLook(dt) {
     : (aiming ? settings.adsSensitivity : 1);
   const sens = CONFIG.SENS * settings.sensitivity * adsMult;
 
-  if (settings.trackpadLook) {
+  if (lookBoost()) {
     mouseDX = trackpadBoost(mouseDX, dt);
     mouseDY = trackpadBoost(mouseDY, dt);
   }
   const assist = assistTarget();
   if (assist) {
-    const grip = 1 - ASSIST_FRICTION * settings.aimAssist * assist.closeness;
+    const grip = 1 - ASSIST_FRICTION * assistLevel() * assist.closeness;
     mouseDX *= grip;
     mouseDY *= grip;
   }

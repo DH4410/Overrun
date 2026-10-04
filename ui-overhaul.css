@@ -903,3 +903,18 @@ body.mp-lobby #mp-flags { display: none; }
 #mp-flags span.s1 { color: var(--ink); background: rgba(0, 0, 0, .8); }
 #mp-flags span.s2 { color: var(--accent); }
 #mp-flags span.me { color: var(--accent-ink); background: var(--accent); }
+
+/* Keybinds: one row per action, the key as a button. */
+.kb { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; padding-bottom: 6px; }
+.kb-group { grid-column: 1 / -1; margin: 12px 0 2px; font-family: var(--f-display); font-size: 13px; font-weight: 700; letter-spacing: 3px; color: var(--ink-3); }
+.kb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); font-size: 14.5px; }
+.kb-row button { min-width: 96px; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: var(--f-display); font-weight: 800; letter-spacing: 1.5px;
+  color: var(--ink); background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .16); }
+.kb-row button:hover { border-color: var(--ink-2); }
+.kb-row button.moved { border-color: var(--accent); color: var(--accent); }
+.kb-row button.listening { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); animation: kbpulse 1s ease-in-out infinite; }
+.kb-reset { grid-column: 1 / -1; justify-self: start; margin-top: 14px; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: var(--f-display); font-weight: 800; letter-spacing: 2px;
+  background: transparent; color: var(--ink-2); border: 1px solid rgba(255, 255, 255, .18); }
+.kb-reset:hover { color: var(--ink); border-color: var(--ink-2); }
+@keyframes kbpulse { 50% { opacity: .65; } }
+@media (max-width: 760px) { .kb { grid-template-columns: 1fr; } }

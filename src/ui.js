@@ -1,3 +1,4 @@
+import { ACTIONS, bindKey, codeOf, keyName, resetKeybinds } from './keybinds.js';
 import { loadScreen } from './loading.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 
@@ -156,6 +157,10 @@ const SETTINGS_SCHEMA = [
         + 'reload to apply those two.',
   },
   { group: 'CONTROLS' },
+  { key: 'touchpad', type: 'toggle', label: 'I am using a touchpad',
+    hint: 'One switch for laptop play: fast swipes turn further, right-click toggles aim, you sprint '
+        + 'whenever you walk forward, and aim assist slows the crosshair over enemies so you stop on '
+        + 'target. The individual options below are left as you set them.' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
@@ -176,6 +181,8 @@ const SETTINGS_SCHEMA = [
     hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
         + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
         + 'also pulls, gently.' },
+  { group: 'KEYBINDS' },
+  { type: 'keybinds' },
   { group: 'INTERFACE' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
@@ -186,6 +193,77 @@ const SETTINGS_SCHEMA = [
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
   { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
 ];
+
+/** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */
+function refreshKeyHelp() {
+  const box = $('keyhelp');
+  if (!box) return;
+  const k = (id) => `<kbd>${keyName(codeOf(id))}</kbd>`;
+  const move = ['forward', 'left', 'back', 'right'].map((id) => keyName(codeOf(id))).join('');
+  const item = (key, text) => `<span>${key} ${text}</span>`;
+  box.innerHTML = [
+    item(`<kbd>${move}</kbd>`, 'Move'), item(k('jump'), 'Jump'), item(k('sprint'), 'Sprint'), item(k('crouch'), 'Crouch'),
+    item('<kbd>RMB</kbd>', 'Aim'), item(k('reload'), 'Reload'),
+    item(`${k('slot1')}\u2013${k('slot5')}`, 'Weapons'), item(k('frag'), 'Frag'), item(k('smoke'), 'Smoke'),
+    item(k('board'), 'Scores'), item(k('emote'), 'Emote'),
+  ].join('');
+}
+
+/** One button per action; click it, press the key you want. Escape backs out. */
+function buildKeybinds() {
+  const box = document.createElement('div');
+  box.className = 'kb';
+  let capturing = null;
+  const stop = () => { capturing?.(); capturing = null; };
+
+  const draw = () => {
+    box.innerHTML = '';
+    let group = '';
+    for (const a of ACTIONS) {
+      if (a.group !== group) {
+        group = a.group;
+        const h = document.createElement('div');
+        h.className = 'kb-group';
+        h.textContent = group;
+        box.appendChild(h);
+      }
+      const row = document.createElement('div');
+      row.className = 'kb-row';
+      const name = document.createElement('span');
+      name.textContent = a.label;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.action = a.id;
+      btn.textContent = keyName(codeOf(a.id));
+      btn.classList.toggle('moved', codeOf(a.id) !== a.def);
+      btn.addEventListener('click', () => {
+        stop();
+        btn.textContent = 'PRESS A KEY';
+        btn.classList.add('listening');
+        const onKey = (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (e.code !== 'Escape') bindKey(a.id, e.code);
+          stop();
+          draw();
+          refreshKeyHelp();
+        };
+        addEventListener('keydown', onKey, true);
+        capturing = () => removeEventListener('keydown', onKey, true);
+      });
+      row.append(name, btn);
+      box.appendChild(row);
+    }
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'kb-reset';
+    reset.textContent = 'RESET KEYS TO DEFAULT';
+    reset.addEventListener('click', () => { stop(); resetKeybinds(); draw(); refreshKeyHelp(); });
+    box.appendChild(reset);
+  };
+  draw();
+  return box;
+}
 
 function buildSettingsPanel() {
   const host = $('settings-body');
@@ -200,6 +278,8 @@ function buildSettingsPanel() {
       host.appendChild(h);
       continue;
     }
+
+    if (row.type === 'keybinds') { host.appendChild(buildKeybinds()); continue; }
 
     const wrap = document.createElement('label');
     wrap.className = 'set-row';
@@ -277,6 +357,7 @@ function showSettings(on) {
 
 function bindSettings() {
   buildSettingsPanel();
+  refreshKeyHelp();
   $('settings-open')?.addEventListener('click', () => showSettings(true));
   $('settings-open-pause')?.addEventListener('click', () => showSettings(true));
   $('settings-close')?.addEventListener('click', () => {
@@ -285,6 +366,8 @@ function bindSettings() {
   });
   $('settings-reset')?.addEventListener('click', () => {
     Object.assign(settings, DEFAULT_SETTINGS);
+    resetKeybinds();
+    refreshKeyHelp();
     applySettings();
     buildSettingsPanel();
   });

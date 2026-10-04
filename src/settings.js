@@ -49,12 +49,24 @@ export const DEFAULT_SETTINGS = {
   toggleCrouch: true,
   toggleSprint: false,
   arrowKeys: false,
+  touchpad: false,
   trackpadLook: false,
   autoSprint: false,
   aimAssist: 0.35,
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
+
+/**
+ * "I am on a touchpad" is one switch for what a touchpad player would otherwise hunt down in five
+ * places. Each helper is the effective value: the touchpad switch forces the friendly choice on,
+ * and leaves the individual settings alone so turning it off puts everything back.
+ */
+export const aimToggles = () => settings.touchpad || settings.toggleAim;
+export const lookBoost = () => settings.touchpad || settings.trackpadLook;
+export const autoSprints = () => settings.touchpad || settings.autoSprint;
+/** Friction-only assist is never below half strength on a touchpad; the pull above that stays the player's choice. */
+export const assistLevel = () => (settings.touchpad ? Math.max(settings.aimAssist, 0.5) : settings.aimAssist);
 
 export function loadSettings() {
   try {

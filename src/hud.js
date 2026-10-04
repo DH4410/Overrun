@@ -22,7 +22,7 @@ export function createHud({
 const $ = (id) => document.getElementById(id);
 const el = {
   hud: $('hud'), menu: $('menu'), pause: $('pause'), board: $('board'),
-  crosshair: $('crosshair'), scope: $('scope'), hitmarker: $('hitmarker'),
+  crosshair: $('crosshair'), scope: $('scope'), bolt: $('bolt'), hitmarker: $('hitmarker'),
   hp: $('hpfill'), hptxt: $('hptxt'), ap: $('apfill'), aptxt: $('aptxt'), vname: $('v-name'),
   hpchip: $('hpchip'), apchip: $('apchip'),
   aname: $('a-name'), amag: $('a-mag'), ares: $('a-res'), areload: $('a-reload'), slots: $('slots'),
@@ -381,7 +381,39 @@ function updateHudTimers(dt) {
     el.areload.textContent = (a && a.mag === 0) ? 'PRESS R' : '';
   }
   updateCrosshairSpread();
+  updateShotReady();
   updateVitals();
+}
+
+/**
+ * The slow guns (sniper 1.4 s, shotgun 0.9 s) say when they can fire again. A bar fills under the
+ * reticle, scoped or not, and flashes green the moment the next round is chambered; without it the
+ * only cue was the recoil settling, which is invisible through a scope.
+ */
+let wasReady = true;
+el.bolt.addEventListener('animationend', () => el.bolt.classList.remove('flash'));
+function updateShotReady() {
+  const w = currentWeapon();
+  const slow = w && !w.thrown && w.cooldown >= 0.6 && player.alive;
+  const bar = el.bolt;
+  if (!slow) { bar.classList.remove('on', 'ready'); wasReady = true; return; }
+  const a = player.ammo[w.id];
+  const reloading = player.reloading > 0;
+  const cycling = player.cooldown > 0;
+  const ready = !reloading && !cycling && !!a && a.mag > 0;
+  const fill = reloading ? 1 - player.reloading / Math.max(0.01, player.reloadTotal) : clamp(1 - player.cooldown / w.cooldown, 0, 1);
+  bar.style.setProperty('--fill', fill.toFixed(3));
+  bar.classList.toggle('reload', reloading);
+  if (ready && !wasReady) {
+    bar.classList.remove('flash');
+    void bar.offsetWidth;          // restart the animation
+    bar.classList.add('flash');
+  }
+  bar.classList.toggle('on', !ready || bar.classList.contains('flash'));
+  bar.classList.toggle('ready', ready);
+  wasReady = ready;
+  el.crosshair.classList.toggle('rdy', ready);
+  el.scope.classList.toggle('rdy', ready);
 }
 
 /**

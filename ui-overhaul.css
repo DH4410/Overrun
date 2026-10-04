@@ -719,3 +719,106 @@ body.emoting #crosshair, body.emoting #hitmarker { display: none; }
   color: var(--ink-2); font-family: var(--f-display); font-weight: 700; letter-spacing: 3px; }
 .mpe-leave:hover { color: var(--ink); border-bottom-color: var(--accent); }
 body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: none; }
+
+/* ---- slow-gun ready cue: a bar under the reticle that fills while the bolt cycles ---- */
+#bolt { position: absolute; left: 50%; top: calc(50% + 17vh); width: 96px; height: 4px; margin-left: -48px; z-index: 6;
+  background: rgba(0, 0, 0, .55); box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); opacity: 0; pointer-events: none; transition: opacity .12s; }
+#bolt.on { opacity: 1; }
+#bolt i { display: block; height: 100%; width: calc(var(--fill, 0) * 100%); background: #f3b53f; }
+#bolt.reload i { background: #8fa3b8; }
+#bolt.flash { animation: bolt-ready .45s ease-out forwards; }
+#bolt.flash i { width: 100%; background: #7fdc8c; box-shadow: 0 0 10px #7fdc8c; }
+@keyframes bolt-ready { 0% { opacity: 1; transform: scaleX(1.25); } 60% { opacity: 1; } 100% { opacity: 0; transform: scaleX(1); } }
+#crosshair.rdy[data-w="sniper"] .ch-dot { background: #7fdc8c; }
+#scope.rdy .rc { background: rgba(12, 14, 12, .92); }
+#scope:not(.rdy) .rc { background: rgba(190, 70, 50, .85); }
+
+/* ---- multiplayer: network readout, reconnect card, killcam, spectator panel ---- */
+#mp-net { position: fixed; right: 12px; top: 56px; z-index: 30; display: none; padding: 3px 9px; background: rgba(0, 0, 0, .55);
+  color: var(--ink-2); font: 600 12px/1.3 var(--f-display); letter-spacing: 2px; pointer-events: none; }
+#mp-net.on { display: block; }
+#mp-net.bad { color: var(--enemy); }
+#mp-recon { position: fixed; left: 50%; top: 34%; transform: translateX(-50%); z-index: 45; display: none; flex-direction: column; align-items: center; gap: 8px;
+  min-width: 300px; padding: 18px 26px 20px; background: rgba(5, 7, 10, .86); border: 1px solid rgba(255, 90, 78, .45);
+  font-family: var(--f-display); letter-spacing: 3px; pointer-events: none; }
+#mp-recon.on { display: flex; }
+#mp-recon b { font-size: 26px; font-weight: 800; color: var(--enemy); }
+#mp-recon span { font-size: 14px; font-weight: 600; color: var(--ink-2); min-height: 18px; }
+#mp-recon .bar { width: 100%; height: 5px; background: rgba(255, 255, 255, .12); }
+#mp-recon .bar i { display: block; height: 100%; width: 0; background: var(--enemy); }
+#mp-recon.ok { border-color: rgba(127, 220, 140, .5); }
+#mp-recon.ok b { color: var(--self); }
+#mp-recon.ok .bar i { background: var(--self); }
+#mp-kc { position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%); z-index: 30; display: none; align-items: center; gap: 12px;
+  font: 800 15px var(--f-display); letter-spacing: 4px; color: var(--ink); pointer-events: none; text-shadow: 0 1px 4px #000; }
+#mp-kc.on { display: flex; }
+#mp-kc .bar { width: 160px; height: 4px; background: rgba(255, 255, 255, .25); }
+#mp-kc .bar i { display: block; height: 100%; width: 0; background: var(--enemy); }
+#pause.dead.kc { background: linear-gradient(transparent 52%, rgba(40, 4, 4, .72)); backdrop-filter: none; justify-content: flex-end; padding-bottom: 14vh; gap: 4px; }
+#pause.dead.kc .big { font-size: 44px; }
+#pause.dead.kc #p-board, #pause.dead.kc .cta { display: none; }
+#mp-spec { position: fixed; left: 50%; bottom: 5vh; transform: translateX(-50%); z-index: 30; display: none; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 22px; background: rgba(5, 7, 10, .72); font-family: var(--f-display); letter-spacing: 3px; pointer-events: none; text-align: center; }
+#mp-spec.on { display: flex; }
+#mp-spec .t { font-size: 24px; font-weight: 800; }
+#mp-spec .l { font-size: 15px; font-weight: 600; color: var(--accent); }
+#mp-spec .k { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+
+/* ---- multiplayer: chat, lobby, countdown, results stats ---- */
+#mp-chat { position: fixed; left: 12px; bottom: 120px; z-index: 31; display: none; width: min(380px, calc(100vw - 24px)); font: 600 14px/1.35 var(--f-display); pointer-events: none; }
+#mp-chat.on { display: block; }
+#mp-chat .log { max-height: 190px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; text-shadow: 0 1px 3px #000; }
+#mp-chat .msg b { margin-right: 6px; letter-spacing: 1px; }
+#mp-chat .msg span { color: var(--ink); }
+#mp-chat .sys { color: var(--accent); font-size: 13px; }
+#mp-chat .box { display: none; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 8px; background: rgba(0, 0, 0, .65); border: 1px solid var(--ink-4); }
+#mp-chat.typing { pointer-events: auto; }
+#mp-chat.typing .box, #mp-chat.dock .box { display: flex; }
+#mp-chat .box span { font-size: 12px; letter-spacing: 2px; color: var(--ink-3); }
+#mp-chat .box span.team { color: var(--self); }
+#mp-chat input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: 600 15px var(--f-display); }
+#mp-chat.dock { left: auto; right: max(16px, calc(50vw - 440px)); bottom: 24px; width: 300px; pointer-events: auto; z-index: 52; }
+#mp-chat.dock .log { max-height: 140px; overflow-y: auto; }
+#mp-lobby { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: rgba(4, 6, 9, .88); pointer-events: auto; font-family: var(--f-display); }
+#mp-lobby.on { display: flex; }
+#mp-lobby .card { width: min(880px, calc(100vw - 24px)); max-height: 94vh; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; }
+#mp-lobby .head { display: flex; align-items: baseline; gap: 16px; }
+#mp-lobby h2 { margin: 0; font-size: clamp(28px, 5vh, 42px); font-weight: 800; letter-spacing: 3px; }
+#mp-lobby .sub, #mp-lobby .note { color: var(--ink-2); font-size: 14px; letter-spacing: 1px; }
+#mp-lobby .lbl { display: block; font-size: 12px; font-weight: 700; letter-spacing: 2px; color: var(--ink-3); margin-bottom: 4px; }
+#mp-lobby .cols { display: grid; grid-template-columns: minmax(200px, 1fr) 2fr; gap: 20px; }
+@media (max-width: 640px) { #mp-lobby .cols { grid-template-columns: 1fr; } }
+#mp-lobby .players { display: flex; flex-direction: column; gap: 3px; }
+#mp-lobby .p { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; padding: 5px 10px; background: rgba(255, 255, 255, .05); font-size: 16px; font-weight: 600; }
+#mp-lobby .p.self { background: rgba(243, 181, 63, .14); }
+#mp-lobby .p .crown { color: var(--accent); }
+#mp-lobby .p .st { font-size: 12px; letter-spacing: 2px; color: var(--ink-3); align-self: center; }
+#mp-lobby .p.ready .st { color: var(--self); }
+#mp-lobby .settings { display: flex; flex-direction: column; gap: 8px; }
+#mp-lobby .opts { display: flex; flex-wrap: wrap; gap: 5px; }
+#mp-lobby .opts button, #mp-lobby .actions button { cursor: pointer; padding: 5px 12px; border: 1px solid var(--ink-4); background: rgba(255, 255, 255, .04);
+  color: var(--ink); font: 700 14px var(--f-display); letter-spacing: 1px; }
+#mp-lobby .opts button.on { border-color: var(--accent); background: rgba(243, 181, 63, .18); }
+#mp-lobby .opts button:disabled { cursor: default; opacity: .55; }
+#mp-lobby .opts button.on:disabled { opacity: 1; }
+#mp-lobby .blurb { margin: 0; color: var(--ink-2); font: 500 14px/1.4 var(--f-display); }
+#mp-lobby .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+#mp-lobby .actions .go { padding: 9px 26px; border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-size: 18px; }
+#mp-lobby .actions .go.on { background: transparent; color: var(--accent); }
+#mp-lobby .actions .go:disabled { opacity: .35; cursor: default; }
+#mp-lobby .actions .leave { margin-left: auto; background: none; border-color: transparent; color: var(--ink-2); }
+#mp-lobby .history, .mpe-hist { display: flex; flex-direction: column; gap: 2px; }
+.hist { display: grid; grid-template-columns: 56px 56px 1fr auto; gap: 10px; padding: 3px 10px; background: rgba(255, 255, 255, .04); font: 600 14px var(--f-display); letter-spacing: 1px; }
+.hist .r { color: var(--ink-2); }
+.hist.win .r { color: var(--self); }
+.hist.loss .r { color: var(--enemy); }
+.hist .map { color: var(--ink-3); }
+.mpe-hist .lbl { font: 700 12px var(--f-display); letter-spacing: 2px; color: var(--ink-3); }
+.mpe-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center; }
+.mpe-stats div { padding: 8px 4px; background: rgba(255, 255, 255, .05); }
+.mpe-stats .v { display: block; font-size: 26px; font-weight: 800; }
+.mpe-stats .l { display: block; font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--ink-3); }
+#mp-count { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 35; display: none; font: 800 clamp(80px, 18vh, 160px)/1 var(--f-display);
+  color: var(--accent); text-shadow: 0 4px 24px rgba(0, 0, 0, .7); pointer-events: none; }
+#mp-count.on { display: block; }
+body.mp-lobby #hud { visibility: hidden; }

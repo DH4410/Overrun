@@ -7,6 +7,7 @@ import { buildMapWorld, floorAt, inBlockers, validSpawnPoints } from '../src/sim
 import { aimDirection, launchVelocity, resetAmmo, throwAim } from '../src/sim/combat.js';
 import { HB_PLAYER, PLAYER_ZONE_MULT, HB_PLAYER_CROUCH, analyticHit } from '../src/sim/hitmath.js';
 import { MAP_DATA, MAP_IDS } from '../src/sim/mapData.js';
+import { DEFAULT_SETTINGS, MODE_INFO, PLAYABLE, cleanSettings, teamMode } from '../src/sim/modes.js';
 import { createPlayerBody, setCrouch, syncPlayerPoints } from '../src/sim/movement.js';
 import {
   BTN, BUDGET, CHARACTER_IDS, CLOSE, EV, HIT_BREAK, HIT_LETHAL, HIT_SHIELD, MAX_PLAYERS, MAX_SPECTATORS,
@@ -26,7 +27,10 @@ import { Governor } from './governor.js';
  * The clock, the RNG and the map colliders are injected, so tests drive it directly.
  */
 
-export const INTERMISSION = 20;          // s between rounds, with the vote
+export const INTERMISSION = 15;          // s the results are shown for
+export const COUNTDOWN = 5;              // s between everyone being ready and the first shot
+export const LATE_JOIN_CUTOFF = 10;      // s: with less than this left in a round, a newcomer waits for the next lobby
+const CHAT_MAX = 120;
 const STEP_MS = 1000 / TICK_HZ;
 const SNAP_EVERY = TICK_HZ / SNAPSHOT_HZ;
 const MAX_CATCHUP = 30;                  // ticks one update may run (250 ms) before time is dropped
@@ -61,9 +65,10 @@ function cleanName(raw) {
 export class Room {
   /**
    * colliders: { port, desert, snow } parsed assets/maps/<id>.json
-   * now(): ms; rng(): [0, 1); governor: a Governor; mapId/mode: the first round.
+   * now(): ms; rng(): [0, 1); governor: a Governor; mapId/mode: the lobby's first settings.
+   * autostart skips the lobby and starts that round at once (tests and the swarm run).
    */
-  constructor({ colliders, now = () => Date.now(), rng = Math.random, governor = null, mapId = 'port', mode = 'dm', log = () => {} }) {
+  constructor({ colliders, now = () => Date.now(), rng = Math.random, governor = null, mapId = 'port', mode = 'dm', autostart = false, log = () => {} }) {
     this.colliders = colliders;
     this.now = now;
     this.rng = rng;
@@ -81,15 +86,18 @@ export class Room {
     this.grenades = [];
     this.smokes = [];
     this.nextEntity = 0;
-    this.votes = new Map();
     this.stats = {
       msgsIn: 0, bytesIn: 0, bytesOut: 0, snapshots: 0, snapBytes: 0, snapBytesMax: 0,
       inputDropped: 0, inputBad: 0, cmdsRepeated: 0, cmdsTrimmed: 0,
       ticks: 0, ticksDropped: 0, costMs: [], gaps: [], window: { at: now(), msgs: 0, bytesOut: 0, ticks: 0 }, rate: {},
     };
-    this.mode = mode;
-    this.loadMap(mapId);
-    this.startMatch(mode, mapId);
+    this.settings = cleanSettings({ mode, map: mapId }, DEFAULT_SETTINGS, MAP_DATA);
+    this.mode = this.settings.mode;
+    this.phase = PHASE.LOBBY;
+    this.timeLeft = 0;
+    this.scoreA = 0; this.scoreB = 0;
+    this.loadMap(this.settings.map);
+    if (autostart) this.startMatch(this.settings.mode, this.settings.map);
   }
 
   /* ------------------------------------------------------------ the level */
@@ -125,7 +133,10 @@ export class Room {
 
   /** A connection opened; nothing happens until its hello. */
   open(conn) {
-    this.clients.set(conn, { conn, player: null, spectator: false, hello: false, tokens: 10, tokenAt: this.now(), json: 0, jsonAt: this.now(), bad: 0 });
+    this.clients.set(conn, {
+      conn, player: null, spectator: false, queued: false, helloMsg: null, hello: false, tokens: 10, tokenAt: this.now(),
+      json: 0, jsonAt: this.now(), chat: 0, chatAt: this.now(), bad: 0,
+    });
   }
 
   close(conn) {
@@ -141,8 +152,9 @@ export class Room {
       p.cooking = null;
       p.emote = 0;
       p.queue.length = 0;
-      this.votes.delete(p.id);
+      p.ready = false;
       this.log(`leave ${p.name} (#${p.id})`);
+      this.say(`${p.name} left`);
       this.broadcastRoster();
     }
   }
@@ -185,16 +197,21 @@ export class Room {
   }
 
   onJson(c, text) {
-    // Text is rare (hello, votes): 5 a second is plenty, anything past that is dropped.
-    const t = this.now();
-    c.json = Math.max(0, c.json - (t - c.jsonAt) / 200);
-    c.jsonAt = t;
-    if (++c.json > 10 || text.length > 1024) { this.stats.inputDropped++; return; }
+    if (text.length > 1024) { this.stats.inputDropped++; return; }
     let m;
     try { m = JSON.parse(text); } catch { c.bad++; return; }
     if (!m || typeof m !== 'object') return;
+    const t = this.now();
+    // Chat has a bucket of its own (a line a second, bursts of three), so a spammer cannot starve
+    // the lobby's ready and settings messages. Those are rare: 5 a second is plenty.
+    if (m.t === 'chat') { this.onChat(c, m); return; }
+    c.json = Math.max(0, c.json - (t - c.jsonAt) / 200);
+    c.jsonAt = t;
+    if (++c.json > 10) { this.stats.inputDropped++; return; }
     if (m.t === 'hello' && !c.hello) this.onHello(c, m);
-    else if (m.t === 'vote' && c.player && this.phase === PHASE.INTERMISSION) this.onVote(c.player, m);
+    else if (!c.player) { /* spectators only talk */ } else if (m.t === 'ready') this.onReady(c.player, m);
+    else if (m.t === 'settings') this.onSettings(c.player, m);
+    else if (m.t === 'start') this.onStart(c.player);
     // Anything else (the client's 'ka' keepalive) is only a message: on Cloudflare, that tops up the CPU allowance.
   }
 
@@ -211,26 +228,44 @@ export class Room {
       return;
     }
     c.hello = true;
+    c.helloMsg = { name: m.name, character: m.character, loadout: m.loadout };
     let p = null;
     // A token resumes a held seat.
     if (typeof m.token === 'string') {
       p = this.players.find((q) => q.token === m.token && !q.connected) ?? null;
       if (p) this.resumeSeat(p, c);
     }
-    if (!p && !m.spectate && this.players.length < MAX_PLAYERS) {
+    if (!p && !m.spectate && this.canSeat()) {
       p = this.newSeat(c, m);
     }
     if (!p) {
       const specs = [...this.clients.values()].filter((x) => x.spectator).length;
       if (specs >= MAX_SPECTATORS) { this.refuse(c, CLOSE.FULL, 'The server is full.'); return; }
       c.spectator = true;
+      c.queued = !m.spectate;     // someone who wanted to play is seated when the next lobby opens
     }
     this.sendJson(c, {
       t: 'welcome', id: p ? p.id : null, token: p?.token ?? null, spectator: !p,
-      full: !p && !m.spectate, tick: this.tick, tickHz: TICK_HZ, snapshotHz: SNAPSHOT_HZ,
+      full: c.queued && this.players.length >= this.seatLimit(), queued: c.queued,
+      tick: this.tick, tickHz: TICK_HZ, snapshotHz: SNAPSHOT_HZ,
       ...this.matchInfo(),
     });
+    if (p) this.say(`${p.name} joined`);
     this.broadcastRoster();
+  }
+
+  /** Seats a mode allows (a duel is two players). */
+  seatLimit() { return Math.min(MAX_PLAYERS, this.phase === PHASE.LOBBY ? MAX_PLAYERS : MODE_INFO[this.mode].max); }
+
+  /**
+   * Whether a newcomer can be seated now. The lobby, the countdown and the results take anyone;
+   * a round in progress takes them until the last LATE_JOIN_CUTOFF seconds, when there is no
+   * point in spawning into it.
+   */
+  canSeat() {
+    if (this.players.length >= this.seatLimit()) return false;
+    if (this.phase === PHASE.PLAYING && this.timeLeft <= LATE_JOIN_CUTOFF) return false;
+    return this.phase !== PHASE.CLOSED;
   }
 
   newSeat(c, m) {
@@ -243,7 +278,7 @@ export class Room {
       name: cleanName(m.name),
       character: CHARACTER_IDS.includes(m.character) ? m.character : CHARACTER_IDS[0],
       loadout: validLoadout(m.loadout) ? [...m.loadout] : [...DEFAULT_LOADOUT],
-      team: TEAM.SOLO, kills: 0, deaths: 0,
+      team: TEAM.SOLO, kills: 0, deaths: 0, headshots: 0, damage: 0, ready: false,
       body: createPlayerBody(G_WORLD),   // players pass through each other and through grenades
       pos: new Vector3(), eye: new Vector3(), vel: new Vector3(),
       hb: HB_PLAYER, yaw: 0, pitch: 0, grounded: false, crouching: false, sprinting: false, aiming: false,
@@ -257,8 +292,11 @@ export class Room {
       rtt: 0, interpMs: 100, echoTime: 0, echoAt: 0,
       hist: new Float32Array(HIST * 5), histTick: new Int32Array(HIST).fill(-1),
     };
+    p.chosen = [...p.loadout];
     this.world.addBody(p.body);
-    if (this.mode === 'tdm') p.team = this.smallerTeam();
+    const inRound = this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN;
+    if (inRound && teamMode(this.mode)) p.team = this.smallerTeam();
+    if (inRound) this.applyLoadout(p);
     this.players.push(p);
     c.player = p;
     this.respawn(p);
@@ -292,20 +330,53 @@ export class Room {
 
   roster() {
     return this.players.filter((p) => p.connected).map((p) => ({
-      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout,
+      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready,
     }));
   }
 
+  /** The first seated player is the host: they choose the settings and start the round. */
+  get hostSeat() { return this.players.find((p) => p.connected) ?? null; }
+
+  /** What the lobby screen draws besides the player list. */
+  lobbyInfo() {
+    return {
+      host: this.hostSeat?.id ?? null, settings: this.settings, blocker: this.startBlocker(),
+      spectators: [...this.clients.values()].filter((c) => c.spectator).length,
+    };
+  }
+
   broadcastRoster() {
-    const spectators = [...this.clients.values()].filter((c) => c.spectator).length;
-    this.broadcastJson({ t: 'roster', players: this.roster(), spectators });
+    this.broadcastJson({ t: 'roster', players: this.roster(), ...this.lobbyInfo() });
   }
 
   matchInfo() {
     return {
       mode: this.mode, map: this.mapId, phase: this.phase, timeLeft: this.timeLeft,
-      maps: MAP_IDS, modes: MODE_IDS, roster: this.roster(), votes: this.tally(),
+      maps: MAP_IDS, modes: PLAYABLE, roster: this.roster(), ...this.lobbyInfo(),
     };
+  }
+
+  /* ----------------------------------------------------------------- chat */
+
+  /** A line from the server itself (joins, leaves, warnings). */
+  say(text) { this.broadcastJson({ t: 'chat', sys: true, text }); }
+
+  onChat(c, m) {
+    const text = String(m.text ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+    if (!text) return;
+    const t = this.now();
+    c.chat = Math.max(0, c.chat - (t - c.chatAt) / 1200);
+    c.chatAt = t;
+    if (++c.chat > 3) { this.sendJson(c, { t: 'chat', sys: true, text: 'SLOW DOWN' }); return; }
+    const p = c.player;
+    const inRound = this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN;
+    const tm = !!m.team && !!p && teamMode(this.mode) && inRound;
+    const msg = JSON.stringify({ t: 'chat', id: p ? p.id : null, name: p ? p.name : 'SPECTATOR', team: p ? p.team : TEAM.SOLO, tm, text });
+    for (const o of this.clients.values()) {
+      if (!o.hello) continue;
+      if (tm && o.player?.team !== p.team) continue;
+      this.send(o, msg);
+    }
   }
 
   /* ---------------------------------------------------------------- input */
@@ -455,9 +526,12 @@ export class Room {
       }
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) this.endOnTime();
+    } else if (this.phase === PHASE.COUNTDOWN) {
+      if (this.players.filter((p) => p.connected).length < 2) this.toLobby('NOT ENOUGH PLAYERS');
+      else if ((this.timeLeft -= dt) <= 0) this.beginPlay();
     } else if (this.phase === PHASE.INTERMISSION) {
       this.timeLeft -= dt;
-      if (this.timeLeft <= 0) this.nextRound();
+      if (this.timeLeft <= 0) this.toLobby();
     }
     if (this.tick % TICK_HZ === 0) {
       const t = this.now();
@@ -550,7 +624,7 @@ export class Room {
     const owner = b.owner;
     for (const q of this.players) {
       if (q === owner || !q.connected || !q.alive) continue;
-      if (this.mode === 'tdm' && q.team === owner.team) continue;
+      if (teamMode(this.mode) && q.team === owner.team) continue;
       const hb = this.hitboxAt(q, frame);
       if (!hb) continue;
       const t = analyticHit(b.prev, _dir, len, _hist, hb);
@@ -581,6 +655,7 @@ export class Room {
     if (!target.alive || this.phase !== PHASE.PLAYING) return;
     if (target.invulnTimer > 0) return;
     let dmg = amount, soaked = 0;
+    if (source && source !== target) source.damage += Math.min(amount, target.health + target.armor);
     if (target.armor > 0) {
       soaked = Math.min(target.armor, dmg * CONFIG.ARMOR_ABSORB);
       target.armor -= soaked;
@@ -602,6 +677,7 @@ export class Room {
   kill(target, source, headshot, weapon) {
     if (source && source !== target) {
       source.kills++;
+      if (headshot) source.headshots++;
       if (this.mode === 'tdm' && source.team !== target.team) {
         if (source.team === TEAM.BLUE) this.scoreA++; else if (source.team === TEAM.RED) this.scoreB++;
       }
@@ -630,7 +706,7 @@ export class Room {
     const live = this.players.includes(owner) ? owner : null;
     for (const q of this.players) {
       if (!q.connected || !q.alive) continue;
-      if (live && q !== live && this.mode === 'tdm' && q.team === live.team) continue;
+      if (live && q !== live && teamMode(this.mode) && q.team === live.team) continue;
       const d = q.pos.distanceTo(pos);
       if (d > CONFIG.FRAG_RADIUS) continue;
       if (!this.losClear(pos, q.pos)) continue;
@@ -709,7 +785,7 @@ export class Room {
       let score = Infinity;
       for (const q of this.players) {
         if (q === p || !q.connected || !q.alive) continue;
-        if (this.mode === 'tdm' && q.team === p.team) continue;
+        if (teamMode(this.mode) && q.team === p.team) continue;
         const dx = q.pos.x - sp.x, dy = q.pos.y - sp.y, dz = q.pos.z - sp.z;
         score = Math.min(score, dx * dx + dy * dy + dz * dz);
       }
@@ -758,94 +834,141 @@ export class Room {
 
   /* ---------------------------------------------------------------- match */
 
-  startMatch(mode, mapId) {
+  seated() { return this.players.filter((p) => p.connected); }
+
+  /** Why the host cannot start the round yet, or null when they can. */
+  startBlocker() {
+    if (this.phase !== PHASE.LOBBY) return 'ROUND IN PROGRESS';
+    const seated = this.seated(), info = MODE_INFO[this.settings.mode];
+    if (seated.length < info.min) return `NEEDS ${info.min} PLAYERS`;
+    if (seated.length > info.max) return `${info.label} IS FOR ${info.max} PLAYERS`;
+    const waiting = seated.filter((p) => p !== this.hostSeat && !p.ready).length;
+    if (waiting) return `WAITING FOR ${waiting} PLAYER${waiting > 1 ? 'S' : ''} TO READY UP`;
+    return null;
+  }
+
+  onReady(p, m) {
+    if (this.phase !== PHASE.LOBBY) return;
+    p.ready = !!m.ready;
+    this.broadcastRoster();
+  }
+
+  onSettings(p, m) {
+    if (this.phase !== PHASE.LOBBY || p !== this.hostSeat) return;
+    this.settings = cleanSettings(m, this.settings, MAP_DATA);
+    this.broadcastRoster();
+  }
+
+  onStart(p) {
+    if (p !== this.hostSeat) return;
+    if (this.startBlocker()) { this.broadcastRoster(); return; }
+    this.prepareRound(this.settings.mode, this.settings.map);
+    this.phase = PHASE.COUNTDOWN;
+    this.timeLeft = COUNTDOWN;
+    this.broadcastJson({ t: 'match', ...this.matchInfo() });
+    this.log(`countdown: ${this.mode} on ${this.mapId}`);
+  }
+
+  /** The loadout a round is played with: each player's own, or the one gun the host chose. */
+  applyLoadout(p) {
+    p.loadout = this.settings.weapons === 'loadout' ? [...p.chosen] : [this.settings.weapons];
+  }
+
+  /** Everything a round starts from: the map, teams, loadouts, scores and everyone at a spawn. */
+  prepareRound(mode, mapId) {
     if (mapId !== this.mapId) this.loadMap(mapId);
     this.mode = mode;
-    this.phase = PHASE.PLAYING;
-    this.timeLeft = CONFIG.MATCH_SECONDS;
     this.scoreA = 0; this.scoreB = 0;
-    this.votes.clear();
     for (const g of this.grenades) this.world.removeBody(g.body);
     this.grenades = []; this.bullets = []; this.smokes = [];
     for (const c of this.chests) c.cooldown = 0;
     for (const c of this.consumables) c.cooldown = 0;
     // Teams are dealt afresh each round: shuffled, then alternated.
-    const seated = this.players.filter((p) => p.connected);
+    const seated = this.seated();
     for (let i = seated.length - 1; i > 0; i--) {
       const j = Math.floor(this.rng() * (i + 1));
       [seated[i], seated[j]] = [seated[j], seated[i]];
     }
-    seated.forEach((p, i) => { p.team = mode === 'tdm' ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
+    seated.forEach((p, i) => { p.team = teamMode(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
     for (const p of this.players) {
-      p.kills = 0; p.deaths = 0;
+      p.kills = 0; p.deaths = 0; p.headshots = 0; p.damage = 0; p.ready = false;
+      this.applyLoadout(p);
       if (p.connected) this.respawn(p);
     }
+  }
+
+  beginPlay() {
+    this.phase = PHASE.PLAYING;
+    this.timeLeft = this.settings.time;
+    this.log(`round: ${this.mode} on ${this.mapId}`);
+  }
+
+  /** Straight into a round with no lobby and no countdown. */
+  startMatch(mode, mapId) {
+    this.settings = cleanSettings({ mode, map: mapId }, this.settings, MAP_DATA);
+    this.prepareRound(mode, mapId);
+    this.beginPlay();
     this.broadcastJson({ t: 'match', ...this.matchInfo() });
-    this.log(`round: ${mode} on ${mapId}`);
+  }
+
+  /** Back to the lobby: everyone unready, own loadouts restored, anyone who was waiting seated. */
+  toLobby(note = '') {
+    if (this.governor.lastRound) { this.closeRoom('The free daily budget is nearly used up, so that was the last round today.'); return; }
+    this.phase = PHASE.LOBBY;
+    this.timeLeft = 0;
+    this.mode = this.settings.mode;
+    for (const p of this.players) { p.ready = false; p.team = TEAM.SOLO; p.loadout = [...p.chosen]; }
+    for (const c of this.clients.values()) {
+      if (!c.queued || c.player || this.players.length >= MAX_PLAYERS) continue;
+      c.spectator = false; c.queued = false;
+      const p = this.newSeat(c, c.helloMsg ?? {});
+      this.sendJson(c, { t: 'welcome', id: p.id, token: p.token, spectator: false, full: false, queued: false, tick: this.tick, tickHz: TICK_HZ, snapshotHz: SNAPSHOT_HZ, ...this.matchInfo() });
+    }
+    for (const p of this.players) if (p.connected) this.respawn(p);
+    if (note) this.say(note);
+    this.broadcastJson({ t: 'match', ...this.matchInfo() });
   }
 
   checkWin() {
     if (this.phase !== PHASE.PLAYING) return;
+    const limit = this.settings.limit;
     if (this.mode === 'dm') {
       const top = this.players.reduce((a, p) => (!a || p.kills > a.kills ? p : a), null);
-      if (top && top.kills >= CONFIG.DM_TARGET) this.endMatch(`${top.name} WINS`, `${top.kills} kills`);
-    } else if (this.scoreA >= CONFIG.TDM_TARGET) this.endMatch('BLUE TEAM WINS', `${this.scoreA} - ${this.scoreB}`);
-    else if (this.scoreB >= CONFIG.TDM_TARGET) this.endMatch('RED TEAM WINS', `${this.scoreB} - ${this.scoreA}`);
+      if (top && top.kills >= limit) this.endMatch(`${top.name} WINS`, `${top.kills} kills`, { id: top.id });
+    } else if (this.scoreA >= limit) this.endMatch('BLUE TEAM WINS', `${this.scoreA} - ${this.scoreB}`, { team: TEAM.BLUE });
+    else if (this.scoreB >= limit) this.endMatch('RED TEAM WINS', `${this.scoreB} - ${this.scoreA}`, { team: TEAM.RED });
   }
 
   endOnTime() {
-    if (this.mode === 'tdm') {
-      if (this.scoreA === this.scoreB) this.endMatch('DRAW', `${this.scoreA} - ${this.scoreB}`);
-      else this.endMatch(this.scoreA > this.scoreB ? 'BLUE TEAM WINS' : 'RED TEAM WINS', `${Math.max(this.scoreA, this.scoreB)} - ${Math.min(this.scoreA, this.scoreB)}`);
+    if (teamMode(this.mode)) {
+      if (this.scoreA === this.scoreB) this.endMatch('DRAW', `${this.scoreA} - ${this.scoreB}`, {});
+      else {
+        const blue = this.scoreA > this.scoreB;
+        this.endMatch(blue ? 'BLUE TEAM WINS' : 'RED TEAM WINS', `${Math.max(this.scoreA, this.scoreB)} - ${Math.min(this.scoreA, this.scoreB)}`, { team: blue ? TEAM.BLUE : TEAM.RED });
+      }
     } else {
       const top = this.players.reduce((a, p) => (!a || p.kills > a.kills ? p : a), null);
-      this.endMatch(top ? `${top.name} WINS` : 'TIME', top ? `${top.kills} kills` : '');
+      this.endMatch(top ? `${top.name} WINS` : 'TIME', top ? `${top.kills} kills` : '', top ? { id: top.id } : {});
     }
   }
 
-  endMatch(title, detail) {
+  /** `winner` is { id } (a player), { team } or {} (a draw): the clients work out win or loss from it. */
+  endMatch(title, detail, winner = {}) {
     this.phase = PHASE.INTERMISSION;
     this.timeLeft = INTERMISSION;
-    this.votes.clear();
     for (const p of this.players) p.cooking = null;
     const standings = this.players.filter((p) => p.connected)
-      .map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths }))
+      .map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, headshots: p.headshots, damage: Math.round(p.damage) }))
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     this.broadcastJson({
-      t: 'end', title, detail, standings, scoreA: this.scoreA, scoreB: this.scoreB,
+      t: 'end', title, detail, standings, scoreA: this.scoreA, scoreB: this.scoreB, winner,
       lastRound: this.governor.lastRound, ...this.matchInfo(),
     });
   }
 
-  onVote(p, m) {
-    if (!MODE_IDS.includes(m.mode) || !MAP_IDS.includes(m.map)) return;
-    this.votes.set(p.id, { mode: m.mode, map: m.map });
-    this.broadcastJson({ t: 'votes', votes: this.tally() });
-  }
-
-  tally() {
-    const modes = Object.fromEntries(MODE_IDS.map((k) => [k, 0]));
-    const maps = Object.fromEntries(MAP_IDS.map((k) => [k, 0]));
-    for (const v of this.votes.values()) { modes[v.mode]++; maps[v.map]++; }
-    return { modes, maps };
-  }
-
-  /** Most votes wins; a tie (including nobody voting) is settled at random. */
-  pickVoted(counts) {
-    const top = Math.max(...Object.values(counts));
-    const tied = Object.keys(counts).filter((k) => counts[k] === top);
-    return tied[Math.floor(this.rng() * tied.length)];
-  }
-
-  nextRound() {
-    if (this.governor.lastRound) { this.closeRoom('The free daily budget is nearly used up, so that was the last round today.'); return; }
-    const { modes, maps } = this.tally();
-    this.startMatch(this.pickVoted(modes), this.pickVoted(maps));
-  }
-
   budgetCheck() {
     if (this.phase === PHASE.CLOSED) {
-      if (!this.governor.lastRound) this.startMatch(this.mode, this.mapId);   // a new UTC day
+      if (!this.governor.lastRound) this.toLobby();   // a new UTC day
       return;
     }
     if (this.governor.exhausted) this.closeRoom('The free daily budget is used up. The server is closed until 00:00 UTC.');

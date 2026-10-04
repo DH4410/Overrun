@@ -1,19 +1,34 @@
-# Multiplayer (Phase 1)
+# Multiplayer
 
-One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch or Team Deathmatch on PORT, DESERT or SNOW, with a 20 s vote between rounds. Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
+One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch or Team Deathmatch on PORT, DESERT or SNOW, played from a lobby (see below). Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
 
 ## Layout
 
 | File | What it is |
 |---|---|
-| `server/room.js` | The room. It runs at 120 Hz and sends snapshots at 20 Hz. It covers modes, the vote, spawns, lag-compensated hits, grenades, smoke and pickups, plus the input queue, rate limits, seats and reconnect tokens. |
+| `server/room.js` | The room. It runs at 120 Hz and sends snapshots at 20 Hz. It covers the lobby, modes, spawns, lag-compensated hits, grenades, smoke and pickups, plus the input queue, rate limits, seats and reconnect tokens. |
 | `server/governor.js` | The daily budget: 2,000,000 incoming messages, which is 100,000 billed requests. |
 | `server/node.js` | A local server on one port: the static files, `/ws` and `/stats`. |
 | `server/worker.js`, `wrangler.jsonc` | Cloudflare: a Worker serves the assets, and the `GameRoom` Durable Object named "main" runs the same `Room`. |
 | `scripts/build-public.mjs` | Copies the browser files into `.cf-public/` for wrangler. |
 | `src/sim/*` | Shared by the client and the server: movement, combat, hit maths, map colliders, the protocol and the map hash. |
 | `src/net/predict.js` | Client prediction and reconciliation. It runs the same `applyCommand` as the server. |
-| `src/net/client.js` | The browser side: connecting, prediction, puppets for the other players, events, spectator cameras, the vote card and the F3 overlay. |
+| `src/net/client.js` | The browser side: connecting, prediction, puppets for the other players, events, spectator cameras, the killcam and the F3 overlay. |
+| `src/net/lobby.js` | The lobby screen and the match history kept in `localStorage`. |
+| `src/net/chat.js` | The chat log and box. |
+| `src/sim/modes.js` | Mode info and the settings whitelist, shared by the client and the server. |
+
+## The lobby
+
+- A room starts in the **lobby**. The first player in is the **host**: they pick mode, map, kill limit, time and a weapon rule (own loadout, or one gun for everyone) and start the match. Everyone else presses **READY**. It starts only with 2 or more players and every guest ready, then a 5 s countdown.
+- The server checks every setting against a fixed list, so a forged message cannot pick anything else. If the host leaves, the next player is host.
+- After a match: the results screen (kills, deaths, headshots, K/D, damage; also saved to a short match history), 15 s, then back to the lobby.
+- **Latecomers** join a round in progress, unless it has under 10 s left. Then they watch and join at the next lobby.
+- **Chat**: Enter (Shift+Enter for team chat in team modes). Lines are capped at 120 characters, rate limited on their own bucket, and a line costs about 1/20 of a billed request.
+- **Killcam**: after being killed by a player you watch the last ~2 s from the killer's eyes. It is replayed from snapshots the client already has, so it costs the server nothing.
+- **Spectating**: Q/E or the arrow keys switch player, V is a free camera, K follows whoever killed the followed player.
+- **Network overlay**: F3 cycles off, PING/LOSS, and the full debug text. It shows by itself when ping is over 150 ms or loss is 3% or more. A reconnect shows a card with the retry timer.
+- Tests that need a match at once start the room with `autostart` (`MP_AUTOSTART=1` for `server/node.js`).
 
 ## Run it locally
 
@@ -62,4 +77,4 @@ npx wrangler deploy       # builds .cf-public, uploads it, creates the GameRoom 
 - **Timing.** Remote events are shown when they arrive, not at the interpolated time.
 - **Grenades.** Gamepads cannot throw grenades online. There is no aim assist online. Grenades and smoke are not rewound for lag compensation.
 - **Seats.** A dropped player's seat is held for 60 s and counts toward the 10.
-- **Not yet built.** Server bots, Survival and Duel.
+- **Not yet built.** Server bots, Survival, Duel and Capture the Flag (the lobby already lists only the modes that run).

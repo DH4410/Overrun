@@ -155,7 +155,7 @@ class SwarmPlayer {
 async function main() {
   const budgetFile = join(tmpdir(), `overrun-swarm-budget-${process.pid}.json`);
   const server = spawn(process.execPath, [join(ROOT, 'server', 'node.js'), String(PORT)], {
-    env: { ...process.env, MP_BUDGET_FILE: budgetFile }, stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...process.env, MP_BUDGET_FILE: budgetFile, MP_AUTOSTART: '1' }, stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((resolve, reject) => {
     server.stdout.on('data', (d) => { if (String(d).includes('multiplayer on')) resolve(); });

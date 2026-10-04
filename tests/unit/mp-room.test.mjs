@@ -23,7 +23,7 @@ function makeRoom({ limit } = {}) {
   let seed = 1;
   const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   const governor = new Governor({ now: () => clock.t, limit });
-  const room = new Room({ colliders, now: () => clock.t, rng, governor });
+  const room = new Room({ colliders, now: () => clock.t, rng, governor, autostart: true });
   return { room, clock, governor };
 }
 
@@ -187,7 +187,7 @@ test('the governor steps the rate down, ends after the round, closes, and reopen
   clock.t = Date.UTC(2026, 0, 2, 0, 0, 5);
   const next = join(room, 'C');
   assert.equal(next.conn.closed, null, 'a new UTC day reopens it');
-  assert.equal(room.phase, PHASE.PLAYING);
+  assert.equal(room.phase, PHASE.LOBBY);
   assert.equal(governor.count, 1);
 });
 

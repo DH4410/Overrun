@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 
-import { CONFIG, TEAM, TEAM_COLOR } from '../config.js';
-import { MODE_LABEL } from '../match.js';
+import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from '../config.js';
 import { aimDirection } from '../sim/combat.js';
 import { MAP_DATA, MAP_IDS } from '../sim/mapData.js';
 import {
   BTN, BUDGET, CHARACTER_IDS, CLOSE, EMOTE_IDS, EV, HIT_BREAK, HIT_LETHAL, HIT_SHIELD, MAX_CMDS_PER_PACKET,
-  NO_ID, PHASE, PROTOCOL_VERSION, TICK_HZ, WEAPON_IDS, ZONE_IDS, encodeInput, mapHash, quantPitch, quantYaw,
+  NO_ID, PHASE, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ, WEAPON_IDS, ZONE_IDS, encodeInput, mapHash, quantPitch, quantYaw,
   readSnapshot,
 } from '../sim/protocol.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
+import { MODE_INFO, teamMode } from '../sim/modes.js';
+import { createChat } from './chat.js';
+import { createLobby, historyRow, loadHistory, pushHistory } from './lobby.js';
 import { Predictor } from './predict.js';
 
 /**
@@ -27,7 +29,10 @@ const MAX_TICKS_PER_FRAME = 30;     // a longer stall drops ticks; the server re
 const SNAP_DIST = 1;                // m: a correction this big is a teleport, not something to blend
 const BLEND_RATE = 30;              // 1/s: a correction is ~95% gone in 100 ms
 const INTERP_MIN = 0.1, INTERP_MAX = 0.15, EXTRAP_MAX = 0.1;   // s
-const SNAP_KEEP = 30;               // snapshots kept for interpolation (1.5 s)
+const SNAP_KEEP = 60;               // snapshots kept: interpolation needs 1.5 s, the killcam replays the last 2 s
+const SNAP_EVERY = TICK_HZ / SNAPSHOT_HZ;
+const KC_FRAMES = 42;               // snapshots a killcam replays (2.05 s)
+const LOSS_WINDOW = 5000;           // ms the loss figure is measured over
 const SHOT_SHOW = 0.3;              // s a puppet keeps its gun up after a shot
 // A Durable Object's CPU allowance is topped up by incoming messages, and the room ticks whether
 // or not anyone sends. A silent client (idle, or spectating) says something this often, so a
@@ -42,6 +47,7 @@ const drawable = (id) => (DRAWABLE_IDS.includes(id) ? id : DRAWABLE_IDS[0]);
 
 const v3 = (p) => new THREE.Vector3(p.x, p.y, p.z);
 const wrapAngle = (a) => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
+const modeLabel = (m) => MODE_INFO[m]?.label ?? String(m).toUpperCase();
 const formatTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 function storage(kind) {
@@ -85,10 +91,18 @@ export function createNetClient(d) {
   const seenSmokes = new Set();
   let killerId = null;
   let specTarget = null, freeCam = false;
+  let kc = null, lastDeath = null;   // the killcam being replayed; who killed you, with what
+  const killedBy = new Map();        // victim id -> killer id, for the spectator's follow-killer
+  let lastSnapTick = null;
+  const gaps = [];                   // { at, n, missed }: snapshots seen and snapshots that never came
+  let reconTimer = 0;
+  let netMode = new URLSearchParams(location.search).has('netdebug') ? 2 : 0;   // F3: off, ping and loss, everything
   const freePos = new THREE.Vector3();
   let wasAlive = false, ammoSig = '', stepTimer = 0, lastReloadFrom = 0;
-  let voteMode = null, voteMap = null, endInfo = null;
-  let debugOn = new URLSearchParams(location.search).has('netdebug');
+  let endInfo = null;
+  let lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
+  let rosterList = [];
+  let queued = false, history = loadHistory(), wasLobby = false, chatTick = 0;
   const stats = { snaps: 0, bytes: 0, corrections: 0, resyncs: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
 
   const offset = new THREE.Vector3();        // predicted-to-drawn smoothing, decays to zero
@@ -107,12 +121,38 @@ export function createNetClient(d) {
       document.body.appendChild(n);
       return n;
     };
-    return { status: make('mp-status'), debug: make('mp-debug'), end: make('mp-end') };
+    const recon = make('mp-recon');
+    recon.innerHTML = '<b></b><span></span><div class="bar"><i></i></div>';
+    const kcBar = make('mp-kc');
+    kcBar.innerHTML = '<span>KILLCAM</span><div class="bar"><i></i></div>';
+    return { status: make('mp-status'), debug: make('mp-debug'), end: make('mp-end'), net: make('mp-net'), recon, kc: kcBar, spec: make('mp-spec'), count: make('mp-count') };
   })();
 
   function setStatus(text) {
     ui.status.textContent = text || '';
     ui.status.classList.toggle('on', !!text);
+  }
+
+  const chat = createChat({
+    send: (m) => sendJson(m),
+    keys,
+    canOpen: () => active && welcomed && phase !== PHASE.LOBBY,
+    isLobby: () => phase === PHASE.LOBBY,
+  });
+  const lobbyUI = createLobby({ send: (m) => sendJson(m), onLeave: () => leaveMatch() });
+
+  function drawLobby() {
+    if (!lobbyInfo.settings) return;
+    lobbyUI.render({
+      myId, host: lobbyInfo.host, roster: rosterList, settings: lobbyInfo.settings, blocker: lobbyInfo.blocker,
+      spectators: lobbyInfo.spectators, spectating: spectator, history,
+    });
+  }
+
+  function setLobbyInfo(m) {
+    if (!m.settings) return;
+    lobbyInfo = { host: m.host ?? null, settings: m.settings, blocker: m.blocker ?? null, spectators: m.spectators ?? 0 };
+    if (phase === PHASE.LOBBY) drawLobby();
   }
 
   /* ------------------------------------------------------------ transport */
@@ -183,8 +223,33 @@ export function createNetClient(d) {
     // Anything else is the network: try again a few times, holding the seat with the token.
     if (retries >= 5) { finish('Lost the connection to the server.'); return; }
     retries++;
-    setStatus(`CONNECTION LOST — RECONNECTING (${retries}/5)…`);
+    showRecon(retries, 600 * retries);
     retryTimer = setTimeout(() => { retryTimer = null; if (active) connect(); }, 600 * retries);
+  }
+
+  /** The connection card: what happened, which attempt, and a bar that fills until the next one. */
+  function showRecon(attempt, waitMs) {
+    clearTimeout(reconTimer);
+    const r = ui.recon;
+    r.classList.remove('ok');
+    r.classList.add('on');
+    r.querySelector('b').textContent = 'CONNECTION LOST';
+    r.querySelector('span').textContent = `RECONNECTING… ATTEMPT ${attempt} OF 5`;
+    const bar = r.querySelector('i');
+    bar.style.transition = 'none'; bar.style.width = '0%';
+    void bar.offsetWidth;
+    bar.style.transition = `width ${waitMs}ms linear`; bar.style.width = '100%';
+  }
+
+  function reconRestored() {
+    const r = ui.recon;
+    if (!r.classList.contains('on')) return;
+    r.classList.add('ok');
+    r.querySelector('b').textContent = 'CONNECTION RESTORED';
+    r.querySelector('span').textContent = '';
+    const bar = r.querySelector('i');
+    bar.style.transition = 'none'; bar.style.width = '100%';
+    reconTimer = setTimeout(() => r.classList.remove('on', 'ok'), 1500);
   }
 
   function onMessage(data) {
@@ -193,10 +258,10 @@ export function createNetClient(d) {
     try { m = JSON.parse(data); } catch { return; }
     switch (m.t) {
       case 'welcome': onWelcome(m); break;
-      case 'roster': setRoster(m.players); break;
+      case 'roster': setRoster(m.players); setLobbyInfo(m); break;
       case 'match': onMatch(m); break;
       case 'end': onEnd(m); break;
-      case 'votes': if (endInfo) { endInfo.votes = m.votes; drawEnd(); } break;
+      case 'chat': chat.add(m); break;
       case 'closed': refusal = m.reason; break;
       case 'error': refusal = m.reason; break;
       default: break;
@@ -222,19 +287,21 @@ export function createNetClient(d) {
   }
 
   function onWelcome(m) {
+    reconRestored();
     retries = 0; refusal = null; welcomed = true;
-    myId = m.id; spectator = m.spectator;
+    myId = m.id; spectator = m.spectator; queued = !!m.queued;
     try { if (m.token) storage('sessionStorage')?.setItem(TOKEN_KEY, m.token); } catch { /* private mode */ }
     setRoster(m.roster);
     applyMatchInfo(m);
     seq = 0; lastSent = null; pending.length = 0; tickAcc = 0; started = false;
-    snaps.length = 0; clockOffset = null; latest = null; reconSnap = null; reconSpawn = false;
+    snaps.length = 0; clockOffset = null; latest = null; reconSnap = null; reconSpawn = false; lastSnapTick = null;
     if (spectator) {
       pred = null;
       player.alive = false;
       document.body.classList.add('mp-spec');
       freePos.copy(camera.position);
       if (m.full) d.showToast('SERVER FULL — SPECTATING');
+      else if (queued) d.showToast('ROUND ENDING — YOU JOIN THE NEXT LOBBY');
     } else {
       document.body.classList.remove('mp-spec');
       const me = roster.get(myId);
@@ -243,12 +310,13 @@ export function createNetClient(d) {
       selected = pred.p.loadout[0];
       setStatus(null);
     }
-    if (m.phase === PHASE.INTERMISSION) onEnd({ ...m, title: 'INTERMISSION', detail: '', standings: [] });
+    if (m.phase === PHASE.INTERMISSION) onEnd({ ...m, title: 'RESULTS', detail: '', standings: [] });
   }
 
   function applyMatchInfo(m) {
     mode = m.mode; phase = m.phase; timeLeft = m.timeLeft;
     if (m.roster) setRoster(m.roster);
+    setLobbyInfo(m);
     switchToMap(m.map);
   }
 
@@ -272,23 +340,47 @@ export function createNetClient(d) {
     el.feed.innerHTML = '';
     d.clearSmoke();
     seenSmokes.clear();
+    // A one-gun rule changes what the round is played with; the roster has the effective loadout.
+    const me = roster.get(myId);
+    if (pred && me?.loadout) {
+      pred.p.loadout = [...me.loadout];
+      player.loadout = [...me.loadout];
+    }
+    if (m.phase === PHASE.LOBBY) { drawLobby(); return; }
     Audio.roundStart();
-    if (!d.isPointerLocked()) showPause(true, 'NEXT ROUND');
+    if (!d.isPointerLocked()) showPause(true, 'GET READY');
   }
 
   function onEnd(m) {
     phase = PHASE.INTERMISSION;
     timeLeft = m.timeLeft;
     endInfo = m;
-    voteMode = voteMode && m.modes?.includes(voteMode) ? voteMode : null;
-    voteMap = voteMap && m.maps?.includes(voteMap) ? voteMap : null;
+    recordHistory(m);
     document.exitPointerLock?.();
     el.pause.classList.remove('on', 'dead');
     drawEnd();
     ui.end.classList.add('on');
   }
 
+  /** One line of match history per round played: win, loss or draw, and the score. */
+  function recordHistory(m) {
+    if (spectator || myId === null || !m.standings?.length) return;
+    const me = m.standings.find((r) => r.id === myId);
+    if (!me) return;
+    const w = m.winner || {};
+    let result = 'DRAW';
+    if (w.team !== undefined) result = w.team === me.team ? 'WIN' : 'LOSS';
+    else if (w.id !== undefined) result = w.id === myId ? 'WIN' : 'LOSS';
+    let score = `${me.kills}K ${me.deaths}D`;
+    if (teamMode(m.mode)) {
+      const blue = me.team === TEAM.BLUE;
+      score = `${blue ? m.scoreA : m.scoreB}-${blue ? m.scoreB : m.scoreA}`;
+    }
+    history = pushHistory({ mode: m.mode, map: m.map, result, score, at: Date.now() });
+  }
+
   const span = (cls, text) => Object.assign(document.createElement('span'), { className: cls, textContent: String(text) });
+  const kdRatio = (r) => (r.deaths ? (r.kills / r.deaths).toFixed(2) : r.kills.toFixed(2));
 
   function drawEnd() {
     const m = endInfo;
@@ -299,38 +391,36 @@ export function createNetClient(d) {
     const h = document.createElement('h2');
     h.textContent = m.title;
     card.append(h, span('mpe-sub', m.detail || ''));
+    const standings = m.standings || [];
+    const mine = standings.find((r) => r.id === myId);
+    if (mine) {
+      const stats = document.createElement('div');
+      stats.className = 'mpe-stats';
+      for (const [label, value] of [['KILLS', mine.kills], ['DEATHS', mine.deaths], ['HEADSHOTS', mine.headshots ?? 0], ['K/D', kdRatio(mine)], ['DAMAGE', (mine.damage ?? 0).toLocaleString('en-US')]]) {
+        const cell = document.createElement('div');
+        cell.append(span('v', value), span('l', label));
+        stats.appendChild(cell);
+      }
+      card.appendChild(stats);
+    }
     const table = document.createElement('div');
     table.className = 'mpe-rows';
-    (m.standings || []).forEach((r, i) => {
+    standings.forEach((r, i) => {
       const row = document.createElement('div');
       row.className = `mpe-row${r.id === myId ? ' self' : ''}`;
       const tag = span('tag', '');
       tag.style.background = `#${TEAM_COLOR[r.team].toString(16).padStart(6, '0')}`;
-      row.append(span('n', `#${i + 1}`), tag, span('nm', r.name), span('k', `${r.kills} K · ${r.deaths} D`));
+      row.append(span('n', `#${i + 1}`), tag, span('nm', r.name), span('k', `${r.kills} K · ${r.deaths} D · ${r.headshots ?? 0} HS`));
       table.appendChild(row);
     });
     card.appendChild(table);
     if (m.lastRound) card.appendChild(span('mpe-warn', 'The free daily budget is nearly used up: that was the last round today.'));
-    else if (myId !== null && !spectator) {
-      const votes = m.votes || { modes: {}, maps: {} };
-      const group = (label, ids, counts, pickedId, names, onPick) => {
-        const g = document.createElement('div');
-        g.className = 'mpe-vote';
-        g.appendChild(span('lbl', label));
-        for (const id of ids) {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = id === pickedId ? 'on' : '';
-          b.append(span('vn', names(id)), span('vc', counts[id] ?? 0));
-          b.addEventListener('click', () => { onPick(id); castVote(); });
-          g.appendChild(b);
-        }
-        return g;
-      };
-      card.append(
-        group('MODE', m.modes || ['dm', 'tdm'], votes.modes, voteMode, (id) => MODE_LABEL[id] ?? id, (id) => { voteMode = id; }),
-        group('MAP', m.maps || MAP_IDS, votes.maps, voteMap, (id) => id.toUpperCase(), (id) => { voteMap = id; }),
-      );
+    if (history.length && !spectator) {
+      const hist = document.createElement('div');
+      hist.className = 'mpe-hist';
+      hist.appendChild(span('lbl', 'MATCH HISTORY'));
+      for (const e of history.slice(0, 5)) hist.appendChild(historyRow(e));
+      card.appendChild(hist);
     }
     const t = span('mpe-time', '');
     t.dataset.role = 'time';
@@ -347,12 +437,7 @@ export function createNetClient(d) {
 
   function tickEndTimer() {
     const t = ui.end.querySelector('[data-role=time]');
-    if (t) t.textContent = `NEXT ROUND IN ${Math.max(0, Math.ceil(timeLeft))}s · ties are settled at random`;
-  }
-
-  function castVote() {
-    sendJson({ t: 'vote', mode: voteMode ?? mode, map: voteMap ?? mapId });
-    drawEnd();
+    if (t) t.textContent = `BACK TO THE LOBBY IN ${Math.max(0, Math.ceil(timeLeft))}s`;
   }
 
   /** Leave for the lobby; `message` explains why when it was not the player's choice. */
@@ -372,7 +457,13 @@ export function createNetClient(d) {
     roster.clear();
     snaps.length = 0; latest = null; reconSnap = null; reconSpawn = false;
     pred = null; started = false; myId = null; spectator = false; endInfo = null;
-    ui.end.classList.remove('on');
+    kc = null; lastDeath = null; killedBy.clear(); specTarget = null; freeCam = false; gaps.length = 0; lastSnapTick = null;
+    clearTimeout(reconTimer);
+    for (const n of [ui.end, ui.recon, ui.kc, ui.spec, ui.net, ui.count]) n.classList.remove('on');
+    chat.clear(); chat.show(false); chat.dock(false);
+    lobbyUI.show(false); wasLobby = false; queued = false; rosterList = [];
+    lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
+    el.pause.classList.remove('kc');
     setStatus(null);
     ui.debug.classList.remove('on');
     document.body.classList.remove('mp-spec');
@@ -390,7 +481,7 @@ export function createNetClient(d) {
     if (!active) return;
     if (on) {
       d.setPaused();
-      if (endInfo || (!spectator && pred && !player.alive)) return;
+      if (endInfo || phase === PHASE.LOBBY || (!spectator && pred && !player.alive)) return;
       el.pause.classList.add('on');
       el.pause.classList.remove('dead');
       el.pBig.textContent = big; el.pSm.textContent = ''; el.pCta.style.display = '';
@@ -403,6 +494,7 @@ export function createNetClient(d) {
 
   function setRoster(list) {
     if (!Array.isArray(list)) return;
+    rosterList = list;
     const ids = new Set();
     for (const r of list) {
       ids.add(r.id);
@@ -453,6 +545,12 @@ export function createNetClient(d) {
     try { s = readSnapshot(buf); } catch { return; }
     if (!s) return;
     stats.snaps++; stats.bytes += buf.byteLength;
+    const tnow = performance.now();
+    if (lastSnapTick !== null && s.tick > lastSnapTick) {
+      gaps.push({ at: tnow, n: 1, missed: Math.max(0, Math.round((s.tick - lastSnapTick) / SNAP_EVERY) - 1) });
+    }
+    lastSnapTick = s.tick;
+    while (gaps.length && tnow - gaps[0].at > LOSS_WINDOW) gaps.shift();
     phase = s.phase; mode = s.mode; timeLeft = s.timeLeft; scoreA = s.scoreA; scoreB = s.scoreB;
     inputRate = s.inputRate || 20; budgetFlags = s.budgetFlags;
     if (MAP_IDS[s.map] && MAP_IDS[s.map] !== mapId) switchToMap(MAP_IDS[s.map]);
@@ -554,7 +652,7 @@ export function createNetClient(d) {
   function onEvent(e, s) {
     switch (e.kind) {
       case EV.SHOT: {
-        if (e.shooter === myId) break;     // already drawn when it was predicted
+        if (e.shooter === myId || kc) break;     // already drawn when it was predicted; the killcam shows the past
         lastShot.set(e.shooter, performance.now());
         const b = puppets.get(e.shooter);
         const w = WEAPON_BY_ID[e.weapon];
@@ -592,13 +690,19 @@ export function createNetClient(d) {
       case EV.KILL: {
         const killer = who(e.killer), victim = who(e.victim);
         if (victim) d.addKillFeed(killer, victim, e.head);
+        killedBy.set(e.victim, e.killer);
+        if (spectator && e.victim === specTarget && !freeCam && puppets.get(e.killer)?.alive) specTarget = e.killer;
         if (e.killer === myId && e.victim !== myId && victim) {
           d.showHitMarker('kill');
           d.showKillBanner(victim, e.head);
           if (e.head) Audio.headshot?.();
           Audio.kill();
         }
-        if (e.victim === myId) killerId = e.killer !== myId ? e.killer : null;
+        if (e.victim === myId) {
+          killerId = e.killer !== myId ? e.killer : null;
+          lastDeath = { name: who(e.killer)?.name ?? null, weapon: e.weapon, head: e.head, self: e.killer === myId || e.killer === NO_ID };
+          if (!spectator && !lastDeath.self) startKillcam(e.killer);
+        }
         break;
       }
       case EV.EXPLODE: {
@@ -741,7 +845,10 @@ export function createNetClient(d) {
     if (!player.alive) {
       el.pause.classList.add('on', 'dead');
       el.pBig.textContent = 'ELIMINATED';
-      el.pSm.textContent = phase === PHASE.PLAYING ? `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s` : '';
+      const by = lastDeath && !lastDeath.self && lastDeath.name
+        ? `KILLED BY ${lastDeath.name} · ${WEAPON_BY_ID[lastDeath.weapon]?.name ?? lastDeath.weapon}${lastDeath.head ? ' · HEADSHOT' : ''}` : '';
+      const wait = phase === PHASE.PLAYING ? `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s` : '';
+      el.pSm.textContent = [by, wait].filter(Boolean).join('  ·  ');
       el.pCta.style.display = d.isPointerLocked() ? 'none' : '';
     } else if (!wasAlive) {
       el.pause.classList.remove('dead');
@@ -756,13 +863,13 @@ export function createNetClient(d) {
   /* ------------------------------------------------------------- remotes */
 
   /** Another player's state at render tick `rt`, interpolated, or extrapolated a little. */
-  function sample(id, rt, out) {
+  function sample(id, rt, out, list = snaps) {
     let a = null, b = null;
-    for (let i = snaps.length - 1; i >= 0; i--) {
-      const q = snaps[i].players.get(id);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const q = list[i].players.get(id);
       if (!q) continue;
-      if (snaps[i].tick <= rt) { a = { t: snaps[i].tick, q }; break; }
-      b = { t: snaps[i].tick, q };
+      if (list[i].tick <= rt) { a = { t: list[i].tick, q }; break; }
+      b = { t: list[i].tick, q };
     }
     if (!a && !b) return null;
     let q, t = 0;
@@ -795,14 +902,16 @@ export function createNetClient(d) {
   const _s = {};
   function updateRemotes(dt) {
     if (!latest) return;
-    const rt = renderTick();
+    // A killcam replays the frozen past: everyone, you included, drawn from the copy taken at your death.
+    const list = kc ? kc.frames : snaps;
+    const rt = kc ? kc.rt : renderTick();
     const now = performance.now();
-    for (const q of latest.players) {
-      if (q.id === myId) continue;
+    for (const q of kc ? kc.frames[kc.frames.length - 1].players.values() : latest.players) {
+      if (q.id === myId && !kc) continue;
       const b = puppetFor(q.id, q.team);
       if (!b) continue;
       b.kills = q.kills; b.deaths = q.deaths;
-      if (!sample(q.id, rt, _s)) continue;
+      if (!sample(q.id, rt, _s, list)) continue;
       _s.firing = now - (lastShot.get(q.id) ?? -1e9) < SHOT_SHOW * 1000;
       b.puppetStep(_s, dt);
       // Emotes: the server ends them on any action, so the snapshot's emote is the truth.
@@ -815,16 +924,18 @@ export function createNetClient(d) {
       if (b.gunMesh && b.alive) b.gunMesh.visible = !b.emoteAction;
     }
     // Seated players missing from the snapshot have dropped: their seat is held, their body is not.
-    for (const [id, b] of puppets) {
-      if (!latest.players.some((q) => q.id === id) && b.alive) b.die(false);
+    if (!kc) {
+      for (const [id, b] of puppets) {
+        if (!latest.players.some((q) => q.id === id) && b.alive) b.die(false);
+      }
     }
     // Grenades in flight, interpolated the same way.
     const live = new Set();
     let a = null, bb = null;
-    for (let i = snaps.length - 1; i >= 0; i--) {
-      if (snaps[i].tick <= rt) { a = snaps[i]; bb = snaps[i + 1] ?? null; break; }
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].tick <= rt) { a = list[i]; bb = list[i + 1] ?? null; break; }
     }
-    a ??= snaps[0];
+    a ??= list[0];
     if (a) {
       for (const [id, g] of a.grenades) {
         live.add(id);
@@ -857,16 +968,17 @@ export function createNetClient(d) {
    * flying free. Returns true when it placed the camera this frame.
    */
   function spectateCamera(dt) {
+    if (kc && stepKillcam(dt)) return true;
     const dead = !spectator && pred && !player.alive && phase === PHASE.PLAYING;
-    if (!spectator && !dead) return false;
-    if (spectator && d.takeFireLatch()) nextTarget();
+    if (!spectator && !dead) { ui.spec.classList.remove('on'); return false; }
+    if (spectator && d.takeFireLatch()) stepTarget(1);
     let b = null;
     if (dead) {
       b = puppets.get(killerId);
       if (!b?.alive) return false;      // nobody to watch: stay where you fell
     } else if (!freeCam) {
       b = puppets.get(specTarget);
-      if (!b?.alive) { nextTarget(); b = puppets.get(specTarget); }
+      if (!b?.alive) { stepTarget(1); b = puppets.get(specTarget); }
     }
     if (b) {
       // Behind and above the shoulder, looking the way they look; pulled in against walls.
@@ -881,7 +993,8 @@ export function createNetClient(d) {
       }
       camera.position.lerp(cam, 1 - Math.exp(-dt * 12));
       camera.lookAt(head.x - _dir.x * 6, head.y, head.z - _dir.z * 6);
-      setStatus(spectator ? `SPECTATING ${b.name} · CLICK: NEXT · V: FREE CAMERA` : `WATCHING ${b.name}`);
+      if (spectator) drawSpec(`SPECTATING ${b.name}`, queued ? 'YOU JOIN THE NEXT LOBBY' : `${b.kills} K / ${b.deaths} D · ${Math.round(b.health)} HP`);
+      else setStatus(`WATCHING ${b.name}`);
     } else {
       // Free camera on the player's own look and movement keys.
       _e.set(player.pitch, player.yaw, 0, 'YXZ');
@@ -897,7 +1010,8 @@ export function createNetClient(d) {
       if (keys.KeyC) freePos.y -= speed;
       camera.position.copy(freePos);
       camera.quaternion.copy(_q);
-      setStatus(spectator ? 'FREE CAMERA · WASD, SPACE, C · V: FOLLOW A PLAYER' : null);
+      if (spectator) drawSpec('FREE CAMERA', 'WASD · SPACE UP · C DOWN · SHIFT FAST');
+      else setStatus(null);
     }
     camera.updateMatrixWorld();
     el.crosshair.classList.add('off');
@@ -905,20 +1019,83 @@ export function createNetClient(d) {
     return true;
   }
 
-  function nextTarget() {
-    const alive = [...puppets.entries()].filter(([, b]) => b.alive).map(([id]) => id).sort((x, y) => x - y);
+  /** The next (dir 1) or previous (dir -1) living player to follow. */
+  function stepTarget(dir) {
+    const alive = [...puppets.entries()].filter(([id, b]) => b.alive && id !== myId).map(([id]) => id).sort((x, y) => x - y);
     if (!alive.length) { specTarget = null; return; }
     const i = alive.indexOf(specTarget);
-    specTarget = alive[(i + 1) % alive.length];
+    specTarget = alive[(i < 0 ? (dir > 0 ? 0 : alive.length - 1) : i + dir + alive.length) % alive.length];
+    freeCam = false;
+  }
+
+  function drawSpec(title, line) {
+    const hint = freeCam ? 'V / F  FOLLOW A PLAYER' : 'Q \u25c0  \u25b6 E  OR CLICK \u00b7 K  FOLLOW KILLER \u00b7 V / F  FREE CAM';
+    ui.spec.textContent = '';
+    ui.spec.append(span('t', title), span('l', line), span('k', hint));
+    ui.spec.classList.add('on');
+    setStatus(null);
+  }
+
+  /* ------------------------------------------------------------- killcam */
+
+  /**
+   * On a kill, the last two seconds of snapshots are copied out of the live buffer and replayed
+   * from the killer's eyes while the respawn timer runs. Nothing extra crosses the wire: every
+   * player's position and look direction is already in each snapshot.
+   */
+  function startKillcam(killer) {
+    const frames = snaps.slice(-KC_FRAMES);
+    if (frames.length < 10 || !frames.some((f) => f.players.get(killer))) return;
+    kc = { id: killer, frames, rt: frames[0].tick };
+    el.pause.classList.add('kc');
+    ui.kc.classList.add('on');
+  }
+
+  function endKillcam() {
+    if (!kc) return;
+    const b = puppets.get(kc.id);
+    if (b?.alive) b.mesh.visible = true;
+    kc = null;
+    removePuppet(myId);       // the stand-in that played you
+    ui.kc.classList.remove('on');
+    el.pause.classList.remove('kc');
+  }
+
+  const _k = {};
+  /** Plays one frame of the killcam. True when it placed the camera. */
+  function stepKillcam(dt) {
+    kc.rt += dt * TICK_HZ;
+    const last = kc.frames[kc.frames.length - 1].tick;
+    if (kc.rt > last + 24 || player.alive || phase !== PHASE.PLAYING || spectator) { endKillcam(); return false; }
+    if (!sample(kc.id, kc.rt, _k, kc.frames)) { endKillcam(); return false; }
+    const b = puppets.get(kc.id);
+    if (b) b.mesh.visible = false;            // the camera is inside its head
+    camera.position.set(_k.x, _k.y + (_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT), _k.z);
+    _e.set(_k.pitch, _k.yaw, 0, 'YXZ');
+    camera.quaternion.setFromEuler(_e);
+    if (camera.fov !== HIP_FOV) { camera.fov = HIP_FOV; camera.updateProjectionMatrix(); }
+    camera.updateMatrixWorld();
+    ui.kc.querySelector('i').style.width = `${Math.min(100, ((kc.rt - kc.frames[0].tick) / (last - kc.frames[0].tick)) * 100).toFixed(1)}%`;
+    ui.spec.classList.remove('on');
+    el.crosshair.classList.add('off');
+    el.scope.classList.remove('on');
+    return true;
   }
 
   addEventListener('keydown', (e) => {
     if (!active || e.repeat) return;
-    if (e.code === 'KeyV' && spectator) {
-      freeCam = !freeCam;
-      if (freeCam) freePos.copy(camera.position);
+    if (spectator) {
+      if (e.code === 'KeyV' || e.code === 'KeyF') {
+        freeCam = !freeCam;
+        if (freeCam) freePos.copy(camera.position);
+      } else if (e.code === 'KeyQ' || e.code === 'ArrowLeft') stepTarget(-1);
+      else if (e.code === 'KeyE' || e.code === 'ArrowRight') stepTarget(1);
+      else if (e.code === 'KeyK') {
+        const k = killedBy.get(specTarget);
+        if (puppets.get(k)?.alive) { specTarget = k; freeCam = false; }
+      }
     }
-    if (e.code === 'F3') { e.preventDefault(); debugOn = !debugOn; }
+    if (e.code === 'F3') { e.preventDefault(); netMode = (netMode + 1) % 3; }
   });
 
   // A backgrounded tab stops drawing frames, so stop the player too rather than leave the
@@ -948,7 +1125,7 @@ export function createNetClient(d) {
   function update(realDt, dt) {
     if (!active) return false;
     d.match.time += dt;
-    if (phase === PHASE.PLAYING || phase === PHASE.INTERMISSION) timeLeft = Math.max(0, timeLeft - dt);
+    if (phase === PHASE.PLAYING || phase === PHASE.INTERMISSION || phase === PHASE.COUNTDOWN) timeLeft = Math.max(0, timeLeft - dt);
     if (clockOffset !== null) clockOffset -= dt * 0.5;      // drift down; the next fast snapshot lifts it
 
     // The interpolation delay: one snapshot interval, plus how late they have been arriving.
@@ -976,8 +1153,8 @@ export function createNetClient(d) {
   }
 
   function hud() {
-    el.tbMode.textContent = MODE_LABEL[mode] ?? mode.toUpperCase();
-    if (mode === 'tdm') {
+    el.tbMode.textContent = modeLabel(phase === PHASE.LOBBY && lobbyInfo.settings ? lobbyInfo.settings.mode : mode);
+    if (teamMode(mode)) {
       el.tbA.textContent = scoreA; el.tbB.textContent = scoreB;
     } else {
       let top = 0;
@@ -985,14 +1162,36 @@ export function createNetClient(d) {
       el.tbA.textContent = spectator ? '-' : player.kills;
       el.tbB.textContent = top;
     }
-    el.tbTime.textContent = phase === PHASE.INTERMISSION ? `VOTE ${Math.ceil(timeLeft)}` : formatTime(timeLeft);
+    el.tbTime.textContent = { [PHASE.LOBBY]: 'LOBBY', [PHASE.COUNTDOWN]: 'GET READY', [PHASE.INTERMISSION]: 'RESULTS' }[phase] ?? formatTime(timeLeft);
+    const inLobby = phase === PHASE.LOBBY && welcomed;
+    lobbyUI.show(inLobby);
+    chat.show(active && welcomed);
+    chat.dock(inLobby);
+    if (inLobby && !wasLobby) {
+      document.exitPointerLock?.();
+      el.pause.classList.remove('on', 'dead');
+      drawLobby();
+    }
+    wasLobby = inLobby;
+    const counting = phase === PHASE.COUNTDOWN;
+    ui.count.classList.toggle('on', counting);
+    if (counting) ui.count.textContent = Math.max(1, Math.ceil(timeLeft));
+    if (performance.now() - chatTick > 500) { chatTick = performance.now(); chat.refresh(); }
     if (endInfo) tickEndTimer();
-    ui.debug.classList.toggle('on', debugOn);
-    if (debugOn) {
+    ui.debug.classList.toggle('on', netMode === 2);
+    // Ping and loss: on request (F3), and by itself when the connection is bad enough to matter.
+    let seen = 0, missed = 0;
+    for (const g of gaps) { seen += g.n; missed += g.missed; }
+    const loss = seen + missed ? (100 * missed) / (seen + missed) : 0;
+    const bad = rtt > 150 || loss >= 3;
+    ui.net.classList.toggle('on', netMode === 1 || (netMode === 0 && bad && !!ws));
+    ui.net.classList.toggle('bad', bad);
+    ui.net.textContent = `PING ${rtt} ms \u00b7 LOSS ${loss.toFixed(loss < 10 ? 1 : 0)}%`;
+    if (netMode === 2) {
       const ps = pred?.stats;
       const flags = [budgetFlags & BUDGET.REDUCED && 'REDUCED', budgetFlags & BUDGET.LAST_ROUND && 'LAST ROUND', budgetFlags & BUDGET.CLOSED && 'CLOSED'].filter(Boolean).join(' ') || '-';
       ui.debug.textContent = [
-        `rtt ${rtt} ms · interp ${(interp * 1000).toFixed(0)} ms · input ${inputRate}/s · budget ${flags}`,
+        `rtt ${rtt} ms · loss ${loss.toFixed(1)}% (snapshot gaps) · interp ${(interp * 1000).toFixed(0)} ms · input ${inputRate}/s · budget ${flags}`,
         `snapshots ${stats.snaps} · avg ${stats.snaps ? Math.round(stats.bytes / stats.snaps) : 0} B · sent ${stats.packets} pkts / ${stats.cmds} cmds`,
         ps ? `prediction ${ps.compares ? (100 * ps.agreed / ps.compares).toFixed(1) : '-'}% agreed · corrections ${stats.corrections} (snapped ${stats.snapped}) · resyncs ${stats.resyncs} · last ${stats.lastErr.toFixed(3)} m` : 'spectating',
       ].join('\n');
@@ -1002,7 +1201,7 @@ export function createNetClient(d) {
   /** Tab: the server's scoreboard, not the local match's. */
   function decorateBoard() {
     if (!active) return;
-    el.bSub.textContent = `${MODE_LABEL[mode] ?? mode} · ONLINE · ${puppets.size + (spectator ? 0 : 1)} PLAYERS`;
+    el.bSub.textContent = `${modeLabel(mode)} · ONLINE · ${roster.size} PLAYERS`;
   }
 
   return {
@@ -1026,7 +1225,7 @@ export function createNetClient(d) {
       players: latest?.players.length ?? 0, puppets: puppets.size, stats: { ...stats }, pred: pred ? { ...pred.stats, errors: undefined } : null,
       you: pred ? { x: pred.p.body.position.x, y: pred.p.body.position.y, z: pred.p.body.position.z, alive: pred.p.alive } : null,
       remotes: latest ? latest.players.filter((q) => q.id !== myId).map((q) => ({ id: q.id, pos: q.pos, alive: q.alive })) : [],
-      hash,
+      hash, lobby: lobbyUI.shown, queued,
     }),
   };
 }

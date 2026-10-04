@@ -68,6 +68,22 @@ test('two players and a spectator share one room, and see each other move', asyn
   for (const p of [a, b]) await expect.poll(async () => (await debug(p)).myId, { timeout: 30_000 }).not.toBeNull();
   await expect.poll(async () => (await debug(spec)).spectator, { timeout: 30_000 }).toBe(true);
 
+  // A new room is a lobby: the first in is the host, nothing starts until the other is ready.
+  for (const p of [a, b, spec]) await expect(p.locator('#mp-lobby')).toBeVisible({ timeout: 15_000 });
+  await expect(a.locator('#mp-lobby .go')).toHaveText('START MATCH');
+  await expect(a.locator('#mp-lobby .go')).toBeDisabled();
+  await expect(b.locator('#mp-lobby .go')).toHaveText('READY');
+  await expect(b.locator('#mp-lobby .opts button').first()).toBeDisabled();   // a guest cannot change settings
+  await b.click('#mp-lobby .go');
+  await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 10_000 });
+  // Chat works in the lobby, and the spectator sees it too.
+  await b.fill('#mp-chat input', 'hello lobby');
+  await b.press('#mp-chat input', 'Enter');
+  for (const p of [a, spec]) await expect(p.locator('#mp-chat .msg')).toContainText('hello lobby', { timeout: 10_000 });
+  await a.click('#mp-lobby .go');
+  for (const p of [a, b, spec]) await expect.poll(async () => (await debug(p)).phase, { timeout: 30_000 }).toBe(1);   // PHASE.PLAYING after the countdown
+  for (const p of [a, b, spec]) await expect(p.locator('#mp-lobby')).toBeHidden();
+
   // One build: the room and every client agree on the map hash.
   const stats = await roomStats();
   expect(stats.players).toBe(2);

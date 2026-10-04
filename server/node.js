@@ -28,12 +28,12 @@ const TYPES = {
 /** Never served: the server, the tests, the tooling. */
 const PRIVATE = /^(server|tests|node_modules|scripts|spike|\.git|\.claude|\.wrangler)(\/|$)|^\.mp-budget/;
 
-export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile = join(ROOT, 'server', '.mp-budget.json'), log = console.log } = {}) {
+export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile = join(ROOT, 'server', '.mp-budget.json'), autostart = false, log = console.log } = {}) {
   const colliders = Object.fromEntries(MAP_IDS.map((id) => [id, JSON.parse(readFileSync(join(ROOT, 'assets', 'maps', `${id}.json`), 'utf8'))]));
   let saved = null;
   try { saved = JSON.parse(readFileSync(budgetFile, 'utf8')); } catch { /* first run */ }
   const governor = new Governor({ limit, saved, save: (s) => writeFile(budgetFile, JSON.stringify(s)).catch(() => {}) });
-  const room = new Room({ colliders, governor, log });
+  const room = new Room({ colliders, governor, autostart, log });
 
   let timer = null;
   const loop = () => {
@@ -108,5 +108,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const port = Number(process.argv[2] || process.env.PORT || 8790);
   const limit = process.env.MP_BUDGET_LIMIT ? Number(process.env.MP_BUDGET_LIMIT) : undefined;
   const budgetFile = process.env.MP_BUDGET_FILE || undefined;
-  startServer({ port, host: process.env.HOST || '127.0.0.1', limit, budgetFile });
+  startServer({ port, host: process.env.HOST || '127.0.0.1', limit, budgetFile, autostart: !!process.env.MP_AUTOSTART });
 }

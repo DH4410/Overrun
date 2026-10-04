@@ -1,3 +1,4 @@
+import { loadScreen } from './loading.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
@@ -8,6 +9,8 @@ export function createUiRuntime({
   defaultMap = () => 'port',
   audio: Audio,
   startMatch,
+  beginMatch,
+  warmScene,
   applySettings,
   match,
   setAppState,
@@ -77,9 +80,26 @@ function bindMenu() {
       document.querySelectorAll('#diffs .pill').forEach((x) => x.classList.toggle('active', x === b));
     });
   }
-  el.play.addEventListener('click', () => {
+  let deploying = false;
+  el.play.addEventListener('click', async () => {
+    if (deploying) return;
+    deploying = true;
     Audio.init();
-    startMatch(mode, diff, el.nameInput.value.trim(), map);
+    // Cover the menu, build the match frozen, warm the graphics, then let it start: nothing
+    // moves, and nothing hitches, in front of the player.
+    loadScreen.show({ kicker: $('mode-name')?.textContent ?? '', title: MAPS[map].name, sub: MAPS[map].blurb });
+    try {
+      await loadScreen.step(0.1, 'Building the arena');
+      startMatch(mode, diff, el.nameInput.value.trim(), map, { hold: true });
+      await loadScreen.step(0.35, 'Loading graphics');
+      await warmScene((f) => loadScreen.step(0.35 + f * 0.6, 'Loading graphics'));
+      await loadScreen.step(1, 'Ready');
+      await loadScreen.hide();
+      beginMatch();
+    } finally {
+      deploying = false;
+      if (loadScreen.active) loadScreen.hide(0);
+    }
   });
 }
 

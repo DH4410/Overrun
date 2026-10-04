@@ -8,12 +8,12 @@ import { MAP_IDS } from './mapData.js';
 export const MODE_INFO = {
   dm: { label: 'DEATHMATCH', short: 'DM', teams: false, min: 2, max: 10, limits: [10, 20, 30], limit: CONFIG.DM_TARGET, unit: 'KILLS', blurb: 'Free for all. First to the kill limit.' },
   tdm: { label: 'TEAM DEATHMATCH', short: 'TDM', teams: true, min: 2, max: 10, limits: [15, 25, 40], limit: CONFIG.TDM_TARGET, unit: 'KILLS', blurb: 'Blue against red. The team kill count is what counts.' },
-  duel: { label: '1V1 DUEL', short: 'DUEL', teams: false, min: 2, max: 2, limits: [3, 5, 7], limit: 5, unit: 'KILLS', blurb: 'Two players, a small arena, first to the kill limit.' },
+  duel: { label: '1V1 DUEL', short: 'DUEL', teams: false, teamScore: true, min: 2, max: 2, limits: [3, 5, 7], limit: 5, unit: 'ROUNDS', blurb: 'One life a round, same gun for both. First to the round limit.' },
   ctf: { label: 'CAPTURE THE FLAG', short: 'CTF', teams: true, min: 2, max: 10, limits: [3, 5, 7], limit: 3, unit: 'CAPTURES', blurb: 'Steal the other flag and carry it home while yours is safe.' },
   survival: { label: 'SURVIVAL', short: 'SURVIVAL', teams: true, coop: true, min: 2, max: 10, limits: [5, 10, 15], limit: 10, unit: 'WAVES', blurb: 'Everyone together against waves of bots. More players, more bots.' },
 };
 /** Modes the room runs today; the lobby offers these and the server refuses the rest. */
-export const PLAYABLE = ['dm', 'tdm'];
+export const PLAYABLE = ['dm', 'tdm', 'duel', 'ctf'];
 
 export const TIME_OPTIONS = [180, 300, 480, 600];
 /** 'loadout' keeps what each player picked in the locker; a gun id gives everyone only that gun. */
@@ -22,6 +22,8 @@ export const WEAPON_RULES = ['loadout', 'pistol', 'ar', 'smg', 'shotgun', 'snipe
 export const DEFAULT_SETTINGS = Object.freeze({ mode: 'dm', map: 'port', time: CONFIG.MATCH_SECONDS, limit: CONFIG.DM_TARGET, weapons: 'loadout' });
 
 export const teamMode = (mode) => MODE_INFO[mode]?.teams === true;
+/** Whether the top bar shows a blue-red score (the duel counts rounds that way, without friendly-fire rules). */
+export const teamScore = (mode) => MODE_INFO[mode]?.teams === true || MODE_INFO[mode]?.teamScore === true;
 
 /** The settings a map can host: a map with no `modes` list hosts every mode. */
 export function mapHosts(mapData, mapId, mode) {

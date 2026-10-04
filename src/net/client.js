@@ -9,10 +9,13 @@ import {
   readSnapshot,
 } from '../sim/protocol.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
-import { MODE_INFO, teamMode } from '../sim/modes.js';
+import { MODE_INFO, teamScore } from '../sim/modes.js';
 import { createChat } from './chat.js';
+import { createFlags } from './flags.js';
+import { loadScreen } from '../loading.js';
 import { createLobby, historyRow, loadHistory, pushHistory } from './lobby.js';
 import { Predictor } from './predict.js';
+import { createStage } from './stage.js';
 
 /**
  * The browser side of multiplayer. The server owns the match; this connects to it, turns the
@@ -103,6 +106,7 @@ export function createNetClient(d) {
   let lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
   let rosterList = [];
   let queued = false, history = loadHistory(), wasLobby = false, chatTick = 0;
+  let stageReady = false, loading = false, prevPhase = 0, stageSig = '';
   const stats = { snaps: 0, bytes: 0, corrections: 0, resyncs: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
 
   const offset = new THREE.Vector3();        // predicted-to-drawn smoothing, decays to zero
@@ -139,7 +143,15 @@ export function createNetClient(d) {
     canOpen: () => active && welcomed && phase !== PHASE.LOBBY,
     isLobby: () => phase === PHASE.LOBBY,
   });
+  /** Where a flag carrier's feet are: the predicted self, or the puppet drawn for them. */
+  const footOf = (id) => {
+    if (id === myId && pred) { const b = pred.p.body.position; return { x: b.x, y: b.y - CONFIG.PLAYER_RADIUS, z: b.z }; }
+    const m = puppets.get(id)?.mesh;
+    return m ? { x: m.position.x, y: m.position.y, z: m.position.z } : null;
+  };
+  const flagsView = createFlags({ scene: d.scene, positionOf: footOf });
   const lobbyUI = createLobby({ send: (m) => sendJson(m), onLeave: () => leaveMatch() });
+  const stage = createStage({ scene: d.scene, camera });
 
   function drawLobby() {
     if (!lobbyInfo.settings) return;
@@ -262,6 +274,7 @@ export function createNetClient(d) {
       case 'match': onMatch(m); break;
       case 'end': onEnd(m); break;
       case 'chat': chat.add(m); break;
+      case 'flags': flagsView.set(m.flags, myId); break;
       case 'closed': refusal = m.reason; break;
       case 'error': refusal = m.reason; break;
       default: break;
@@ -275,6 +288,10 @@ export function createNetClient(d) {
     active = true; leaving = false; welcomed = false; retries = 0; refusal = null;
     wantSpectate = spectate;
     player.name = (el.nameInput.value || 'PLAYER').toUpperCase().slice(0, 12);
+    // Cover everything until the lobby (or the match) is really there: the game world behind it
+    // is not something to see for the three seconds a connection takes.
+    stageReady = false; loading = false;
+    loadScreen.show({ kicker: 'ONLINE', title: 'CONNECTING', sub: 'Reaching the server' });
     d.onEnter();
     setStatus('CONNECTING…');
     try {
@@ -311,11 +328,41 @@ export function createNetClient(d) {
       setStatus(null);
     }
     if (m.phase === PHASE.INTERMISSION) onEnd({ ...m, title: 'RESULTS', detail: '', standings: [] });
+    finishLoading();
+  }
+
+  /**
+   * The connection is up. Draw the map once from a few angles so its textures and shaders are on
+   * the GPU, then wait until what the player lands in exists (the lobby stage, or the first
+   * snapshot of a running match) and only then take the loading screen down.
+   */
+  async function finishLoading() {
+    if (loading || !loadScreen.active) return;
+    loading = true;
+    try {
+      const lobby = phase === PHASE.LOBBY;
+      loadScreen.set({ kicker: `ONLINE \u00b7 ${modeLabel(lobby ? lobbyInfo.settings?.mode : mode)}`, title: lobby ? 'LOBBY' : String(mapId).toUpperCase(), sub: 'Getting everything ready' });
+      await loadScreen.step(0.4, 'Loading graphics');
+      await d.warmScene((f) => (active ? loadScreen.step(0.4 + f * 0.45, 'Loading graphics') : null));
+      if (!active) return;
+      if (phase === PHASE.LOBBY) {
+        stageReady = true;
+        await loadScreen.step(0.92, 'Setting the stage');
+      } else {
+        for (let i = 0; i < 120 && active && !(spectator ? latest : started); i++) await loadScreen.step(0.92, 'Waiting for the match');
+      }
+      await loadScreen.step(1, 'Ready');
+      await loadScreen.hide(900);
+    } finally {
+      loading = false;
+      if (!active && loadScreen.active) loadScreen.hide(0);
+    }
   }
 
   function applyMatchInfo(m) {
     mode = m.mode; phase = m.phase; timeLeft = m.timeLeft;
     if (m.roster) setRoster(m.roster);
+    flagsView.set(m.mode === 'ctf' ? m.flags : [], myId);
     setLobbyInfo(m);
     switchToMap(m.map);
   }
@@ -323,14 +370,34 @@ export function createNetClient(d) {
   function switchToMap(id) {
     if (!MAP_DATA[id]) return;
     if (id !== mapId) {
+      // The host picking another map in the lobby: build and warm it behind a loading screen
+      // rather than as a stutter in front of everyone.
+      const veil = mapId !== null && stageReady && !loadScreen.active && phase === PHASE.LOBBY && d.getCurrentMapId() !== id;
       mapId = id;
-      if (d.getCurrentMapId() !== id) {
+      if (veil) mapVeil(id);
+      else if (d.getCurrentMapId() !== id) {
         d.switchMap(id);
         d.clearSmoke();
         seenSmokes.clear();
       }
     }
     pred?.setMap(id, colliders[id], MAP_DATA[id].half);
+  }
+
+  async function mapVeil(id) {
+    loadScreen.show({ kicker: 'MAP', title: id.toUpperCase(), sub: '' });
+    try {
+      await loadScreen.step(0.2, 'Building the arena');
+      if (!active) return;
+      d.switchMap(id);
+      d.clearSmoke();
+      seenSmokes.clear();
+      await loadScreen.step(0.5, 'Loading graphics');
+      await d.warmScene((f) => (active ? loadScreen.step(0.5 + f * 0.5, 'Loading graphics') : null));
+      await loadScreen.hide(350);
+    } finally {
+      if (loadScreen.active) loadScreen.hide(0);
+    }
   }
 
   function onMatch(m) {
@@ -348,7 +415,6 @@ export function createNetClient(d) {
     }
     if (m.phase === PHASE.LOBBY) { drawLobby(); return; }
     Audio.roundStart();
-    if (!d.isPointerLocked()) showPause(true, 'GET READY');
   }
 
   function onEnd(m) {
@@ -372,7 +438,7 @@ export function createNetClient(d) {
     if (w.team !== undefined) result = w.team === me.team ? 'WIN' : 'LOSS';
     else if (w.id !== undefined) result = w.id === myId ? 'WIN' : 'LOSS';
     let score = `${me.kills}K ${me.deaths}D`;
-    if (teamMode(m.mode)) {
+    if (teamScore(m.mode)) {
       const blue = me.team === TEAM.BLUE;
       score = `${blue ? m.scoreA : m.scoreB}-${blue ? m.scoreB : m.scoreA}`;
     }
@@ -460,8 +526,10 @@ export function createNetClient(d) {
     kc = null; lastDeath = null; killedBy.clear(); specTarget = null; freeCam = false; gaps.length = 0; lastSnapTick = null;
     clearTimeout(reconTimer);
     for (const n of [ui.end, ui.recon, ui.kc, ui.spec, ui.net, ui.count]) n.classList.remove('on');
-    chat.clear(); chat.show(false); chat.dock(false);
+    chat.clear(); chat.show(false); chat.dock(false); flagsView.clear();
     lobbyUI.show(false); wasLobby = false; queued = false; rosterList = [];
+    stage.show(false); stageReady = false; stageSig = ''; prevPhase = 0;
+    if (loadScreen.active) loadScreen.hide(0);
     lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
     el.pause.classList.remove('kc');
     setStatus(null);
@@ -749,8 +817,9 @@ export function createNetClient(d) {
     const p = pred.p;
     const L = lastSent;
     const weapon = WEAPON_IDS.indexOf(selected ?? p.current);
-    if (!p.alive) {
-      // Dead: nothing held, so nothing carries over into the next life.
+    if (!p.alive || phase === PHASE.LOBBY || phase === PHASE.COUNTDOWN) {
+      // Dead, or waiting for the match: nothing held, so nothing carries over. The server does
+      // the same in the lobby and the countdown, so prediction agrees with it.
       return { ix: 0, iz: 0, yawQ: L?.yawQ ?? 0, pitchQ: L?.pitchQ ?? 0, buttons: 0, weapon: L?.weapon ?? weapon, emote: 0 };
     }
     d.readMoveInput(moveIn);
@@ -847,7 +916,7 @@ export function createNetClient(d) {
       el.pBig.textContent = 'ELIMINATED';
       const by = lastDeath && !lastDeath.self && lastDeath.name
         ? `KILLED BY ${lastDeath.name} · ${WEAPON_BY_ID[lastDeath.weapon]?.name ?? lastDeath.weapon}${lastDeath.head ? ' · HEADSHOT' : ''}` : '';
-      const wait = phase === PHASE.PLAYING ? `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s` : '';
+      const wait = phase !== PHASE.PLAYING ? '' : mode === 'duel' ? 'NEXT ROUND SOON' : `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s`;
       el.pSm.textContent = [by, wait].filter(Boolean).join('  ·  ');
       el.pCta.style.display = d.isPointerLocked() ? 'none' : '';
     } else if (!wasAlive) {
@@ -1147,14 +1216,52 @@ export function createNetClient(d) {
     } else {
       d.stepBullets(dt);
     }
-    updateRemotes(dt);
+    const staged = stageStep(dt);
+    if (!staged) updateRemotes(dt);
+    flagsView.update(dt);
     hud();
-    return spectateCamera(dt);
+    // The match opens: the world replaces the stage, and the mouse has to be taken back.
+    if (prevPhase === PHASE.COUNTDOWN && phase === PHASE.PLAYING && !d.isPointerLocked()) showPause(true, 'GET READY');
+    prevPhase = phase;
+    return staged || spectateCamera(dt);
+  }
+
+  /* ---------------------------------------------------------------- stage */
+
+  const _stageS = { alive: true, crouching: false, aiming: false, firing: false, health: 100, weapon: 'ar', team: 0, vx: 0, vy: 0, vz: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+
+  /**
+   * In the lobby, and through the countdown, everyone stands on the stage in their own
+   * character instead of in the world. Returns true while it has the camera.
+   */
+  function stageStep(dt) {
+    const want = active && welcomed && stageReady && (phase === PHASE.LOBBY || phase === PHASE.COUNTDOWN);
+    if (!want) {
+      if (stage.on) { stage.show(false); stageSig = ''; removePuppet(myId); }
+      return false;
+    }
+    stage.show(true);
+    const list = [...rosterList].sort((a, b) => (a.id === myId ? -1 : b.id === myId ? 1 : a.id - b.id));
+    const entries = list.map((r) => ({ id: r.id, name: r.name, team: r.team, host: r.id === lobbyInfo.host, ready: phase === PHASE.COUNTDOWN || !!r.ready, self: r.id === myId }));
+    const sig = entries.map((e) => `${e.id}${e.name}${e.team}${+e.host}${+e.ready}`).join();
+    if (sig !== stageSig) { stageSig = sig; stage.setPlayers(entries); }
+    list.forEach((r, i) => {
+      const b = puppetFor(r.id, r.team);
+      const sp = stage.spot(i);
+      if (!b || !sp) return;
+      _stageS.x = sp.x; _stageS.y = sp.y; _stageS.z = sp.z; _stageS.yaw = sp.yaw;
+      _stageS.team = r.team; _stageS.weapon = r.loadout?.[0] ?? 'ar';
+      b.puppetStep(_stageS, dt);
+    });
+    stage.frame(dt, innerWidth > 900 ? 0.3 : 0);
+    el.crosshair.classList.add('off');
+    el.scope.classList.remove('on');
+    return true;
   }
 
   function hud() {
     el.tbMode.textContent = modeLabel(phase === PHASE.LOBBY && lobbyInfo.settings ? lobbyInfo.settings.mode : mode);
-    if (teamMode(mode)) {
+    if (teamScore(mode)) {
       el.tbA.textContent = scoreA; el.tbB.textContent = scoreB;
     } else {
       let top = 0;

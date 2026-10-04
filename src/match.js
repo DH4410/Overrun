@@ -90,7 +90,11 @@ function clearBots() {
   bots.length = 0;
 }
 
-function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
+/**
+ * `hold` builds the whole match but leaves it frozen (no bot thinks, no clock runs) until
+ * beginMatch(): the loading screen uses it to warm the graphics first.
+ */
+function startMatch(mode, diffKey, name, mapId = getCurrentMapId(), { hold = false } = {}) {
   // Rebuilding the level has to happen before any bot is spawned or the player is placed:
   // both read spawnPoints, and switchMap() empties it.
   switchMap(mapId);
@@ -99,8 +103,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   // The duel is the elite bot's mode — the menu difficulty does not apply to it. Note that
   // a tier also carries `bots`, the DM headcount, so elite must specify bots: 1.
   match.diff = mode === 'duel' ? DIFFICULTY.elite : DIFFICULTY[diffKey];
-  match.running = true;
-  setAppState(APP_STATE.PLAYING);
+  match.running = !hold;
+  setAppState(hold ? APP_STATE.MENU : APP_STATE.PLAYING);
   match.time = 0;
   match.timeLeft = CONFIG.MATCH_SECONDS;
   match.scoreA = 0; match.scoreB = 0;
@@ -158,7 +162,13 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
 
   // Bots and their cloned materials only exist now, so compile once more before play starts.
   warmUpShaders();
+  if (!hold) beginMatch();
+}
 
+/** The first moment of a match: the world starts moving, the music starts, the mouse is taken. */
+function beginMatch() {
+  match.running = true;
+  setAppState(APP_STATE.PLAYING);
   Audio.init();
   Audio.startAmbient();
   Audio.playMusic('match');
@@ -558,6 +568,7 @@ return {
   clearBots,
   startDuelRound,
   startMatch,
+  beginMatch,
   endMatch,
   respawnPlayer,
   killCombatant,

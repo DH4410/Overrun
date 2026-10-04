@@ -70,7 +70,7 @@ test('the host chooses the settings; a hand-made message cannot pick anything of
   assert.deepEqual(room.settings, { mode: 'tdm', map: 'snow', time: 180, limit: 15, weapons: 'sniper' });
   A.say({ t: 'settings', mode: 'nonsense', map: '../../etc', time: 99999, limit: -1, weapons: 'rpg' });
   assert.deepEqual(room.settings, { mode: 'tdm', map: 'snow', time: 180, limit: 15, weapons: 'sniper' });
-  A.say({ t: 'settings', mode: 'ctf' });       // not runnable yet
+  A.say({ t: 'settings', mode: 'survival' });  // not runnable yet
   assert.equal(room.settings.mode, 'tdm');
   assert.equal(cleanSettings({ mode: 'dm' }, room.settings).limit, 20, 'a limit from the other mode falls back to the default');
 });
@@ -166,4 +166,27 @@ test('results carry headshots and damage per player', () => {
   assert.equal(row.headshots, 1);
   assert.ok(row.damage >= 100 && row.damage <= 180, `damage ${row.damage}`);
   assert.deepEqual(end.winner, { id: A.p.id });
+});
+
+test('nobody walks in the lobby or the countdown, but they can once the round runs', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  const walk = (p, seq) => p.queue.push({ seq, ix: 0, iz: 1, yawQ: 0, pitchQ: 0, buttons: 0, weapon: 0, emote: 0, viewTick: room.tick });
+  const before = { x: A.p.body.position.x, z: A.p.body.position.z };
+  for (let i = 0; i < 120; i++) { walk(A.p, i + 1); room.step(); }
+  assert.equal(room.phase, PHASE.LOBBY);
+  assert.deepEqual({ x: A.p.body.position.x, z: A.p.body.position.z }, before, 'moved in the lobby');
+
+  B.say({ t: 'ready', ready: true });
+  A.say({ t: 'start' });
+  assert.equal(room.phase, PHASE.COUNTDOWN);
+  const at = { x: A.p.body.position.x, z: A.p.body.position.z };
+  for (let i = 0; i < 120; i++) { walk(A.p, 200 + i); room.step(); }
+  assert.deepEqual({ x: A.p.body.position.x, z: A.p.body.position.z }, at, 'moved in the countdown');
+
+  for (let i = 0; i < (COUNTDOWN + 0.1) * 120; i++) room.step();
+  assert.equal(room.phase, PHASE.PLAYING);
+  const start = { x: A.p.body.position.x, z: A.p.body.position.z };
+  for (let i = 0; i < 120; i++) { walk(A.p, 400 + i); room.step(); }
+  assert.ok(Math.hypot(A.p.body.position.x - start.x, A.p.body.position.z - start.z) > 1, 'did not move in the round');
 });

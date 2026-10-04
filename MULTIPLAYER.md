@@ -1,6 +1,6 @@
 # Multiplayer
 
-One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch or Team Deathmatch on PORT, DESERT or SNOW, played from a lobby (see below). Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
+One global, server-authoritative room: up to 10 players plus about 16 spectators, Deathmatch, Team Deathmatch, 1v1 Duel or Capture the Flag on PORT, DESERT or SNOW, played from a lobby (see below). Single player is unchanged. The lobby's **MULTIPLAYER** button joins the room and **Spectate** watches it.
 
 ## Layout
 
@@ -14,13 +14,18 @@ One global, server-authoritative room: up to 10 players plus about 16 spectators
 | `src/sim/*` | Shared by the client and the server: movement, combat, hit maths, map colliders, the protocol and the map hash. |
 | `src/net/predict.js` | Client prediction and reconciliation. It runs the same `applyCommand` as the server. |
 | `src/net/client.js` | The browser side: connecting, prediction, puppets for the other players, events, spectator cameras, the killcam and the F3 overlay. |
-| `src/net/lobby.js` | The lobby screen and the match history kept in `localStorage`. |
+| `src/net/lobby.js` | The lobby panels (match settings, ready / start bar) and the match history kept in `localStorage`. |
+| `src/net/stage.js` | The lobby stage: every player in a line-up in their own character, with name plates, built far above the map in the same scene. It stays up through the countdown. |
+| `src/net/flags.js`, `server/ctf.js` | Capture the flag: the server's flag state, and the client's flag meshes and chips. |
+| `src/loading.js` | The loading screen used by single player and by joining, so a match never starts with the world visible and moving. |
 | `src/net/chat.js` | The chat log and box. |
 | `src/sim/modes.js` | Mode info and the settings whitelist, shared by the client and the server. |
 
 ## The lobby
 
 - A room starts in the **lobby**. The first player in is the **host**: they pick mode, map, kill limit, time and a weapon rule (own loadout, or one gun for everyone) and start the match. Everyone else presses **READY**. It starts only with 2 or more players and every guest ready, then a 5 s countdown.
+- **Nobody walks in the lobby or the countdown.** The server zeroes movement in those two phases and the client sends idle commands, so prediction agrees.
+- **Loading.** Joining shows the loading screen until the server has welcomed you and the lobby (or the first snapshot) is there. The map is drawn from a few angles first so textures and shaders are on the GPU. If the host changes the map in the lobby, everyone gets a short loading screen while it builds.
 - The server checks every setting against a fixed list, so a forged message cannot pick anything else. If the host leaves, the next player is host.
 - After a match: the results screen (kills, deaths, headshots, K/D, damage; also saved to a short match history), 15 s, then back to the lobby.
 - **Latecomers** join a round in progress, unless it has under 10 s left. Then they watch and join at the next lobby.
@@ -77,4 +82,5 @@ npx wrangler deploy       # builds .cf-public, uploads it, creates the GameRoom 
 - **Timing.** Remote events are shown when they arrive, not at the interpolated time.
 - **Grenades.** Gamepads cannot throw grenades online. There is no aim assist online. Grenades and smoke are not rewound for lag compensation.
 - **Seats.** A dropped player's seat is held for 60 s and counts toward the 10.
-- **Not yet built.** Server bots, Survival, Duel and Capture the Flag (the lobby already lists only the modes that run).
+- **Duel** is one life per round, 75 s, first to 3, 5 or 7 rounds; if the opponent leaves you win. **CTF** needs your own flag at home to capture, a dropped flag returns after 20 s, and the carrier is drawn with the flag on their back.
+- **Not yet built.** Server bots and Survival (the lobby lists only the modes that run).

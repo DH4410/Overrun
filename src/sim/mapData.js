@@ -8,6 +8,8 @@ export const MAP_DATA = {
     id: 'port',
     file: 'port',
     half: [50, 38],
+    /** Flag stands (blue, red) in the middle of each spawn shed; also where each side's spawns are. */
+    flags: [[0, 31], [0, -31]],
     /**
      * Spawn, pickup and nav casts start just below this, and it must be under every roof: the spawn
      * sheds' roofs start at y = 6.0, and a cast from above them would put the spawns on the roof.
@@ -39,6 +41,7 @@ export const MAP_DATA = {
     id: 'desert',
     file: 'desert',
     half: [42, 32],
+    flags: [[0, 26.5], [0, -26.5]],
     /** The arcade roofs and the souk slats start at 4.2 m; a cast from above them lands on top. */
     ceilY: 4.2,
     /**
@@ -66,6 +69,7 @@ export const MAP_DATA = {
     id: 'snow',
     file: 'snow',
     half: [44, 34],
+    flags: [[0, 28], [0, -28]],
     /** The station and garage roofs start at 4.0 m; a cast from above them lands on top. */
     ceilY: 4.0,
     /**

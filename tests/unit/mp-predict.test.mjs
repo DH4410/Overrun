@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { Governor } from '../../server/governor.js';
-import { Room } from '../../server/room.js';
+import { COUNTDOWN, Room } from '../../server/room.js';
 import { Predictor } from '../../src/net/predict.js';
 import { MAP_DATA, MAP_IDS } from '../../src/sim/mapData.js';
 import { BTN, PROTOCOL_VERSION, Reader, WEAPON_IDS, quantPitch, quantYaw, readYou, Writer, writeYou } from '../../src/sim/protocol.js';
@@ -30,13 +30,18 @@ function run(mapId, ticks) {
   const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   const t = Date.UTC(2026, 0, 1, 12);
   const room = new Room({ colliders, now: () => t, rng, governor: new Governor({ now: () => t }), mapId });
-  const players = [];
+  const players = [], conns = [];
   for (let i = 0; i < 4; i++) {
     const conn = { send() {}, close() {} };
     room.open(conn);
     room.message(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, hash: room.hash, name: `P${i}`, loadout: LOADOUT }));
     players.push(room.clients.get(conn).player);
+    conns.push(conn);
   }
+  // Nobody walks in the lobby or the countdown, so play it through to the round itself.
+  for (let i = 1; i < conns.length; i++) room.message(conns[i], JSON.stringify({ t: 'ready', ready: true }));
+  room.message(conns[0], JSON.stringify({ t: 'start' }));
+  for (let i = 0; i < (COUNTDOWN + 0.6) * 120; i++) room.step();      // and a moment for everyone to settle on the ground
   const me = players[0];
   const pred = new Predictor(LOADOUT);
   pred.setMap(mapId, colliders[mapId], MAP_DATA[mapId].half);
@@ -62,7 +67,10 @@ function run(mapId, ticks) {
     const a = pred.entries[pred.entries.length - 1].state, y = you(me);
     const d = Math.hypot(a.px - y.px, a.py - y.py, a.pz - y.pz);
     worst = Math.max(worst, d);
-    if (d > 1e-3 || a.crouching !== y.crouching) {
+    // The first tick lands a body that was resting a millimetre off the level: that is the predictor
+    // taking the server's start state, not drift.
+    if (k === 0) pred.apply(y);
+    else if (d > 1e-3 || a.crouching !== y.crouching) {
       differ++;
       firstDiff ??= { tick: k, d };
       pred.apply(y);

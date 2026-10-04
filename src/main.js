@@ -487,6 +487,31 @@ function warmUpShaders() {
 }
 
 /**
+ * Draw the level from the player's spot and from above, a turn at a time, so every texture and
+ * buffer it uses is on the GPU before play. The loading screen runs this; `tick(fraction)` is
+ * awaited between views so its bar can move.
+ */
+async function warmScene(tick = async () => {}) {
+  const pos = camera.position.clone(), rot = camera.rotation.clone();
+  const views = [[pos.x, pos.y, pos.z, -0.05], [0, 14, 0, -0.35]];
+  const turns = 6, total = views.length * turns;
+  let n = 0;
+  scene.updateMatrixWorld(true);
+  for (const [x, y, z, pitch] of views) {
+    for (let i = 0; i < turns; i++) {
+      camera.position.set(x, y, z);
+      camera.rotation.set(pitch, (i / turns) * Math.PI * 2, 0, 'YXZ');
+      camera.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+      await tick(++n / total);
+    }
+  }
+  camera.position.copy(pos);
+  camera.rotation.copy(rot);
+  camera.updateMatrixWorld(true);
+}
+
+/**
  * Push the current settings into the renderer, cameras and light budget.
  *
  * Toggling shadowMap.enabled does force a one-time shader recompile — that is unavoidable,
@@ -829,6 +854,7 @@ const {
   clearBots,
   startDuelRound,
   startMatch,
+  beginMatch,
   endMatch,
   respawnPlayer,
   killCombatant,
@@ -1179,6 +1205,8 @@ const {
   defaultMap: defaultMapId,
   audio: Audio,
   startMatch,
+  beginMatch,
+  warmScene,
   applySettings,
   match,
   setAppState: (state) => { appState = state; },
@@ -1241,6 +1269,7 @@ net = createNetClient({
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,
   showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
   setPaused: () => { appState = APP_STATE.PAUSED; },
+  warmScene,
   onEnter: () => {
     // Nothing of single player runs online: no bots, no local match, and the player is not
     // something local bullets can hit.
@@ -1418,7 +1447,7 @@ async function boot() {
   // being reachable on a deployed copy.
   const isLocal = ['localhost', '127.0.0.1', ''].includes(location.hostname);
   if (isLocal) window.__game = {
-    player, bots, world, keys, match, startMatch, waypoints, spawnPoints, CONFIG,
+    player, bots, world, keys, match, startMatch, beginMatch, waypoints, spawnPoints, CONFIG,
     renderer, fixedStep, camera, spawnStats, THREE,
     assets: { soldier: soldierOk, blasters, anims: extraAnims,
               characters: loadedCharacters(), port: glbOk.port, maps: glbOk },
@@ -1430,7 +1459,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net,
+    predictThrow, updateThrowPreview, grenades, net, warmScene,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

@@ -3,9 +3,10 @@ import { MODE_INFO, PLAYABLE, TIME_OPTIONS, WEAPON_RULES, mapHosts } from '../si
 import { WEAPON_BY_ID } from '../sim/weaponData.js';
 
 /**
- * The lobby screen, and the match history it shows. The server decides everything: this only
- * draws what it was told (the roster with ready marks, the host, the settings) and sends the
- * player's choices back. A guest sees the settings but cannot change them.
+ * The lobby's panels, and the match history they show. The players themselves are the 3D line-up
+ * on the stage (stage.js); this is the rest: the match settings on the right, the ready / start
+ * bar along the bottom. The server decides everything: this only draws what it was told and
+ * sends the player's choices back. A guest sees the settings but cannot change them.
  */
 
 const HISTORY_KEY = 'overrun-mp-history';
@@ -73,69 +74,69 @@ export function createLobby({ send, onLeave }) {
     const { myId, host, roster, settings, blocker, spectators, spectating, history } = state;
     const isHost = myId !== null && myId === host && !spectating;
     const me = roster.find((r) => r.id === myId);
+    const guests = roster.filter((r) => r.id !== host);
+    const readyCount = guests.filter((r) => r.ready).length;
     root.textContent = '';
-    const card = el('div', 'card');
 
-    const head = el('div', 'head');
-    head.append(el('h2', '', 'ONLINE LOBBY'), el('span', 'sub', `${roster.length} PLAYER${roster.length === 1 ? '' : 'S'}${spectators ? ` · ${spectators} WATCHING` : ''}`));
-    card.appendChild(head);
+    // Top left: where you are, and how full it is.
+    const top = el('div', 'top');
+    top.append(
+      el('span', 'kick', 'ONLINE'),
+      el('h2', '', 'LOBBY'),
+      el('span', 'sub', `${roster.length} PLAYER${roster.length === 1 ? '' : 'S'}${spectators ? ` · ${spectators} WATCHING` : ''}`),
+    );
+    root.appendChild(top);
 
-    const cols = el('div', 'cols');
-
-    // Players
-    const players = el('div', 'players');
-    players.appendChild(el('span', 'lbl', 'PLAYERS'));
-    for (const r of roster) {
-      const row = el('div', `p${r.id === myId ? ' self' : ''}${r.ready || r.id === host ? ' ready' : ''}`);
-      row.append(el('span', 'crown', r.id === host ? '♕' : ''), el('span', 'nm', r.name), el('span', 'st', r.id === host ? 'HOST' : (r.ready ? 'READY' : 'NOT READY')));
-      players.appendChild(row);
-    }
-    cols.appendChild(players);
-
-    // Settings: pickable by the host, a read-out for everyone else.
-    const set = el('div', 'settings');
+    // Right: the match. The host's to change; everyone else reads it.
     const info = MODE_INFO[settings.mode];
     const pick = (patch) => send({ t: 'settings', ...patch });
-    set.append(
-      group('MODE', PLAYABLE.map((id) => option(MODE_INFO[id].label, id === settings.mode, isHost, () => pick({ mode: id }), MODE_INFO[id].blurb))),
+    const side = el('div', 'side');
+    const sh = el('div', 'sh');
+    sh.append(el('span', 'lbl', 'MATCH'), el('span', `tag${isHost ? ' host' : ''}`, isHost ? 'YOU ARE HOST' : 'HOST CHOOSES'));
+    side.appendChild(sh);
+    const modes = el('div', 'modes');
+    for (const id of PLAYABLE) modes.appendChild(option(MODE_INFO[id].label, id === settings.mode, isHost, () => pick({ mode: id }), MODE_INFO[id].blurb));
+    side.append(
+      modes,
+      el('p', 'blurb', info.blurb),
       group('MAP', MAP_IDS.map((id) => option(id.toUpperCase(), id === settings.map, isHost && mapHosts(MAP_DATA, id, settings.mode), () => pick({ map: id })))),
       group('LIMIT', info.limits.map((n) => option(`${n} ${info.unit}`, n === settings.limit, isHost, () => pick({ limit: n })))),
       group('TIME', TIME_OPTIONS.map((t) => option(minutes(t), t === settings.time, isHost, () => pick({ time: t })))),
       group('WEAPONS', WEAPON_RULES.map((w) => option(weaponLabel(w), w === settings.weapons, isHost, () => pick({ weapons: w })))),
     );
-    set.appendChild(el('p', 'blurb', info.blurb));
-    cols.appendChild(set);
-    card.appendChild(cols);
+    if (history.length) {
+      const h = el('div', 'history');
+      h.appendChild(el('span', 'lbl', 'RECENT MATCHES'));
+      for (const e of history.slice(0, 3)) h.appendChild(historyRow(e));
+      side.appendChild(h);
+    }
+    root.appendChild(side);
 
-    // Actions
+    // Bottom: ready up, or start.
     const act = el('div', 'actions');
-    if (spectating) act.appendChild(el('span', 'note', 'YOU ARE WATCHING · YOU JOIN THE NEXT LOBBY IF YOU WANT TO PLAY'));
+    const status = el('div', 'status');
+    if (spectating) status.append(el('b', '', 'WATCHING'), el('span', '', 'YOU JOIN THE NEXT LOBBY IF YOU WANT TO PLAY'));
     else if (isHost) {
+      status.append(el('b', '', guests.length ? `${readyCount} / ${guests.length} READY` : 'WAITING FOR PLAYERS'), el('span', '', blocker || 'EVERYONE IS READY'));
       const go = el('button', 'go', 'START MATCH');
       go.type = 'button';
       go.disabled = !!blocker;
       go.addEventListener('click', () => send({ t: 'start' }));
-      act.append(go, el('span', 'note', blocker || 'EVERYONE IS READY'));
+      act.append(status, go);
     } else {
       const ready = !!me?.ready;
+      status.append(el('b', '', ready ? 'YOU ARE READY' : 'NOT READY'), el('span', '', 'THE HOST STARTS THE MATCH'));
       const b = el('button', ready ? 'go on' : 'go', ready ? 'NOT READY' : 'READY');
       b.type = 'button';
       b.addEventListener('click', () => send({ t: 'ready', ready: !ready }));
-      act.append(b, el('span', 'note', 'THE HOST CHOOSES THE SETTINGS AND STARTS THE MATCH'));
+      act.append(status, b);
     }
+    if (!act.children.length) act.appendChild(status);
     const leave = el('button', 'leave', 'LEAVE');
     leave.type = 'button';
     leave.addEventListener('click', onLeave);
     act.appendChild(leave);
-    card.appendChild(act);
-
-    if (history.length) {
-      const h = el('div', 'history');
-      h.appendChild(el('span', 'lbl', 'MATCH HISTORY'));
-      for (const e of history.slice(0, 5)) h.appendChild(historyRow(e));
-      card.appendChild(h);
-    }
-    root.appendChild(card);
+    root.appendChild(act);
   }
 
   return {

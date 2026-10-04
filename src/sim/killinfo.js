@@ -4,6 +4,13 @@
  */
 export const KILL_FLAG = { NOSCOPE: 1, LONGSHOT: 2, MIDAIR: 4 };
 export const LONGSHOT_M = 45;      // a kill from at least this far is called out
+/** Kills this close together (seconds) chain into a multi-kill. */
+export const MULTIKILL_WINDOW_S = 4;
+
+/** The banner label for the nth kill in a chain: ELIMINATED for a lone kill, then DOUBLE KILL and up. */
+export function multiKillLabel(n) {
+  return ['ELIMINATED', 'ELIMINATED', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL'][n] ?? 'RAMPAGE';
+}
 
 /** The flag bits for a kill. `scoped` is whether the shooter was aiming down the sights. */
 export function killFlags({ weapon, zoom = false, scoped = false, dist = 0, airborne = false }) {

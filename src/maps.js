@@ -53,10 +53,33 @@ texLoader.setCrossOrigin('anonymous');
  * normalised to average 1: scratches and grime without the photo's own paint colour. It is how
  * one rusty-metal photo paints ten differently coloured containers (tinted by vertex colour).
  */
+/**
+ * One-pixel stand-ins that sit in every texture slot from the moment a material is made. A map
+ * arriving later swaps its texture without changing which shader features are on, so the program
+ * compiled during the warm-up is the one that keeps running; adding a slot after the first draw
+ * recompiled every material mid-match (400 to 1300 ms hitches in the first seconds of a map).
+ */
+const _stand = {};
+function standIn(kind) {
+  if (!_stand[kind]) {
+    const rgba = kind === 'normal' ? [128, 128, 255, 255] : [255, 255, 255, 255];
+    const t = new THREE.DataTexture(new Uint8Array(rgba), 1, 1, THREE.RGBAFormat);
+    if (kind === 'albedo') t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    _stand[kind] = t;
+  }
+  return _stand[kind];
+}
+
 function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.0, detail = false, ao = false, extra = {} } = {}) {
   const mat = new THREE.MeshStandardMaterial({
     color: fallback, roughness: rough, metalness: metal, ...extra,
   });
+  mat.map = standIn('albedo');
+  mat.normalMap = standIn('normal');
+  mat.normalScale.set(0.8, 0.8);
+  mat.roughnessMap = mat.metalnessMap = standIn('arm');
+  if (ao) mat.aoMap = standIn('arm');
   if (detail) {
     const gain = { value: 1 };
     mat.onBeforeCompile = (shader) => {
@@ -83,7 +106,6 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
       mat.map = t;
       if (detail) mat.userData.detailGain.value = 1 / Math.max(0.05, meanLuminance(t.image));
       else mat.color.setHex(0xffffff);
-      mat.needsUpdate = true;
     },
     undefined,
     () => { mat.color.setHex(fallback); },
@@ -95,8 +117,6 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
       t.repeat.set(repeat, repeat);
       t.anisotropy = MAX_ANISO;
       mat.normalMap = t;
-      mat.normalScale.set(0.8, 0.8);
-      mat.needsUpdate = true;
     },
     undefined, () => {},
   );
@@ -110,7 +130,6 @@ function pbrMat(slug, { repeat = 4, fallback = 0x8a8a8a, rough = 0.9, metal = 0.
       mat.metalnessMap = t;
       if (ao) mat.aoMap = t;
       mat.metalness = Math.max(metal, 0.35);   // metalnessMap multiplies, so give it headroom
-      mat.needsUpdate = true;
     },
     undefined, () => {},
   );

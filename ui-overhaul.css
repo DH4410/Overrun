@@ -123,6 +123,7 @@ button { font: inherit; color: inherit; }
 #killbanner .kb-name { font-size: 28px; font-weight: 700; letter-spacing: 1px; color: var(--ink); line-height: 1; }
 #killbanner .kb-tag { font-size: 13px; font-weight: 700; letter-spacing: 3px; color: var(--accent); display: none; }
 #killbanner.headshot .kb-tag { display: block; }
+#killbanner.multi .kb-label { color: var(--accent); font-size: 15px; font-weight: 800; }
 @keyframes killPop {
   0% { opacity: 0; transform: translateX(-50%) scale(1.25); }
   8% { opacity: 1; transform: translateX(-50%) scale(1); }

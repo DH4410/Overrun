@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { EV, readEvent, writeEvent } from '../../src/sim/protocol.js';
-import { KILL_FLAG, killFlags, killLine, killTags } from '../../src/sim/killinfo.js';
+import { KILL_FLAG, killFlags, killLine, killTags, multiKillLabel } from '../../src/sim/killinfo.js';
 import { join, makeRoom, startRound } from './room-kit.mjs';
 
 test('noscope, longshot and midair are only called for gun kills, and only when they are true', () => {
@@ -43,4 +43,11 @@ test('the server flags an unscoped sniper kill with the real distance', () => {
   assert.ok(e.flags & KILL_FLAG.LONGSHOT, '60 m');
   assert.ok(Math.abs(e.dist - 60) < 0.01);
   assert.equal(e.weapon, 'sniper');
+});
+
+test('a chain of kills is called out by count', () => {
+  assert.equal(multiKillLabel(1), 'ELIMINATED');
+  assert.deepEqual([2, 3, 4].map(multiKillLabel), ['DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL']);
+  assert.equal(multiKillLabel(5), 'RAMPAGE');
+  assert.equal(multiKillLabel(12), 'RAMPAGE');
 });

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { CONFIG, TEAM, TEAM_COLOR } from './config.js';
 import { codeOf, keyName } from './keybinds.js';
 import { killIcon } from './killicons.js';
-import { killTags } from './sim/killinfo.js';
+import { MULTIKILL_WINDOW_S, killTags, multiKillLabel } from './sim/killinfo.js';
 import { hipFov, settings } from './settings.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
@@ -56,8 +56,16 @@ function showHitMarker(kind) {
 }
 
 /** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
+let chain = 0, lastKillAt = -1e9;
+
 function showKillBanner(target, headshot, info = {}) {
   if (!el.killbanner) return;
+  const now = performance.now() / 1000;
+  chain = now - lastKillAt <= MULTIKILL_WINDOW_S ? chain + 1 : 1;
+  lastKillAt = now;
+  const label = document.getElementById('kb-label');
+  if (label) label.textContent = multiKillLabel(chain);
+  el.killbanner.classList.toggle('multi', chain > 1);
   el.kbName.textContent = target.name;
   const tags = killTags({ head: headshot, flags: info.flags, dist: info.dist });
   const tag = document.getElementById('kb-tag');

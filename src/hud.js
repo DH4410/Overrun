@@ -354,7 +354,7 @@ function addKillFeed(source, target, headshot, info = {}) {
 function showBoard(on) { el.board.classList.toggle('on', !!on); if (on) refreshBoard(); }
 
 function refreshBoard() {
-  const rows = [player, ...bots].slice();
+  const rows = [player, ...bots.filter((b) => !b.hostile)];
   rows.sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
   el.bBody.innerHTML = '';
   for (const c of rows) {

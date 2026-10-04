@@ -18,6 +18,7 @@ import { applyCommand } from '../src/sim/tick.js';
 import { killFlags } from '../src/sim/killinfo.js';
 import { WEAPONS } from '../src/sim/weaponData.js';
 import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS } from '../src/sim/world.js';
+import { botCommand, botSpec, navFor, newAi } from './bots.js';
 import { ctfDrop, ctfInit, ctfStep, flagsWire } from './ctf.js';
 import { Governor } from './governor.js';
 
@@ -48,6 +49,8 @@ const CONSUMABLES = {
   shield: { amount: 40, respawn: 30, stat: 'armor', max: CONFIG.MAX_ARMOR },
 };
 const NADE_ROLL_SPEED = 2.6;
+const BOT_ID0 = 100, BOT_IDS = 150;      // hostile ids count up from here, so a seat id and a hostile id never meet
+const BOT_SKINS = ['gasmask', 'trooper', 'crypto', 'swat'].filter((id) => CHARACTER_IDS.includes(id));
 
 const _v = new Vector3();
 const _dir = new Vector3();
@@ -100,6 +103,8 @@ export class Room {
     this.scoreA = 0; this.scoreB = 0;
     this.roundReset = 0;
     this.flags = [];
+    this.sv = null;                      // survival: { wave, state, breakT, queue, cap, spawnIn, counter, nextId }
+    this.rosterDirty = false;
     this.loadMap(this.settings.map);
     if (autostart) this.startMatch(this.settings.mode, this.settings.map);
   }
@@ -116,6 +121,11 @@ export class Room {
     const [fa, fb] = def.flags;
     const nearer = (sp, f, g) => (sp.x - f[0]) ** 2 + (sp.z - f[1]) ** 2 <= (sp.x - g[0]) ** 2 + (sp.z - g[1]) ** 2;
     this.sideSpawns = { [TEAM.BLUE]: this.spawns.filter((s) => nearer(s, fa, fb)), [TEAM.RED]: this.spawns.filter((s) => nearer(s, fb, fa)) };
+    // Survival: the people start together, at the map's own list (svHumans) or on the blue side; hostiles come from anywhere else.
+    const own = def.svHumans ? this.spawns.filter((sp) => def.svHumans.some(([x, z]) => Math.abs(x - sp.x) < 0.01 && Math.abs(z - sp.z) < 0.01)) : [];
+    this.humanSpawns = own.length ? own : this.sideSpawns[TEAM.BLUE].length ? this.sideSpawns[TEAM.BLUE] : this.spawns;
+    this.blockers = blockers;
+    this.nav = !def.modes || def.modes.includes('sv') ? navFor(id, world, blockers, def) : null;   // the route grid hostiles walk, built before any body is in the world
     // Same placement rules as src/pickups.js.
     this.chests = [];
     for (const [x, z] of def.ammo) {
@@ -257,7 +267,7 @@ export class Room {
     }
     this.sendJson(c, {
       t: 'welcome', id: p ? p.id : null, token: p?.token ?? null, spectator: !p,
-      full: c.queued && this.players.length >= this.seatLimit(), queued: c.queued,
+      full: c.queued && this.humanSeats().length >= this.seatLimit(), queued: c.queued,
       tick: this.tick, tickHz: TICK_HZ, snapshotHz: SNAPSHOT_HZ,
       ...this.matchInfo(),
     });
@@ -274,8 +284,8 @@ export class Room {
    * point in spawning into it.
    */
   canSeat() {
-    if (this.players.length >= this.seatLimit()) return false;
-    if (this.phase === PHASE.PLAYING && this.mode !== 'war' && this.timeLeft <= LATE_JOIN_CUTOFF) return false;
+    if (this.humanSeats().length >= this.seatLimit()) return false;
+    if (this.phase === PHASE.PLAYING && !MODE_INFO[this.mode].untimed && this.timeLeft <= LATE_JOIN_CUTOFF) return false;
     return this.phase !== PHASE.CLOSED;
   }
 
@@ -283,12 +293,29 @@ export class Room {
     const used = new Set(this.players.map((q) => q.id));
     let id = 0;
     while (used.has(id)) id++;
-    const p = {
+    const p = this.blankSeat({
       id, conn: c.conn, connected: true, droppedAt: 0,
       token: Array.from({ length: 4 }, () => Math.floor(this.rng() * 2 ** 32).toString(36)).join(''),
       name: cleanName(m.name),
       character: CHARACTER_IDS.includes(m.character) ? m.character : CHARACTER_IDS[0],
       loadout: validLoadout(m.loadout) ? [...m.loadout] : [...DEFAULT_LOADOUT],
+    });
+    p.chosen = [...p.loadout];
+    this.world.addBody(p.body);
+    const inRound = this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN;
+    if (inRound && teamMode(this.mode)) p.team = this.smallerTeam();
+    if (inRound) this.applyLoadout(p);
+    this.players.push(p);
+    c.player = p;
+    this.respawn(p);
+    this.log(`join ${p.name} (#${p.id})`);
+    return p;
+  }
+
+  /** A seat with nothing in it yet: `fields` says who it is (a person's, or a hostile's). */
+  blankSeat(fields) {
+    return {
+      connected: true, droppedAt: 0,
       team: TEAM.SOLO, kills: 0, deaths: 0, headshots: 0, damage: 0, captures: 0, ready: false,
       body: createPlayerBody(G_WORLD),   // players pass through each other and through grenades
       pos: new Vector3(), eye: new Vector3(), vel: new Vector3(),
@@ -302,17 +329,8 @@ export class Room {
       queue: [], lastCmd: IDLE_CMD, ackSeq: 0, ackTick: this.tick, lastSeq: 0, merge: 0, guesses: 0, minDepth: Infinity, depthAt: this.tick,
       rtt: 0, interpMs: 100, echoTime: 0, echoAt: 0,
       hist: new Float32Array(HIST * 5), histTick: new Int32Array(HIST).fill(-1),
+      ...fields,
     };
-    p.chosen = [...p.loadout];
-    this.world.addBody(p.body);
-    const inRound = this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN;
-    if (inRound && teamMode(this.mode)) p.team = this.smallerTeam();
-    if (inRound) this.applyLoadout(p);
-    this.players.push(p);
-    c.player = p;
-    this.respawn(p);
-    this.log(`join ${p.name} (#${p.id})`);
-    return p;
   }
 
   resumeSeat(p, c) {
@@ -333,20 +351,27 @@ export class Room {
   }
 
   smallerTeam() {
+    if (MODE_INFO[this.mode].coop) return TEAM.BLUE;
     let blue = 0, red = 0;
-    for (const q of this.players) if (q.connected) { if (q.team === TEAM.BLUE) blue++; else if (q.team === TEAM.RED) red++; }
+    for (const q of this.players) if (q.connected && !q.bot) { if (q.team === TEAM.BLUE) blue++; else if (q.team === TEAM.RED) red++; }
     if (blue !== red) return blue < red ? TEAM.BLUE : TEAM.RED;
     return this.rng() < 0.5 ? TEAM.BLUE : TEAM.RED;
   }
 
   roster() {
     return this.players.filter((p) => p.connected).map((p) => ({
-      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready,
+      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready, ...(p.bot ? { bot: true } : {}),
     }));
   }
 
   /** The first seated player is the host: they choose the settings and start the round. */
-  get hostSeat() { return this.players.find((p) => p.connected) ?? null; }
+  get hostSeat() { return this.players.find((p) => p.connected && !p.bot) ?? null; }
+
+  /** The people in the room, held seats included. */
+  humanSeats() { return this.players.filter((p) => !p.bot); }
+
+  /** The people playing now. */
+  humans() { return this.players.filter((p) => p.connected && !p.bot); }
 
   /** What the lobby screen draws besides the player list. */
   lobbyInfo() {
@@ -511,7 +536,7 @@ export class Room {
     const frozen = this.phase === PHASE.LOBBY || this.phase === PHASE.COUNTDOWN;
     for (const p of this.players) {
       if (!p.connected) continue;
-      let cmd = this.nextCommand(p);
+      let cmd = p.bot ? botCommand(this, p) : this.nextCommand(p);
       if (frozen && (cmd.ix || cmd.iz || cmd.buttons || cmd.emote)) cmd = { ...cmd, ix: 0, iz: 0, buttons: 0, emote: 0 };
       applyCommand(this.world, p, p.cmd = cmd, dt, armed, this);
     }
@@ -522,7 +547,7 @@ export class Room {
       const b = p.body;
       p.vel.set(b.velocity.x, b.velocity.y, b.velocity.z);
       syncPlayerPoints(p);
-      if (b.position.y < -20) this.respawn(p);   // fell out of the world
+      if (b.position.y < -20) this.respawn(p, p.bot ? this.pickBotSpawn() : undefined);   // fell out of the world
       const h = p.hist, k = slot * 5;
       h[k] = p.pos.x; h[k + 1] = p.pos.y; h[k + 2] = p.pos.z; h[k + 3] = p.crouching ? 1 : 0; h[k + 4] = p.alive ? 1 : 0;
       p.histTick[slot] = this.tick;
@@ -536,16 +561,17 @@ export class Room {
     if (this.phase === PHASE.PLAYING) {
       this.stepPickups(dt);
       for (const p of this.players) {
-        if (p.connected && !p.alive && p.respawnTimer > 0) {
+        if (p.connected && !p.bot && !p.alive && p.respawnTimer > 0) {
           p.respawnTimer -= dt;
           if (p.respawnTimer <= 0) this.respawn(p);
         }
       }
       if (this.mode === 'ctf') ctfStep(this, dt);
       if (this.mode === 'duel') this.stepDuel(dt);
+      else if (this.mode === 'survival') this.stepSurvival(dt);
       else if (this.mode !== 'war' && (this.timeLeft -= dt) <= 0) this.endOnTime();
     } else if (this.phase === PHASE.COUNTDOWN) {
-      if (this.players.filter((p) => p.connected).length < 2) this.toLobby('NOT ENOUGH PLAYERS');
+      if (this.seated().length < MODE_INFO[this.mode].min) this.toLobby('NOT ENOUGH PLAYERS');
       else if ((this.timeLeft -= dt) <= 0) this.beginPlay();
     } else if (this.phase === PHASE.INTERMISSION) {
       this.timeLeft -= dt;
@@ -588,7 +614,7 @@ export class Room {
         d.z += (this.rng() * 2 - 1) * cone;
         d.normalize();
       }
-      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: w.damage, owner: p, weapon: w.id };
+      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: w.damage * (p.dmgMult ?? 1), owner: p, weapon: w.id };
       // Fly it through the ticks the shooter was behind, against where everyone was then.
       let gone = false;
       for (let j = rewind; j >= 1 && !gone; j--) gone = this.stepBullet(b, FIXED_DT, this.tick - j);
@@ -703,7 +729,8 @@ export class Room {
     target.deaths++;
     target.alive = false;
     if (this.mode === 'ctf') ctfDrop(this, target);
-    target.respawnTimer = this.mode === 'duel' ? 0 : CONFIG.PLAYER_RESPAWN;   // a duel death lasts until the round resets
+    target.respawnTimer = this.mode === 'duel' || this.mode === 'survival' ? 0 : CONFIG.PLAYER_RESPAWN;   // a duel death lasts until the round resets, a survival death until the next wave
+    if (target.bot) target.removeAt = this.tick + 5 * TICK_HZ;
     target.cooking = null;
     target.emote = 0;
     this.idleCommand(target);
@@ -773,7 +800,7 @@ export class Room {
     this.chests.forEach((c, index) => {
       if (c.cooldown > 0) { c.cooldown -= dt; return; }
       for (const p of this.players) {
-        if (!p.connected || !p.alive) continue;
+        if (!p.connected || !p.alive || p.bot) continue;
         const b = p.body.position;
         if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) > CHEST_RANGE) continue;
         const w = WEAPONS.find((x) => x.id === p.current);
@@ -792,7 +819,7 @@ export class Room {
       if (c.cooldown > 0) { c.cooldown -= dt; return; }
       const spec = CONSUMABLES[c.kind];
       for (const p of this.players) {
-        if (!p.connected || !p.alive || p[spec.stat] >= spec.max) continue;
+        if (!p.connected || !p.alive || p.bot || p[spec.stat] >= spec.max) continue;
         const b = p.body.position;
         if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) > 1.5) continue;
         p[spec.stat] = Math.min(spec.max, p[spec.stat] + spec.amount);
@@ -805,7 +832,8 @@ export class Room {
 
   /** Furthest from every living enemy, with jitter: main.js's pickSpawn. */
   pickSpawn(p) {
-    const pool = this.mode === 'ctf' && this.sideSpawns[p.team]?.length ? this.sideSpawns[p.team] : this.spawns;
+    const pool = this.mode === 'survival' ? this.humanSpawns
+      : this.mode === 'ctf' && this.sideSpawns[p.team]?.length ? this.sideSpawns[p.team] : this.spawns;
     let best = pool[0], bestScore = -Infinity;
     for (const sp of pool) {
       let score = Infinity;
@@ -859,7 +887,7 @@ export class Room {
 
   /* ---------------------------------------------------------------- match */
 
-  seated() { return this.players.filter((p) => p.connected); }
+  seated() { return this.players.filter((p) => p.connected && !p.bot); }
 
   /** Why the host cannot start the round yet, or null when they can. */
   startBlocker() {
@@ -894,7 +922,7 @@ export class Room {
 
   /** Warzone has no clock and no limit: the host ends it, and the standings are the result. */
   onEnd(p) {
-    if (p !== this.hostSeat || this.phase !== PHASE.PLAYING || this.mode !== 'war') return;
+    if (p !== this.hostSeat || this.phase !== PHASE.PLAYING || !MODE_INFO[this.mode].untimed) return;
     this.endOnTime();
   }
 
@@ -916,6 +944,8 @@ export class Room {
   /** Everything a round starts from: the map, teams, loadouts, scores and everyone at a spawn. */
   prepareRound(mode, mapId) {
     if (mapId !== this.mapId) this.loadMap(mapId);
+    this.clearBots();
+    this.sv = null;
     this.mode = mode;
     this.scoreA = 0; this.scoreB = 0;
     this.flags = [];
@@ -930,8 +960,9 @@ export class Room {
       [seated[i], seated[j]] = [seated[j], seated[i]];
     }
     // A duel has no friendly-fire rules, but its two sides carry the blue and red colours and scores.
-    seated.forEach((p, i) => { p.team = teamScore(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
+    seated.forEach((p, i) => { p.team = mode === 'survival' ? TEAM.BLUE : teamScore(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
     if (mode === 'ctf') ctfInit(this);
+    if (mode === 'survival') this.sv = { wave: 0, state: 'break', breakT: 4, queue: 0, cap: 8, spawnIn: 0, counter: 0, nextId: BOT_ID0 };
     for (const p of this.players) {
       p.kills = 0; p.deaths = 0; p.headshots = 0; p.damage = 0; p.captures = 0; p.ready = false;
       this.applyLoadout(p);
@@ -941,10 +972,124 @@ export class Room {
 
   beginPlay() {
     this.phase = PHASE.PLAYING;
-    this.timeLeft = this.mode === 'war' ? 0 : this.settings.time;
+    this.timeLeft = MODE_INFO[this.mode].untimed ? 0 : this.settings.time;
     this.roundReset = 0;
     if (this.mode === 'duel') this.startDuelRound();
     this.log(`round: ${this.mode} on ${this.mapId}`);
+  }
+
+  /* ------------------------------------------------------------- survival */
+
+  /** Take every hostile out of the room; the clients are told on the next roster. */
+  clearBots() {
+    let any = false;
+    for (let i = this.players.length - 1; i >= 0; i--) {
+      const p = this.players[i];
+      if (!p.bot) continue;
+      this.world.removeBody(p.body);
+      this.players.splice(i, 1);
+      any = true;
+    }
+    if (any) this.broadcastRoster();
+  }
+
+  /** Far from every living person, out of their sight if it can be, and not on top of another hostile. */
+  pickBotSpawn() {
+    const people = this.humans().filter((q) => q.alive);
+    let best = this.spawns[0], bs = -Infinity;
+    const at = { x: 0, y: 0, z: 0 };
+    for (const sp of this.spawns) {
+      if (this.players.some((q) => q.bot && q.alive && Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z) < 2.5)) continue;
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z));
+      if (d === Infinity) d = 50;
+      at.x = sp.x; at.y = sp.y + 0.8; at.z = sp.z;
+      const seen = d < 70 && people.some((q) => this.losClear(at, q.pos));
+      const score = Math.min(d, 60) - (seen ? 40 : 0) + this.rng() * 12;
+      if (score > bs) { bs = score; best = sp; }
+    }
+    return best;
+  }
+
+  spawnBot() {
+    const sv = this.sv;
+    const spec = botSpec(sv.wave, this.rng);
+    const used = new Set(this.players.map((q) => q.id));
+    let id = sv.nextId;
+    for (let k = 0; k < BOT_IDS && used.has(id); k++) id = BOT_ID0 + ((id - BOT_ID0 + 1) % BOT_IDS);
+    if (used.has(id)) return false;
+    sv.nextId = BOT_ID0 + ((id - BOT_ID0 + 1) % BOT_IDS);
+    const p = this.blankSeat({
+      id, conn: null, bot: true, token: '', name: `HOSTILE ${(sv.counter++ % 99) + 1}`,
+      character: BOT_SKINS[Math.floor(this.rng() * BOT_SKINS.length)] ?? CHARACTER_IDS[0],
+      loadout: [spec.weapon], team: TEAM.RED, dmgMult: spec.dmg, ai: newAi(spec, this.rng),
+    });
+    p.chosen = [spec.weapon];
+    this.world.addBody(p.body);
+    this.players.push(p);
+    const sp = this.pickBotSpawn();
+    this.respawn(p, sp);
+    p.health = spec.health; p.armor = 0; p.invulnTimer = 0.4; p.fragCount = 0; p.smokeCount = 0;
+    p.ai.yaw = Math.atan2(sp.x, sp.z);
+    this.rosterDirty = true;
+    return true;
+  }
+
+  startWave(w) {
+    const sv = this.sv, people = this.humans();
+    sv.wave = w; sv.state = 'wave';
+    // The break is when the dead come back and the living catch their breath.
+    for (const p of people) {
+      if (!p.alive) { this.respawn(p); continue; }
+      p.health = Math.min(CONFIG.MAX_HEALTH, p.health + 40);
+      p.armor = Math.min(CONFIG.MAX_ARMOR, p.armor + 25);
+      resetAmmo(p);
+    }
+    const n = Math.max(1, people.length);
+    sv.queue = Math.min(80, Math.round((2 + 2 * w) * (1 + 0.5 * (n - 1))));
+    sv.cap = Math.min(12, 6 + 2 * n);
+    sv.spawnIn = 0;
+    const text = `WAVE ${w} \u2014 ${sv.queue} HOSTILES`;
+    this.say(text);
+    this.broadcastJson({ t: 'toast', text });
+  }
+
+  stepSurvival(dt) {
+    const sv = this.sv;
+    if (!sv) return;
+    const people = this.humans();
+    for (let i = this.players.length - 1; i >= 0; i--) {     // corpses stay a few seconds for the death animation
+      const p = this.players[i];
+      if (p.bot && !p.alive && this.tick >= p.removeAt) {
+        this.world.removeBody(p.body);
+        this.players.splice(i, 1);
+        this.rosterDirty = true;
+      }
+    }
+    const alive = this.players.reduce((n, p) => n + (p.bot && p.alive ? 1 : 0), 0);
+    this.scoreA = sv.wave;
+    this.scoreB = alive + sv.queue;
+    if (people.length && sv.wave > 0 && !people.some((p) => p.alive)) {
+      this.endMatch('DEFEAT', `Fell on wave ${sv.wave} of ${this.settings.limit}`, { team: TEAM.RED });
+      return;
+    }
+    if (sv.state === 'break') {
+      if ((sv.breakT -= dt) <= 0) this.startWave(sv.wave + 1);
+    } else {
+      if (sv.queue > 0 && alive < sv.cap && (sv.spawnIn -= dt) <= 0) {
+        if (this.spawnBot()) sv.queue--;
+        sv.spawnIn = 0.5;
+      }
+      if (sv.queue === 0 && alive === 0) {
+        if (sv.wave >= this.settings.limit) {
+          this.endMatch('VICTORY', `${sv.wave} waves survived`, { team: TEAM.BLUE });
+          return;
+        }
+        sv.state = 'break'; sv.breakT = 7;
+        this.say(`WAVE ${sv.wave} CLEARED`);
+      }
+    }
+    if (this.rosterDirty) { this.rosterDirty = false; this.broadcastRoster(); }
   }
 
   /* ----------------------------------------------------------------- duel */
@@ -1005,9 +1150,11 @@ export class Room {
     this.timeLeft = 0;
     this.mode = this.settings.mode;
     this.flags = [];
+    this.clearBots();
+    this.sv = null;
     for (const p of this.players) { p.ready = false; p.team = TEAM.SOLO; p.loadout = [...p.chosen]; }
     for (const c of this.clients.values()) {
-      if (!c.queued || c.player || this.players.length >= MAX_PLAYERS) continue;
+      if (!c.queued || c.player || this.humanSeats().length >= MAX_PLAYERS) continue;
       c.spectator = false; c.queued = false;
       const p = this.newSeat(c, c.helloMsg ?? {});
       this.sendJson(c, { t: 'welcome', id: p.id, token: p.token, spectator: false, full: false, queued: false, tick: this.tick, tickHz: TICK_HZ, snapshotHz: SNAPSHOT_HZ, ...this.matchInfo() });
@@ -1018,7 +1165,7 @@ export class Room {
   }
 
   checkWin() {
-    if (this.phase !== PHASE.PLAYING || this.mode === 'war') return;
+    if (this.phase !== PHASE.PLAYING || MODE_INFO[this.mode].untimed) return;
     const limit = this.settings.limit;
     if (this.mode === 'duel') {
       const win = this.scoreA >= limit ? TEAM.BLUE : this.scoreB >= limit ? TEAM.RED : null;
@@ -1032,7 +1179,10 @@ export class Room {
   }
 
   endOnTime() {
-    if (teamMode(this.mode)) {
+    if (this.mode === 'survival') {
+      const wave = this.sv?.wave ?? 0;
+      this.endMatch('ENDED', `${wave} wave${wave === 1 ? '' : 's'} survived`, {});
+    } else if (teamMode(this.mode)) {
       if (this.scoreA === this.scoreB) this.endMatch('DRAW', `${this.scoreA} - ${this.scoreB}`, {});
       else {
         const blue = this.scoreA > this.scoreB;
@@ -1049,9 +1199,10 @@ export class Room {
     this.phase = PHASE.INTERMISSION;
     this.timeLeft = INTERMISSION;
     for (const p of this.players) p.cooking = null;
-    const standings = this.players.filter((p) => p.connected)
+    const standings = this.players.filter((p) => p.connected && !p.bot)
       .map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, headshots: p.headshots, damage: Math.round(p.damage), captures: p.captures }))
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    this.clearBots();
     this.broadcastJson({
       t: 'end', title, detail, standings, scoreA: this.scoreA, scoreB: this.scoreB, winner,
       lastRound: this.governor.lastRound, ...this.matchInfo(),
@@ -1133,7 +1284,7 @@ export class Room {
     };
     const s = this.stats;
     return {
-      players: this.players.filter((p) => p.connected).length,
+      players: this.humans().length,
       held: this.players.filter((p) => !p.connected).length,
       spectators: [...this.clients.values()].filter((c) => c.spectator).length,
       phase: Object.keys(PHASE).find((k) => PHASE[k] === this.phase), mode: this.mode, map: this.mapId,

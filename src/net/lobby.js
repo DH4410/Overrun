@@ -189,7 +189,7 @@ export function createLobby({ send, onLeave }) {
     side.append(
       card('mode', 'MODE', info.label, info.blurb),
       card('map', 'MAP', settings.map.toUpperCase(), mapSize(settings.map), `art-${settings.map}`),
-      card('rules', 'RULES', rules.slice(0, 2).join(' · ') || 'NO LIMITS', rules.slice(2).join(' · ') || (info.untimed ? 'GOES ON UNTIL THE HOST ENDS IT' : '')),
+      card('rules', 'RULES', rules.slice(0, 2).join(' · ') || 'NO LIMITS', rules.slice(2).join(' · ') || (settings.mode === 'survival' ? 'ENDS WHEN EVERYONE HAS FALLEN' : info.untimed ? 'GOES ON UNTIL THE HOST ENDS IT' : '')),
     );
     if (history.length) {
       const h = el('div', 'history');

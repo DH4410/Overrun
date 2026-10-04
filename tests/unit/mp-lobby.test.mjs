@@ -70,8 +70,10 @@ test('the host chooses the settings; a hand-made message cannot pick anything of
   assert.deepEqual(room.settings, { mode: 'tdm', map: 'snow', time: 180, limit: 15, weapons: 'sniper' });
   A.say({ t: 'settings', mode: 'nonsense', map: '../../etc', time: 99999, limit: -1, weapons: 'rpg' });
   assert.deepEqual(room.settings, { mode: 'tdm', map: 'snow', time: 180, limit: 15, weapons: 'sniper' });
-  A.say({ t: 'settings', mode: 'survival' });  // not runnable yet
-  assert.equal(room.settings.mode, 'tdm');
+  A.say({ t: 'settings', mode: 'survival' });
+  assert.equal(room.settings.mode, 'survival');
+  assert.equal(room.settings.limit, 15, 'a limit on the survival list is kept');
+  A.say({ t: 'settings', mode: 'tdm', limit: 15 });
   assert.equal(cleanSettings({ mode: 'dm' }, room.settings).limit, 20, 'a limit from the other mode falls back to the default');
 });
 

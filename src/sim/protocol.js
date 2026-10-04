@@ -5,7 +5,7 @@
  * Bump PROTOCOL_VERSION whenever anything here or in the shared simulation changes meaning: it
  * is folded into the map hash, so a stale client is told to refresh instead of desyncing.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -25,7 +25,7 @@ export const ONE_SHOT_BITS = BTN.JUMP | BTN.RELOAD;
 export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag'];
 /** Index 0 is "not emoting". Matches EMOTES in src/emotes.js. */
 export const EMOTE_IDS = [null, 'wave', 'hiphop', 'robot', 'chicken', 'macarena', 'ymca', 'thriller', 'victory'];
-export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival'];
+export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival', 'war'];
 export { CHARACTER_IDS } from '../skins.js';
 export const MAX_PLAYERS = 10;
 export const MAX_SPECTATORS = 16;

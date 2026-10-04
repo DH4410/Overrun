@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { startServer } from '../../server/node.js';
+import { MAP_IDS } from '../../src/sim/mapData.js';
 
 /**
  * Online play against the real room (server/node.js) on its own port: two players and a
@@ -75,7 +76,7 @@ test('two players and a spectator share one room, and see each other move', asyn
   await expect(b.locator('#mp-lobby .go')).toHaveText('READY');
   await expect(b.locator('#mp-lobby button.mcard')).toHaveCount(0);   // a guest cannot change settings
   await a.click('#mp-lobby .mcard.k-map');                           // the host's choices open as a popout
-  await expect(a.locator('#mp-lobby .pop .tile')).toHaveCount(4);
+  await expect(a.locator('#mp-lobby .pop .tile')).toHaveCount(MAP_IDS.length);
   await a.keyboard.press('Escape');
   await expect(a.locator('#mp-lobby .pop')).toHaveCount(0);
   await b.click('#mp-lobby .go');
@@ -179,4 +180,28 @@ test('a player who joined mid-match has the lobby stage ready for when the room 
   expect(d.staged).toBe(false);   // not on stage while the match is running
 
   for (const p of [a, b, c]) await p.context().close();
+});
+
+/**
+ * Survival is the one mode a player can start alone: the server adds the hostiles, the client
+ * draws them as red players that stay off the scoreboard and out of the player count.
+ */
+test('one player can start survival; the hostiles come in waves and are not on the scoreboard', async ({ browser }) => {
+  test.setTimeout(240_000);
+  await server.stop();
+  server = await startServer({ port: PORT, budgetFile: path.join(mkdtempSync(path.join(tmpdir(), 'overrun-mp-')), 'budget.json'), log: () => {} });
+  const a = await open(browser, 'SOLO');
+  await a.click('#mp-play');
+  await expect(a.locator('#mp-lobby')).toBeVisible({ timeout: 30_000 });
+  await a.click('#mp-lobby .mcard.k-mode');
+  await a.locator('#mp-lobby .pop .tile', { hasText: 'SURVIVAL' }).click();
+  await expect(a.locator('#mp-lobby .go')).toBeEnabled();   // nobody else needed
+  await a.click('#mp-lobby .go');
+  await expect.poll(() => a.evaluate(() => window.__game.bots.filter((b) => b.hostile).length), { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
+  await expect(a.locator('#tb-time')).toHaveText('WAVE 1');
+  await a.keyboard.down('Tab');
+  await expect(a.locator('#b-body tr')).toHaveCount(1);   // just the player
+  await a.keyboard.up('Tab');
+  expect((await roomStats()).players).toBe(1);
+  await a.context().close();
 });

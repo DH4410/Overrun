@@ -282,6 +282,7 @@ export function createNetClient(d) {
       case 'match': onMatch(m); break;
       case 'end': onEnd(m); break;
       case 'chat': chat.add(m); break;
+      case 'toast': d.showToast(m.text); break;
       case 'flags': flagsView.set(m.flags, myId); break;
       case 'closed': refusal = m.reason; break;
       case 'error': refusal = m.reason; break;
@@ -448,7 +449,8 @@ export function createNetClient(d) {
     if (w.team !== undefined) result = w.team === me.team ? 'WIN' : 'LOSS';
     else if (w.id !== undefined) result = w.id === myId ? 'WIN' : 'LOSS';
     let score = `${me.kills}K ${me.deaths}D`;
-    if (teamScore(m.mode)) {
+    if (m.mode === 'survival') score = `WAVE ${m.scoreA}`;
+    else if (teamScore(m.mode)) {
       const blue = me.team === TEAM.BLUE;
       score = `${blue ? m.scoreA : m.scoreB}-${blue ? m.scoreB : m.scoreA}`;
     }
@@ -605,6 +607,7 @@ export function createNetClient(d) {
       b = new d.Bot(r.name, team, d.match.diff, null, { character, puppet: true });
       b.characterId = character;
       b.netId = id;
+      b.hostile = !!r.bot;   // a survival enemy the server drives: off the scoreboard, out of the player count
       puppets.set(id, b);
       bots.push(b);
     }
@@ -932,7 +935,7 @@ export function createNetClient(d) {
       el.pBig.textContent = 'ELIMINATED';
       const by = lastDeath && !lastDeath.self && lastDeath.name
         ? `KILLED BY ${lastDeath.name} \u00b7 ${killLine(WEAPON_BY_ID[lastDeath.weapon]?.name ?? lastDeath.weapon, { head: lastDeath.head, flags: lastDeath.flags, dist: lastDeath.dist })}` : '';
-      const wait = phase !== PHASE.PLAYING ? '' : mode === 'duel' ? 'NEXT ROUND SOON' : `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s`;
+      const wait = phase !== PHASE.PLAYING ? '' : mode === 'duel' ? 'NEXT ROUND SOON' : mode === 'survival' ? 'DOWN UNTIL THE NEXT WAVE' : `RESPAWNING IN ${Math.max(0, p.respawnTimer).toFixed(1)}s`;
       el.pSm.textContent = [by, wait].filter(Boolean).join('  ·  ');
       el.pCta.style.display = d.isPointerLocked() ? 'none' : '';
     } else if (!wasAlive) {
@@ -1298,7 +1301,9 @@ export function createNetClient(d) {
 
   function hud() {
     el.tbMode.textContent = modeLabel(phase === PHASE.LOBBY && lobbyInfo.settings ? lobbyInfo.settings.mode : mode);
-    if (teamScore(mode)) {
+    if (mode === 'survival') {
+      el.tbA.textContent = spectator ? '-' : player.kills; el.tbB.textContent = scoreB;   // your kills, hostiles left
+    } else if (teamScore(mode)) {
       el.tbA.textContent = scoreA; el.tbB.textContent = scoreB;
     } else {
       let top = 0;
@@ -1306,7 +1311,7 @@ export function createNetClient(d) {
       el.tbA.textContent = spectator ? '-' : player.kills;
       el.tbB.textContent = top;
     }
-    el.tbTime.textContent = { [PHASE.LOBBY]: 'LOBBY', [PHASE.COUNTDOWN]: 'GET READY', [PHASE.INTERMISSION]: 'RESULTS' }[phase] ?? (MODE_INFO[mode]?.untimed ? '∞' : formatTime(timeLeft));
+    el.tbTime.textContent = { [PHASE.LOBBY]: 'LOBBY', [PHASE.COUNTDOWN]: 'GET READY', [PHASE.INTERMISSION]: 'RESULTS' }[phase] ?? (mode === 'survival' ? `WAVE ${scoreA}` : MODE_INFO[mode]?.untimed ? '∞' : formatTime(timeLeft));
     const inLobby = phase === PHASE.LOBBY && welcomed;
     lobbyUI.show(inLobby);
     chat.show(active && welcomed);
@@ -1346,7 +1351,7 @@ export function createNetClient(d) {
   /** Tab: the server's scoreboard, not the local match's. */
   function decorateBoard() {
     if (!active) return;
-    el.bSub.textContent = `${modeLabel(mode)} · ONLINE · ${roster.size} PLAYERS`;
+    el.bSub.textContent = `${modeLabel(mode)} · ONLINE · ${[...roster.values()].filter((r) => !r.bot).length} PLAYERS`;
   }
 
   return {

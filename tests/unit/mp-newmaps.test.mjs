@@ -12,15 +12,15 @@ import { join, makeRoom, run, startRound } from './room-kit.mjs';
  * lobby can start opens with every player on solid ground inside the map, clear of every blocker.
  */
 
-const NEW_MAPS = ['depot', 'bastion'];
+const NEW_MAPS = ['depot', 'bastion', 'arena'];
 
 for (const id of NEW_MAPS) {
   const def = MAP_DATA[id];
   const data = JSON.parse(readFileSync(new URL(`../../assets/maps/${id}.json`, import.meta.url), 'utf8'));
   const { world, blockers } = buildMapWorld(data, def.half);
-  const modes = def.modes.filter((m) => PLAYABLE.includes(m));
+  const modes = def.modes.map((m) => (m === 'sv' ? 'survival' : m)).filter((m) => PLAYABLE.includes(m));
 
-  if (def.flags) {
+  if (def.flags && def.modes.some((m) => m !== 'sv')) {      // a survival-only map's flag pair is a placeholder
     test(`${id}: the flags stand on floor, inside the map, and mirror each other`, () => {
       const [a, b] = def.flags;
       assert.ok(Math.abs(a[0] + b[0]) < 0.01 && Math.abs(a[1] + b[1]) < 0.01, 'flag stands are a half turn apart');

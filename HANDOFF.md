@@ -88,8 +88,11 @@ The multiplayer work is documented in MULTIPLAYER.md; this is what else changed 
   fire `pointerlockchange` *before* the countdown ends), or the game shows GET READY / CLICK TO
   RESUME and nothing fires. `spike/play-mp.mjs` does this. Do not stub the CDN with a 1x1 PNG for
   visual checks: it renders every surface black.
-- **Still open:** survival mode with server bots, small duel and CTF maps, a survival arena; the
-  server still accepts `soldier` in hello; gamepad grenades/aim assist and dropped weapons are not
+- **Done since (protocol v4, sw cache v35):** MP survival (server-driven hostiles, waves scaled by
+  player count, grid A* nav), and three Blender maps: DEPOT (duel/DM/TDM), BASTION (CTF/DM/TDM) and
+  ARENA (survival only, 64 x 64 m, dusk, central dais for the people, gates for the hostiles). See
+  MULTIPLAYER.md for the checklist a new map needs. `spike/` is scratch and is never committed.
+- **Still open:** the server still accepts `soldier` in hello; gamepad grenades/aim assist and dropped weapons are not
   online; `desert-map.spec` ("a sv match on DESERT starts cleanly") and `hitboxes.spec.mjs:85` flake.
 - **Crouch cancelled by a jump** could not be reproduced; ask for exact steps.
 

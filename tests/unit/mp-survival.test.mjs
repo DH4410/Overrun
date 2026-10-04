@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+﻿import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TEAM } from '../../src/config.js';
@@ -20,7 +20,7 @@ function clearWave(room, limitS = 60) {
   }
 }
 
-for (const map of ['port', 'desert', 'snow']) {
+for (const map of ['port', 'desert', 'snow', 'arena']) {
   test(`${map}: survival opens with a break, then wave 1 spawns hostiles on solid ground`, () => {
     const { room } = makeRoom();
     const a = join(room, 'A');
@@ -108,7 +108,7 @@ test('the scoreboard standings leave the hostiles out', () => {
   assert.match(end.title, /DEFEAT/);
 });
 
-for (const map of ['port', 'desert', 'snow']) {
+for (const map of ['port', 'desert', 'snow', 'arena']) {
   test(`${map}: the hostiles' route grid connects every spawn to every other`, () => {
     const { room } = makeRoom();
     room.loadMap(map);

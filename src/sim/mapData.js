@@ -195,6 +195,36 @@ export const MAP_DATA = {
       ['health', 21, 14.5], ['health', -21, -14.5], ['shield', -12, -36.5], ['shield', 12, 36.5],
     ],
   },
+  arena: {
+    id: 'arena',
+    file: 'arena',
+    /** Survival only: a floodlit concrete pit, the people on a dais in the middle, the hostiles out of the four gates. */
+    modes: ['sv'],
+    half: [32, 32],
+    /** Never used (no capture the flag here), but the room reads every map's pair. */
+    flags: [[0, 22], [0, -22]],
+    /** Open air: this is only the height the spawn and nav casts start from. */
+    ceilY: 6,
+    /** The people start on the dais (svHumans, listed first); the rest are the gates' recesses. */
+    spawns: [
+      [2.6, 0], [1.8, 1.8], [0, 2.6], [-1.8, 1.8], [-2.6, 0], [-1.8, -1.8], [0, -2.6], [1.8, -1.8],
+      [1.1, 0], [-1.1, 0], [0, 1.1], [0, -1.1],
+      [0, 28.5], [-28.5, 0], [0, -28.5], [28.5, 0], [-3, 28.5], [-28.5, -3], [3, -28.5], [28.5, 3],
+      [3, 28.5], [-28.5, 3], [-3, -28.5], [28.5, -3], [-3, 25.5], [-25.5, -3], [3, -25.5], [25.5, 3],
+      [3, 25.5], [-25.5, 3], [-3, -25.5], [25.5, -3], [0, 22.5], [-22.5, 0], [0, -22.5], [22.5, 0],
+    ],
+    svHumans: [
+      [2.6, 0], [1.8, 1.8], [0, 2.6], [-1.8, 1.8], [-2.6, 0], [-1.8, -1.8], [0, -2.6], [1.8, -1.8],
+      [1.1, 0], [-1.1, 0], [0, 1.1], [0, -1.1],
+    ],
+    ammo: [
+      [9, 9], [-9, 9], [-9, -9], [9, -9], [19, 3], [-3, 19], [-19, -3], [3, -19],
+    ],
+    consumables: [
+      ['health', 19.5, 11.5], ['health', -11.5, 19.5], ['health', -19.5, -11.5], ['health', 11.5, -19.5],
+      ['shield', 10, 20], ['shield', -20, 10], ['shield', -10, -20], ['shield', 20, -10],
+    ],
+  },
 };
 
 export const MAP_IDS = Object.keys(MAP_DATA);

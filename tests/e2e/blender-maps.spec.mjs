@@ -12,6 +12,7 @@ import { bootGame, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
  *  - modes:     the matches that must start cleanly on it
  *  - ghostStep: spacing of the collider-vs-mesh probe grid (aim for about 5-8k probes)
  *  - symStep:   spacing of the line-of-sight probe grid (aim for about 80-120 probes; every pair is compared)
+ *  - floors:    the heights spawns may stand at (default [0])
  *  - flags:     true for a map with flag stands, which must sit on floor and mirror each other
  *
  * Every map here has half-turn symmetry, which the third test checks.
@@ -39,6 +40,18 @@ const MAPS = [
     minSpawns: 30,
     modes: ['dm', 'tdm'],   // capture the flag is multiplayer only; tests/unit/mp-newmaps.test.mjs starts it
   },
+  {
+    id: 'arena',
+    touch: ['asphalt', 'dais', 'concrete', 'cmu', 'steel', 'wood'],
+    castY: 5.2,
+    half: [31.4, 31.4],
+    ghostStep: 0.713,
+    symStep: [6.173, 6.237],
+    minBoxes: 40,
+    minSpawns: 30,
+    floors: [0, 0.9],       // the people start on the dais
+    modes: ['sv'],          // survival only
+  },
 ];
 
 for (const M of MAPS) {
@@ -62,7 +75,7 @@ for (const M of MAPS) {
     expect(built.nodes).toBeGreaterThan(40);
     expect(built.finite).toBe(true);
     expect(built.linked).toBe(true);
-    expect(built.spawnFloors).toEqual([0]);
+    expect([...built.spawnFloors].sort()).toEqual(M.floors || [0]);
   });
 
   test(`${M.id} colliders sit exactly where their meshes are`, async ({ page }) => {

@@ -11,12 +11,12 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v34';
+const CACHE = 'overrun-v35';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
   './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hud.js',
-  './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapBastion.js', './src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
+  './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapArena.js', './src/mapBastion.js','./src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
   './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
@@ -32,7 +32,7 @@ const PRECACHE = [
   './assets/bots/steve.glb',
   // The default map: without these an offline boot has nothing to play on.
   './assets/maps/port.glb', './assets/maps/port.json',
-  './assets/maps/thumbs/port.jpg', './assets/maps/thumbs/desert.jpg', './assets/maps/thumbs/snow.jpg', './assets/maps/thumbs/warzone.jpg', './assets/maps/thumbs/depot.jpg', './assets/maps/thumbs/bastion.jpg',
+  './assets/maps/thumbs/port.jpg', './assets/maps/thumbs/desert.jpg', './assets/maps/thumbs/snow.jpg', './assets/maps/thumbs/warzone.jpg', './assets/maps/thumbs/depot.jpg', './assets/maps/thumbs/bastion.jpg', './assets/maps/thumbs/arena.jpg',
 ];
 
 // .fbx is here because the bot animation clips are FBX; without it the fetch handler fell

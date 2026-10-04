@@ -999,6 +999,7 @@ export class Room {
     let best = this.spawns[0], bs = -Infinity;
     const at = { x: 0, y: 0, z: 0 };
     for (const sp of this.spawns) {
+      if (this.mapDef.svHumans && this.humanSpawns.includes(sp)) continue;   // the people's own spot, never the hostiles'
       if (this.players.some((q) => q.bot && q.alive && Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z) < 2.5)) continue;
       let d = Infinity;
       for (const q of people) d = Math.min(d, Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z));

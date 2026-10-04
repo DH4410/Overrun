@@ -10,7 +10,11 @@ import { bootGame, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
  *  - touch:     the mesh keys a player can touch; everything else (lamps, rails, decals) has no collider
  *  - castY:     where the ghost probes start, under every roof, truss and canopy of the map
  *  - modes:     the matches that must start cleanly on it
- *  - mirror:    '2' = half-turn symmetry (every map so far)
+ *  - ghostStep: spacing of the collider-vs-mesh probe grid (aim for about 5-8k probes)
+ *  - symStep:   spacing of the line-of-sight probe grid (aim for about 80-120 probes; every pair is compared)
+ *  - flags:     true for a map with flag stands, which must sit on floor and mirror each other
+ *
+ * Every map here has half-turn symmetry, which the third test checks.
  */
 const MAPS = [
   {
@@ -18,6 +22,8 @@ const MAPS = [
     touch: ['cmu', 'concrete', 'floor', 'steel', 'wood', 'container', 'stucco', 'plaster'],
     castY: 6.3,
     half: [17.4, 25.4],
+    ghostStep: 0.513,
+    symStep: [2.973, 2.737],
     minBoxes: 60,
     minSpawns: 16,
     modes: ['duel', 'dm', 'tdm'],
@@ -100,8 +106,8 @@ for (const M of MAPS) {
       let probes = 0;
       const nameAt = (x, z) => { ray.set(new T.Vector3(x, M.castY, z), down); return ray.intersectObjects(meshes, false)[0]?.object.name; };
       const [hx, hz] = M.half;
-      for (let x = -hx + 0.083; x <= hx; x += 0.513) {
-        for (let z = -hz + 0.117; z <= hz; z += 0.513) {
+      for (let x = -hx + 0.083; x <= hx; x += M.ghostStep) {
+        for (let z = -hz + 0.117; z <= hz; z += M.ghostStep) {
           if (fuzzy(x, z)) continue;
           probes++;
           const vis = visualAt(x, M.castY, z), phys = physicsAt(x, M.castY, z);
@@ -112,6 +118,7 @@ for (const M of MAPS) {
     }, M);
     expect(r.boxes).toBeGreaterThan(M.minBoxes);
     expect(r.probes).toBeGreaterThan(2000);
+    expect(r.probes).toBeLessThan(16000);
     expect(r.tops, JSON.stringify(r.tops.slice(0, 5))).toEqual([]);
     expect(r.ghosts, JSON.stringify(r.ghosts.slice(0, 40))).toEqual([]);
   });
@@ -124,7 +131,7 @@ for (const M of MAPS) {
       const g = globalThis.__game;
       const probes = [];
       const [hx, hz] = M.half;
-      for (let x = -hx + 0.637; x <= hx; x += 2.973) for (let z = -hz + 0.813; z <= hz; z += 2.737) probes.push([x, z]);
+      for (let x = -hx + 0.637; x <= hx; x += M.symStep[0]) for (let z = -hz + 0.813; z <= hz; z += M.symStep[1]) probes.push([x, z]);
       const y = 1.7;
       let checked = 0;
       const mismatches = [];

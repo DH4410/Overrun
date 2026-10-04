@@ -286,7 +286,7 @@ function updateAmmoHud() {
   [...player.loadout, 'frag'].forEach((id, i) => {
     const wp = WEAPONS.find((w) => w.id === id);
     const d = document.createElement('div');
-    d.textContent = i + 1;
+    d.textContent = keyName(codeOf(`slot${i + 1}`));
     d.title = wp.name;
     if (wp.id === player.current) d.className = 'on';
     else if (wp.thrown ? player.fragCount <= 0 : player.ammo[wp.id].mag + player.ammo[wp.id].reserve <= 0) {

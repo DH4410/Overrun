@@ -1,6 +1,7 @@
 import * as CANNON from 'cannon-es';
 
 import { CONFIG } from '../config.js';
+import { GridBroadphase, SparseCollisionMatrix } from './gridBroadphase.js';
 
 /**
  * The physics world, as a factory, so the browser keeps its one world (src/physics.js) and the
@@ -21,7 +22,10 @@ export const RAY_OPTS = { skipBackfaces: true, collisionFilterGroup: -1, collisi
 
 export function createWorld() {
   const world = new CANNON.World({ gravity: new CANNON.Vec3(0, CONFIG.GRAVITY, 0) });
-  world.broadphase = new CANNON.SAPBroadphase(world);
+  // The level is static; only a few bodies move through it. See gridBroadphase.js.
+  world.broadphase = new GridBroadphase(world);
+  world.collisionMatrix = new SparseCollisionMatrix();
+  world.collisionMatrixPrevious = new SparseCollisionMatrix();
   // Sleeping is fatal here: a sleeping body is dropped from the narrowphase, so the player's
   // floor contact vanishes from world.contacts and playerGroundCheck() can never see ground
   // again. grounded stays false, movement falls back to the 0.22x air-control accel, and the

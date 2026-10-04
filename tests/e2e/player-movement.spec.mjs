@@ -31,7 +31,7 @@ test('the head collides: jumping under an overhang cannot put the camera through
     });
     slab.position.set(-18, floor + 2.7 + slab.shapes[0].halfExtents.y, 3);
     slab.aabbNeedsUpdate = true;
-    g.world.broadphase.dirty = true;
+    g.world.broadphase.rebuilt = true;   // the grid re-bins the level after a static body is moved
     keys.Space = true; g.step(2); keys.Space = false;
     let maxEye = 0;
     for (let i = 0; i < 150; i++) { g.step(1); maxEye = Math.max(maxEye, player.body.position.y + g.CONFIG.EYE_HEIGHT - floor); }

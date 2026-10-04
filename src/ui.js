@@ -196,17 +196,18 @@ const SETTINGS_SCHEMA = [
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */
 function refreshKeyHelp() {
-  const box = $('keyhelp');
-  if (!box) return;
+  const boxes = [$('keyhelp'), $('p-keys')].filter(Boolean);
+  if (!boxes.length) return;
   const k = (id) => `<kbd>${keyName(codeOf(id))}</kbd>`;
   const move = ['forward', 'left', 'back', 'right'].map((id) => keyName(codeOf(id))).join('');
   const item = (key, text) => `<span>${key} ${text}</span>`;
-  box.innerHTML = [
+  const html = [
     item(`<kbd>${move}</kbd>`, 'Move'), item(k('jump'), 'Jump'), item(k('sprint'), 'Sprint'), item(k('crouch'), 'Crouch'),
     item('<kbd>RMB</kbd>', 'Aim'), item(k('reload'), 'Reload'),
     item(`${k('slot1')}\u2013${k('slot5')}`, 'Weapons'), item(k('frag'), 'Frag'), item(k('smoke'), 'Smoke'),
     item(k('board'), 'Scores'), item(k('emote'), 'Emote'),
   ].join('');
+  for (const box of boxes) box.innerHTML = html;
 }
 
 /** One button per action; click it, press the key you want. Escape backs out. */

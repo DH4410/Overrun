@@ -219,7 +219,7 @@ test('CORE-04: standing remains blocked underneath a low ceiling', async ({ page
       playerBody.position.z,
     );
     ceiling.aabbNeedsUpdate = true;
-    game.world.broadphase.dirty = true;
+    game.world.broadphase.rebuilt = true;   // the grid re-bins the level after a static body is moved
     const from = new CANNON.Vec3(
       playerBody.position.x,
       playerBody.position.y + game.CONFIG.CROUCH_RADIUS,

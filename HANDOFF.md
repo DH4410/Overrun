@@ -43,6 +43,39 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ---
 
+## Session 8 (2026-10-04): multiplayer lobby, skins, controls, physics cost
+
+The multiplayer work is documented in MULTIPLAYER.md; this is what else changed on
+`claude/overrun-mp-lobby-modes` (live at https://overrun.dimahuang8.workers.dev, deploy with
+`npx wrangler deploy`; the branch is not pushed).
+
+- **Skins locker.** 20 Mixamo characters (`src/skins.js`, `assets/bots/*.glb`, portraits in
+  `assets/skins/*.jpg`). Six `boot` skins load at start and feed the bots; the rest lazy-load the
+  first time anyone wears one (`loadCharacter(id)`; `puppetFor` returns null until it is in). Online,
+  a skin change in the lobby goes to the server as `{t:'gear', character, loadout}`. Adding a
+  skin: Mixamo FBX with a skin, `node scripts/fbx-to-glb.mjs`, `node scripts/skin-portraits.mjs <id>`,
+  one line in `SKINS`; `tests/e2e/skins.spec.mjs` checks every lazy skin binds the shared clips
+  (finger bones may be missing, anything else may not).
+- **Keybinds** (`src/keybinds.js`, settings panel): the one place keys enter (`player.js` keydown/up,
+  the emote key in `main.js`) runs the code through `canon()`, so the rest of the game still reads
+  the default codes. Bindings are one to one (binding a taken key swaps), saved under
+  `overrun.keybinds`. The menu help, pause help, ammo hint and slot strip follow the bindings.
+- **Touchpad switch** (`settings.touchpad`, helpers in `settings.js`): forces look boost, toggle aim,
+  auto-sprint and a friction-only aim-assist floor without overwriting the individual settings.
+- **Physics cost.** `src/sim/gridBroadphase.js` replaces cannon's sweep-and-prune (a grid over the
+  static level, every raycast's AABB query goes through it) and the O(N^2) collision matrix (sparse
+  now). Warzone (~900 bodies) cost 3.2 ms per physics step in the browser and 7.5 ms per server
+  tick with 8 players (`spike/bench-room.mjs`-style run); both are now ~0.1-0.2 ms. `tests/unit/grid-broadphase.test.mjs`.
+- **Fixed:** a player who joined mid-match never got the lobby stage when the room fell back to the
+  lobby (lobby panel over the live world); lobby name-plate CSS was unscoped and broke the in-game
+  enemy plates (health bar fill, corner placement).
+- **UX:** secondary buttons (Settings, Spectate, Locker, Leave) have visible edges; the pause screen
+  has a RESUME button and the key help; LEAVE MATCH is red.
+- **Still open:** survival mode with server bots, small duel and CTF maps, a survival arena; the
+  server still accepts `soldier` in hello; gamepad grenades/aim assist and dropped weapons are not
+  online; `desert-map.spec` ("a sv match on DESERT starts cleanly") and `hitboxes.spec.mjs:85` flake.
+- **Crouch cancelled by a jump** could not be reproduced; ask for exact steps.
+
 ## Next session — start here
 
 1. **Playtest sessions 6 and 7** in a real browser (`node scripts/serve-tests.mjs`, then

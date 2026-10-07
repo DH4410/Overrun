@@ -15,6 +15,8 @@ import { bootGame, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
  *  - floors:    the heights spawns may stand at (default [0])
  *  - flags:     true for a map with flag stands, which must sit on floor and mirror each other
  *
+ *  - maxY:      the highest a body may be 0.5 s into a match (default 3; a map with 1 m cover on a raised platform lets a bot hop higher)
+ *
  * Every map here has half-turn symmetry, which the third test checks.
  */
 const MAPS = [
@@ -51,6 +53,19 @@ const MAPS = [
     minSpawns: 30,
     floors: [0, 0.9],       // the people start on the dais
     modes: ['sv'],          // survival only
+  },
+  {
+    id: 'metro',
+    touch: ['ballast', 'floor', 'tile', 'concrete', 'steel', 'train', 'wood'],
+    castY: 6.1,
+    half: [27.4, 22.4],
+    ghostStep: 0.713,
+    symStep: [5.173, 4.237],
+    minBoxes: 60,
+    minSpawns: 20,
+    floors: [0, 0.2],       // the platforms are 0.24 m up, the track bed is level with the ground
+    maxY: 4.2,              // a bot hops onto 1 m cover from a platform
+    modes: ['dm', 'tdm', 'sv'],
   },
 ];
 
@@ -188,7 +203,7 @@ for (const M of MAPS) {
       });
       expect(r.running).toBe(true);
       expect(r.bots).toBeGreaterThan(0);
-      expect(r.highest).toBeLessThan(3);
+      expect(r.highest).toBeLessThan(M.maxY || 3);
       expect(errors).toEqual([]);
     });
   }

@@ -225,6 +225,40 @@ export const MAP_DATA = {
       ['shield', 10, 20], ['shield', -20, 10], ['shield', -10, -20], ['shield', 20, -10],
     ],
   },
+  metro: {
+    id: 'metro',
+    file: 'metro',
+    /** An underground station hub: two tracks with a train on each, platforms between and beside them. */
+    modes: ['dm', 'tdm', 'sv'],
+    half: [28, 23],
+    /** On the track bed (the platforms are 0.24 m up), a half turn apart. */
+    flags: [[20, 8.5], [-20, -8.5]],
+    /** The ceiling's underside is at 6.2 m; a cast from above it would land on the slab. */
+    ceilY: 6.2,
+    /**
+     * Mirrored spawn candidates, listed in pairs and picked from the built layout (2 m clear of every
+     * blocker, floor at the platform or the track bed). The people start in the walled information hall
+     * in the middle of the island (svHumans, listed first); the rest are spread by furthest-point sampling.
+     */
+    spawns: [
+      [1.6, 0], [1.1, 1.1], [0, 1.6], [-1.1, 1.1], [-1.6, 0], [-1.1, -1.1], [0, -1.6], [1.1, -1.1],
+      [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6],
+      [-0.5, 18.5], [0.5, -18.5], [20.5, 2.5], [-20.5, -2.5], [-21.5, 16.5], [21.5, -16.5],
+      [16.5, 18.5], [-16.5, -18.5], [6.5, 4.5], [-6.5, -4.5], [-10.5, 12.5], [10.5, -12.5],
+      [14.5, 9.5], [-14.5, -9.5], [22.5, 12.5], [-22.5, -12.5], [5.5, 12.5], [-5.5, -12.5],
+      [-17.5, 4.5], [17.5, -4.5],
+    ],
+    svHumans: [
+      [1.6, 0], [1.1, 1.1], [0, 1.6], [-1.1, 1.1], [-1.6, 0], [-1.1, -1.1], [0, -1.6], [1.1, -1.1],
+      [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6],
+    ],
+    ammo: [
+      [13.5, 2.5], [-13.5, -2.5], [-16.5, 12.5], [16.5, -12.5],
+    ],
+    consumables: [
+      ['health', -5.5, 16.5], ['health', 5.5, -16.5], ['shield', 19.5, 7.5], ['shield', -19.5, -7.5],
+    ],
+  },
 };
 
 export const MAP_IDS = Object.keys(MAP_DATA);

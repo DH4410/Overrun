@@ -5,6 +5,7 @@ const SHAPES = {
   smg: '<path d="M6 7h6l3 2h20v-2h10v2h4v-3h8v3h4v3h-8v2h-8l-2 1h-5v8h-6v-8h-4l-3 5h-5l1-5h-6z"/><rect x="3" y="6" width="4" height="3"/>',
   shotgun: '<path d="M2 6l10-1 3 2h14v-1h38v3H31v1h14v3H32v-1h-4v1H14l-3 4H2z"/><rect x="38" y="10" width="16" height="4" rx="1"/>',
   sniper: '<path d="M2 6l12-1 4 2h18v2h28v2H38v1H24l-3 1h-5l-1 4h-5l1-4H8l-2 3H2z"/><rect x="20" y="1" width="18" height="4" rx="2"/><rect x="24" y="5" width="2" height="2"/><rect x="32" y="5" width="2" height="2"/><rect x="66" y="7" width="5" height="5"/>',
+  claw: '<path d="M14 2l14 18-3 1L11 4zM29 1l16 19-3 1L26 3zM44 2l14 18-3 1L41 4z"/>',
   frag: '<circle cx="36" cy="12" r="7"/><rect x="33" y="2" width="6" height="4"/><path d="M39 3h8v2h-8zM28 5l-4-3 2-2 5 4z"/>',
 };
 

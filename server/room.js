@@ -10,7 +10,7 @@ import {
   ITEM_MASK, ITEM_SHIFT, USE, addItem, canCarry, cancelUse, emptyItems, lootFor, rollDrop, stepUse, tierMult,
 } from '../src/sim/items.js';
 import { MAP_DATA, MAP_IDS } from '../src/sim/mapData.js';
-import { DEFAULT_SETTINGS, MODE_INFO, PLAYABLE, cleanSettings, teamMode, teamScore } from '../src/sim/modes.js';
+import { DEFAULT_SETTINGS, MODE_INFO, PLAYABLE, ZOMBIE_HOLD, cleanSettings, teamMode, teamScore } from '../src/sim/modes.js';
 import { createPlayerBody, setCrouch, syncPlayerPoints } from '../src/sim/movement.js';
 import {
   BTN, BUDGET, CHARACTER_IDS, CLOSE, EV, HIT_BREAK, HIT_LETHAL, HIT_SHIELD, MAX_PLAYERS, MAX_SPECTATORS,
@@ -21,7 +21,7 @@ import { applyCommand } from '../src/sim/tick.js';
 import { killFlags } from '../src/sim/killinfo.js';
 import { WEAPONS, WEAPON_BY_ID, damageAt } from '../src/sim/weaponData.js';
 import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS } from '../src/sim/world.js';
-import { botCommand, botSpec, navFor, newAi } from './bots.js';
+import { botCommand, botSpec, findPath, navFor, newAi, zombieSpec } from './bots.js';
 import { ctfDrop, ctfInit, ctfStep, flagsWire } from './ctf.js';
 import { Governor } from './governor.js';
 
@@ -53,6 +53,8 @@ const CHEST_RANGE = 1.5, CHEST_RESPAWN = 25;
 const CONSUMABLE_RESPAWN = { health: 30, shield: 35 };    // s; what a spot holds is src/sim/items.js lootFor
 const DROP_RANGE = 1.6, DROP_LIFE = 40, MAX_DROPS = 14;
 const NADE_ROLL_SPEED = 2.6;
+/** Zombie Escape: the zone opens OPEN_AT s in, holding it for HOLD s escapes; a fallen survivor is reinforced after REINFORCE s while a friend still stands. */
+const ZB = { OPEN_AT: 60, HOLD: ZOMBIE_HOLD, ZONE_R: 5, CLAW_RANGE: 1.9, REINFORCE: 25, SPAWN_EVERY: 1.1, FIRST_SPAWN: 6 };
 const BOT_ID0 = 100, BOT_IDS = 150;      // hostile ids count up from here, so a seat id and a hostile id never meet
 const BOT_SKINS = ['gasmask', 'trooper', 'crypto', 'swat'].filter((id) => CHARACTER_IDS.includes(id));
 
@@ -107,6 +109,7 @@ export class Room {
     this.scoreA = 0; this.scoreB = 0;
     this.roundReset = 0;
     this.flags = [];
+    this.zb = null;                      // zombie escape: { zone, age, hold, open, spawnIn, counter, nextId }
     this.sv = null;                      // survival: { wave, state, breakT, queue, cap, spawnIn, counter, nextId }
     this.rosterDirty = false;
     this.kicked = new Map();             // token -> time it may rejoin
@@ -407,7 +410,7 @@ export class Room {
 
   roster() {
     return this.players.filter((p) => p.connected).map((p) => ({
-      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready, ...(p.bot ? { bot: true } : {}),
+      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready, ...(p.bot ? { bot: true } : {}), ...(p.zombie ? { zombie: true } : {}),
     }));
   }
 
@@ -434,7 +437,7 @@ export class Room {
 
   matchInfo() {
     return {
-      mode: this.mode, map: this.mapId, phase: this.phase, timeLeft: this.timeLeft, flags: flagsWire(this),
+      mode: this.mode, map: this.mapId, phase: this.phase, timeLeft: this.timeLeft, flags: flagsWire(this), zone: this.zb ? this.zb.zone : null,
       maps: MAP_IDS, modes: PLAYABLE, roster: this.roster(), ...this.lobbyInfo(),
     };
   }
@@ -617,6 +620,7 @@ export class Room {
       if (this.mode === 'ctf') ctfStep(this, dt);
       if (this.mode === 'duel') this.stepDuel(dt);
       else if (this.mode === 'survival') this.stepSurvival(dt);
+      else if (this.mode === 'zombie') this.stepZombie(dt);
       else if (this.mode !== 'war' && (this.timeLeft -= dt) <= 0) this.endOnTime();
     } else if (this.phase === PHASE.COUNTDOWN) {
       if (this.seated().length < MODE_INFO[this.mode].min) this.toLobby('NOT ENOUGH PLAYERS');
@@ -805,7 +809,7 @@ export class Room {
     target.deaths++;
     target.alive = false;
     if (this.mode === 'ctf') ctfDrop(this, target);
-    target.respawnTimer = this.mode === 'duel' || this.mode === 'survival' ? 0 : CONFIG.PLAYER_RESPAWN;   // a duel death lasts until the round resets, a survival death until the next wave
+    target.respawnTimer = this.mode === 'duel' || this.mode === 'survival' ? 0 : this.mode === 'zombie' ? ZB.REINFORCE : CONFIG.PLAYER_RESPAWN;   // a duel death lasts until the round resets, a survival death until the next wave
     if (target.bot) target.removeAt = this.tick + 5 * TICK_HZ;
     target.cooking = null;
     target.emote = 0;
@@ -877,10 +881,11 @@ export class Room {
   /** A kill leaves something on the floor: a gun of some tier, or a few healing items. Never in a duel. */
   dropLoot(victim) {
     if (this.mode === 'duel') return;
+    if (victim.zombie && this.rng() > 0.35) return;     // the dead carry little, and never a gun
     if (this.drops.length >= MAX_DROPS) this.drops.shift();
     const id = victim.current === 'frag' ? victim.loadout[0] : victim.current;
     const luck = this.mode === 'survival' && this.sv ? Math.min(0.25, this.sv.wave * 0.02) : 0;
-    const d = rollDrop(Math.max(0, WEAPON_IDS.indexOf(id)), this.rng(), this.rng(), luck);
+    const d = victim.zombie ? rollDrop(0, 0.99, this.rng()) : rollDrop(Math.max(0, WEAPON_IDS.indexOf(id)), this.rng(), this.rng(), luck);
     this.nextDrop = (this.nextDrop + 1) % 250;
     this.drops.push({
       id: this.nextDrop, ...d, life: DROP_LIFE,
@@ -951,7 +956,7 @@ export class Room {
 
   /** Furthest from every living enemy, with jitter: main.js's pickSpawn. */
   pickSpawn(p) {
-    const pool = this.mode === 'survival' ? this.humanSpawns
+    const pool = this.mode === 'survival' || this.mode === 'zombie' ? this.humanSpawns
       : this.mode === 'ctf' && this.sideSpawns[p.team]?.length ? this.sideSpawns[p.team] : this.spawns;
     let best = pool[0], bestScore = -Infinity;
     for (const sp of pool) {
@@ -1086,7 +1091,7 @@ export class Room {
   prepareRound(mode, mapId) {
     if (mapId !== this.mapId) this.loadMap(mapId);
     this.clearBots();
-    this.sv = null;
+    this.sv = null; this.zb = null;
     this.mode = mode;
     this.scoreA = 0; this.scoreB = 0;
     this.flags = [];
@@ -1101,9 +1106,10 @@ export class Room {
       [seated[i], seated[j]] = [seated[j], seated[i]];
     }
     // A duel has no friendly-fire rules, but its two sides carry the blue and red colours and scores.
-    seated.forEach((p, i) => { p.team = mode === 'survival' ? TEAM.BLUE : teamScore(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
+    seated.forEach((p, i) => { p.team = MODE_INFO[mode].coop ? TEAM.BLUE : teamScore(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
     if (mode === 'ctf') ctfInit(this);
     if (mode === 'survival') this.sv = { wave: 0, state: 'break', breakT: 4, queue: 0, cap: 8, spawnIn: 0, counter: 0, nextId: BOT_ID0 };
+    if (mode === 'zombie') this.zb = { zone: this.pickZone(), age: 0, hold: 0, open: false, spawnIn: ZB.FIRST_SPAWN, counter: 0, nextId: BOT_ID0 };
     for (const p of this.players) {
       p.kills = 0; p.deaths = 0; p.headshots = 0; p.damage = 0; p.captures = 0; p.ready = false;
       this.applyLoadout(p);
@@ -1141,6 +1147,7 @@ export class Room {
     const at = { x: 0, y: 0, z: 0 };
     for (const sp of this.spawns) {
       if (this.mapDef.svHumans && this.humanSpawns.includes(sp)) continue;   // the people's own spot, never the hostiles'
+      if (this.zb && Math.hypot(sp.x - this.zb.zone.x, sp.z - this.zb.zone.z) < ZB.ZONE_R * 2.4) continue;   // nothing is born in the extraction zone
       if (this.players.some((q) => q.bot && q.alive && Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z) < 2.5)) continue;
       let d = Infinity;
       for (const q of people) d = Math.min(d, Math.hypot(q.pos.x - sp.x, q.pos.z - sp.z));
@@ -1153,16 +1160,16 @@ export class Room {
     return best;
   }
 
-  spawnBot() {
-    const sv = this.sv;
-    const spec = botSpec(sv.wave, this.rng);
+  spawnBot(zombie = false) {
+    const sv = zombie ? this.zb : this.sv;
+    const spec = zombie ? zombieSpec(sv.age, this.rng) : botSpec(sv.wave, this.rng);
     const used = new Set(this.players.map((q) => q.id));
     let id = sv.nextId;
     for (let k = 0; k < BOT_IDS && used.has(id); k++) id = BOT_ID0 + ((id - BOT_ID0 + 1) % BOT_IDS);
     if (used.has(id)) return false;
     sv.nextId = BOT_ID0 + ((id - BOT_ID0 + 1) % BOT_IDS);
     const p = this.blankSeat({
-      id, conn: null, bot: true, token: '', name: `HOSTILE ${(sv.counter++ % 99) + 1}`,
+      id, conn: null, bot: true, token: '', name: `${zombie ? 'ZOMBIE' : 'HOSTILE'} ${(sv.counter++ % 99) + 1}`, zombie,
       character: BOT_SKINS[Math.floor(this.rng() * BOT_SKINS.length)] ?? CHARACTER_IDS[0],
       loadout: [spec.weapon], team: TEAM.RED, dmgMult: spec.dmg, ai: newAi(spec, this.rng),
     });
@@ -1198,11 +1205,9 @@ export class Room {
     this.broadcastJson({ t: 'toast', text });
   }
 
-  stepSurvival(dt) {
-    const sv = this.sv;
-    if (!sv) return;
-    const people = this.humans();
-    for (let i = this.players.length - 1; i >= 0; i--) {     // corpses stay a few seconds for the death animation
+  /** Corpses stay a few seconds for the death animation, then the seat is freed. */
+  sweepCorpses() {
+    for (let i = this.players.length - 1; i >= 0; i--) {
       const p = this.players[i];
       if (p.bot && !p.alive && this.tick >= p.removeAt) {
         this.world.removeBody(p.body);
@@ -1210,6 +1215,68 @@ export class Room {
         this.rosterDirty = true;
       }
     }
+  }
+
+  /* ------------------------------------------------------------- zombie escape */
+
+  /** The extraction zone: the spawn furthest from the people's start that they can actually walk to. */
+  pickZone() {
+    const home = this.humanSpawns[0];
+    const far = (sp) => (sp.x - home.x) ** 2 + (sp.z - home.z) ** 2;
+    const cands = this.spawns.filter((sp) => !this.humanSpawns.includes(sp)).sort((a, b) => far(b) - far(a));
+    const sp = cands.find((c) => !this.nav || findPath(this.nav, home.x, home.z, c.x, c.z)) ?? cands[0] ?? home;
+    return { x: sp.x, y: sp.y, z: sp.z, r: ZB.ZONE_R };
+  }
+
+  stepZombie(dt) {
+    const zb = this.zb;
+    if (!zb) return;
+    zb.age += dt;
+    this.sweepCorpses();
+    const people = this.humans(), living = people.filter((p) => p.alive);
+    const zombies = this.players.filter((p) => p.zombie && p.alive);
+    if (people.length && !living.length) { this.endMatch('OVERRUN', 'Every survivor fell', { team: TEAM.RED }); return; }
+    if ((this.timeLeft -= dt) <= 0) { this.endMatch('OVERRUN', 'The zone was never held', { team: TEAM.RED }); return; }
+    if (!zb.open && zb.age >= ZB.OPEN_AT) {
+      zb.open = true;
+      this.say('EXTRACTION IS OPEN \u2014 REACH THE ZONE AND HOLD IT');
+      this.broadcastJson({ t: 'toast', text: 'EXTRACTION OPEN \u2014 HOLD THE ZONE' });
+    }
+    const z = zb.zone;
+    const inside = zb.open && living.some((p) => Math.hypot(p.pos.x - z.x, p.pos.z - z.z) < z.r && Math.abs(p.pos.y - z.y) < 3);
+    zb.hold = inside ? zb.hold + dt : Math.max(0, zb.hold - dt * 0.5);
+    if (zb.hold >= ZB.HOLD) { this.endMatch('ESCAPED', `${living.length} survivor${living.length === 1 ? '' : 's'} made it out`, { team: TEAM.BLUE }); return; }
+    // The score words: how far the hold has got (0 while the zone is locked), and how many of the dead are about.
+    this.scoreA = zb.open ? 1 + Math.round(zb.hold * 10) : 0;
+    this.scoreB = zombies.length;
+    // More of them as the minutes pass, and a surge while the zone is being held.
+    const cap = Math.min(28, Math.round((5 + 3 * living.length + zb.age / 25) * (zb.hold > 0 ? 1.4 : 1)));
+    if (living.length && zombies.length < cap && (zb.spawnIn -= dt) <= 0) {
+      this.spawnBot(true);
+      zb.spawnIn = ZB.SPAWN_EVERY;
+    }
+    // Claws: whoever is in reach and in sight of a zombie gets hit, once a swing.
+    const now = this.tick / TICK_HZ;
+    for (const m of zombies) {
+      if (now < (m.ai.clawAt ?? 0)) continue;
+      let tgt = null, bd = ZB.CLAW_RANGE * ZB.CLAW_RANGE;
+      for (const q of living) {
+        if (Math.abs(q.pos.y - m.pos.y) > 1.6) continue;
+        const d2 = (q.pos.x - m.pos.x) ** 2 + (q.pos.z - m.pos.z) ** 2;
+        if (d2 < bd) { bd = d2; tgt = q; }
+      }
+      if (!tgt || !this.losClear(m.eye, tgt.eye)) continue;
+      m.ai.clawAt = now + m.ai.spec.swing;
+      this.applyDamage(tgt, m.ai.spec.claw, m, { x: tgt.pos.x, y: tgt.pos.y + 1, z: tgt.pos.z }, false, 'body', 'claw');
+    }
+    if (this.rosterDirty) { this.rosterDirty = false; this.broadcastRoster(); }
+  }
+
+  stepSurvival(dt) {
+    const sv = this.sv;
+    if (!sv) return;
+    const people = this.humans();
+    this.sweepCorpses();
     const alive = this.players.reduce((n, p) => n + (p.bot && p.alive ? 1 : 0), 0);
     this.scoreA = sv.wave;
     this.scoreB = alive + sv.queue;
@@ -1295,7 +1362,7 @@ export class Room {
     this.mode = this.settings.mode;
     this.flags = [];
     this.clearBots();
-    this.sv = null;
+    this.sv = null; this.zb = null;
     for (const p of this.players) { p.ready = false; p.team = TEAM.SOLO; p.loadout = [...p.chosen]; }
     for (const c of this.clients.values()) {
       if (!c.queued || c.player || this.humanSeats().length >= MAX_PLAYERS) continue;
@@ -1309,7 +1376,7 @@ export class Room {
   }
 
   checkWin() {
-    if (this.phase !== PHASE.PLAYING || MODE_INFO[this.mode].untimed) return;
+    if (this.phase !== PHASE.PLAYING || MODE_INFO[this.mode].untimed || this.mode === 'zombie') return;
     const limit = this.settings.limit;
     if (this.mode === 'duel') {
       const win = this.scoreA >= limit ? TEAM.BLUE : this.scoreB >= limit ? TEAM.RED : null;

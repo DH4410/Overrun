@@ -205,3 +205,24 @@ test('one player can start survival; the hostiles come in waves and are not on t
   expect((await roomStats()).players).toBe(1);
   await a.context().close();
 });
+
+/** Zombie Escape alone: green clawing zombies without guns, and the extraction chip with its locked zone. */
+test('one player can start zombie escape; zombies are green and gunless, the zone chip is up', async ({ browser }) => {
+  test.setTimeout(240_000);
+  await server.stop();
+  server = await startServer({ port: PORT, budgetFile: path.join(mkdtempSync(path.join(tmpdir(), 'overrun-mp-')), 'budget.json'), log: () => {} });
+  const a = await open(browser, 'SOLO');
+  await a.click('#mp-play');
+  await expect(a.locator('#mp-lobby')).toBeVisible({ timeout: 30_000 });
+  await a.click('#mp-lobby .mcard.k-mode');
+  await a.locator('#mp-lobby .pop .tile', { hasText: 'ZOMBIE ESCAPE' }).click();
+  await expect(a.locator('#mp-lobby .go')).toBeEnabled();
+  await a.click('#mp-lobby .go');
+  await expect.poll(() => a.evaluate(() => window.__game.bots.filter((b) => b.zombie).length), { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
+  await expect(a.locator('#mp-zone')).toContainText('EXTRACTION LOCKED');
+  const z = await a.evaluate(() => { const b = window.__game.bots.find((x) => x.zombie); return { tint: !!b.zTint, gun: b.gunMesh ? b.gunMesh.visible : false }; });
+  expect(z.tint).toBe(true);
+  expect(z.gun).toBe(false);
+  expect((await roomStats()).players).toBe(1);
+  await a.context().close();
+});

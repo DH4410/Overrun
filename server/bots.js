@@ -179,6 +179,21 @@ export function botSpec(wave, rng) {
   };
 }
 
+/**
+ * A zombie of Zombie Escape: no gun, a claw the room swings for it (server/room.js stepZombie).
+ * Walkers are the crowd, runners keep pace with a sprinting person, brutes soak a magazine.
+ * `age` is seconds into the round: the longer it goes, the sturdier and the more common the nasty kinds.
+ * Health stays under 255 because a snapshot carries it in one byte.
+ */
+export function zombieSpec(age, rng) {
+  const heat = Math.min(1, age / 240), roll = rng();
+  const kind = roll < 0.08 + 0.1 * heat ? 'brute' : roll < 0.38 + 0.1 * heat ? 'runner' : 'walker';
+  const base = { weapon: 'pistol', melee: true, kind, aimError: 0.02, reaction: 0, turn: 7, hold: 0, reach: 0, headAim: 0, dmg: 1 };
+  if (kind === 'brute') return { ...base, health: Math.round(190 + 50 * heat), claw: 30, swing: 1.1, run: false, turn: 4.5 };
+  if (kind === 'runner') return { ...base, health: Math.round(40 + 30 * heat), claw: 9, swing: 0.6, run: true, turn: 9 };
+  return { ...base, health: Math.round(65 + 45 * heat), claw: 14, swing: 0.9, run: false };
+}
+
 export function newAi(spec, rng) {
   return {
     spec, target: null, retargetAt: 0, losAt: 0, los: false, seenAt: -9, path: null, pi: 0, replanAt: 0, replanFrom: null,
@@ -222,12 +237,12 @@ export function botCommand(room, p) {
     if (los && !ai.los) ai.seenAt = t;
     ai.los = los;
   }
-  const canShoot = ai.los && t - ai.seenAt >= spec.reaction && dist <= spec.reach;
+  const canShoot = !spec.melee && ai.los && t - ai.seenAt >= spec.reaction && dist <= spec.reach;
 
   // Where to walk: strafe and hold a distance when it can see you, otherwise follow a route to you.
   const g = room.nav;
   let mx = 0, mz = 0, sprint = false;
-  const holding = ai.los && dist <= spec.hold * 1.4;
+  const holding = !spec.melee && ai.los && dist <= spec.hold * 1.4;
   if (holding) {
     if (t >= ai.strafeAt) { ai.strafe = -ai.strafe; ai.strafeAt = t + 0.7 + rng() * 1.1; }
     const ux = dx / (dist || 1), uz = dz / (dist || 1);
@@ -252,7 +267,8 @@ export function botCommand(room, p) {
       }
       mx = ai.way[0] - body.x; mz = ai.way[1] - body.z;
     } else { mx = dx; mz = dz; }
-    sprint = !ai.los && dist > 14;
+    if (spec.melee && ai.los && dist < 7) { mx = dx; mz = dz; }   // close and in sight: straight at them, no detour round a cell corner
+    sprint = spec.melee ? spec.run : !ai.los && dist > 14;
   } else { mx = dx; mz = dz; }
 
   // Wedged on something low: hop and sidestep, and plan again.

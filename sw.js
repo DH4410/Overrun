@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v37';
+const CACHE = 'overrun-v38';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
@@ -21,7 +21,7 @@ const PRECACHE = [
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
   // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).
-  './src/net/chat.js', './src/net/client.js', './src/net/flags.js', './src/net/lobby.js', './src/net/predict.js', './src/net/stage.js',
+  './src/net/chat.js', './src/net/client.js', './src/net/flags.js', './src/net/lobby.js', './src/net/predict.js', './src/net/stage.js', './src/net/zone.js',
   './src/sim/colliders.js', './src/sim/combat.js', './src/sim/gridBroadphase.js', './src/sim/hitmath.js', './src/sim/killinfo.js', './src/sim/mapData.js', './src/sim/modes.js',
   './src/sim/items.js', './src/sim/movement.js', './src/sim/protocol.js', './src/sim/tick.js', './src/sim/weaponData.js', './src/sim/world.js',
   './assets/bots/anim/manifest.json',

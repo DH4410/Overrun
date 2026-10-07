@@ -12,9 +12,12 @@ export const MODE_INFO = {
   ctf: { label: 'CAPTURE THE FLAG', short: 'CTF', teams: true, min: 2, max: 10, limits: [3, 5, 7], limit: 3, unit: 'CAPTURES', blurb: 'Steal the other flag and carry it home while yours is safe.' },
   war: { label: 'WARZONE', short: 'WAR', teams: false, untimed: true, min: 2, max: 10, limits: [], limit: 0, unit: 'KILLS', blurb: 'A big map, free for all. No timer and no kill limit: it goes on until the host ends it.' },
   survival: { label: 'SURVIVAL', short: 'SURVIVAL', teams: true, coop: true, untimed: true, min: 1, max: 10, limits: [5, 10, 15], limit: 10, unit: 'WAVES', blurb: 'Everyone together against waves of hostile bots. More players, more bots. Back up to the wave limit.' },
+  zombie: { label: 'ZOMBIE ESCAPE', short: 'ZOMBIE', teams: true, coop: true, min: 1, max: 10, limits: [], limit: 0, unit: 'ESCAPES', blurb: 'The dead keep coming. Fight through to the extraction zone and hold it to escape before time runs out.' },
 };
 /** Modes the room runs today; the lobby offers these and the server refuses the rest. */
-export const PLAYABLE = ['dm', 'tdm', 'duel', 'ctf', 'war', 'survival'];
+/** Seconds the extraction zone must be held to escape; the server counts it and the client draws it. */
+export const ZOMBIE_HOLD = 10;
+export const PLAYABLE = ['dm', 'tdm', 'duel', 'ctf', 'war', 'survival', 'zombie'];
 
 export const TIME_OPTIONS = [180, 300, 480, 600];
 /** 'loadout' keeps what each player picked in the locker; a gun id gives everyone only that gun. */
@@ -29,7 +32,7 @@ export const teamScore = (mode) => MODE_INFO[mode]?.teams === true || MODE_INFO[
 /** The settings a map can host: a map with no `modes` list hosts every mode. */
 export function mapHosts(mapData, mapId, mode) {
   const list = mapData[mapId]?.modes;
-  return !list || list.includes(mode === 'survival' ? 'sv' : mode);
+  return !list || list.includes(mode === 'survival' || mode === 'zombie' ? 'sv' : mode);
 }
 
 /**

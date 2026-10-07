@@ -16,6 +16,7 @@ import { killLine } from '../sim/killinfo.js';
 import { MODE_INFO, teamScore } from '../sim/modes.js';
 import { createChat } from './chat.js';
 import { createFlags } from './flags.js';
+import { createZone } from './zone.js';
 import { loadScreen } from '../loading.js';
 import { createLobby, historyRow, loadHistory, pushHistory } from './lobby.js';
 import { Predictor } from './predict.js';
@@ -158,6 +159,7 @@ export function createNetClient(d) {
     return m ? { x: m.position.x, y: m.position.y, z: m.position.z } : null;
   };
   const flagsView = createFlags({ scene: d.scene, positionOf: footOf });
+  const zoneView = createZone({ scene: d.scene });
   const lobbyUI = createLobby({ send: (m) => sendJson(m), onLeave: () => leaveMatch() });
   const stage = createStage({ scene: d.scene, camera });
   const stageShow = (v) => { stage.show(v); d.setSharp?.(v); };
@@ -397,6 +399,7 @@ export function createNetClient(d) {
     mode = m.mode; phase = m.phase; timeLeft = m.timeLeft;
     if (m.roster) setRoster(m.roster);
     flagsView.set(m.mode === 'ctf' ? m.flags : [], myId);
+    zoneView.set(m.mode === 'zombie' ? m.zone : null);
     setLobbyInfo(m);
     switchToMap(m.map);
   }
@@ -561,7 +564,7 @@ export function createNetClient(d) {
     kc = null; lastDeath = null; killedBy.clear(); specTarget = null; freeCam = false; gaps.length = 0; lastSnapTick = null;
     clearTimeout(reconTimer);
     for (const n of [ui.end, ui.recon, ui.kc, ui.spec, ui.net, ui.count]) n.classList.remove('on');
-    chat.clear(); chat.show(false); chat.dock(false); flagsView.clear();
+    chat.clear(); chat.show(false); chat.dock(false); flagsView.clear(); zoneView.clear();
     lobbyUI.show(false); wasLobby = false; queued = false; rosterList = [];
     stageShow(false); stageReady = false; stageSig = ''; prevPhase = 0;
     if (loadScreen.active) loadScreen.hide(0);
@@ -618,6 +621,22 @@ export function createNetClient(d) {
     if (mark) { mark.root.remove(); d.allyMarks.delete(b); }
   }
 
+  /** A zombie is the soldier's skin gone green and sick. Materials are cloned first: skins are shared between puppets. */
+  const sick = new THREE.Color(0.55, 1, 0.5);
+  function tintZombie(b) {
+    b.zTint = true;
+    b.mesh.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const clone = (m) => {
+        const c = m.clone();
+        c.color?.multiply(sick);
+        c.emissive?.setRGB(0.03, 0.1, 0.03);
+        return c;
+      };
+      o.material = Array.isArray(o.material) ? o.material.map(clone) : clone(o.material);
+    });
+  }
+
   function puppetFor(id, team) {
     const r = roster.get(id);
     if (!r) return null;
@@ -631,6 +650,7 @@ export function createNetClient(d) {
       b.characterId = character;
       b.netId = id;
       b.hostile = !!r.bot;   // a survival enemy the server drives: off the scoreboard, out of the player count
+      b.zombie = !!r.zombie;
       puppets.set(id, b);
       bots.push(b);
     }
@@ -1076,7 +1096,8 @@ export function createNetClient(d) {
         if (emote) { b.emoteAction = d.emotes.playOn(b.mesh, emote); if (b.emoteAction) b.emoteId = emote; }
       }
       const using = b.alive && !!q.using;
-      if (b.gunMesh && b.alive) b.gunMesh.visible = !b.emoteAction && !using;
+      if (b.zombie && !b.zTint) tintZombie(b);
+      if (b.gunMesh && b.alive) b.gunMesh.visible = !b.zombie && !b.emoteAction && !using;   // the dead have nothing to hold
       // Someone healing shows a slow green spark over their head, so a covering teammate (or the man
       // about to be shot) can see it. The snapshot only says "using", not which item.
       if (using && !b.healMark) {
@@ -1342,6 +1363,7 @@ export function createNetClient(d) {
     const staged = stageStep(dt);
     if (!staged) updateRemotes(dt);
     flagsView.update(dt);
+    zoneView.update(dt, mode === 'zombie' ? scoreA : 0, camera.position);
     hud();
     // The match opens: the world replaces the stage, and the mouse has to be taken back.
     if (prevPhase === PHASE.COUNTDOWN && phase === PHASE.PLAYING && !d.isPointerLocked()) showPause(true, 'GET READY');
@@ -1384,7 +1406,7 @@ export function createNetClient(d) {
 
   function hud() {
     el.tbMode.textContent = modeLabel(phase === PHASE.LOBBY && lobbyInfo.settings ? lobbyInfo.settings.mode : mode);
-    if (mode === 'survival') {
+    if (mode === 'survival' || mode === 'zombie') {
       el.tbA.textContent = spectator ? '-' : player.kills; el.tbB.textContent = scoreB;   // your kills, hostiles left
     } else if (teamScore(mode)) {
       el.tbA.textContent = scoreA; el.tbB.textContent = scoreB;

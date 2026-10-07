@@ -7,7 +7,7 @@
  */
 import { ITEMS, TIERS, packItems, packTiers, unpackItems, unpackTiers, useProgress } from './items.js';
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -28,10 +28,10 @@ export const BTN = {
 /** Bits a repeated command drops, so a late packet cannot reload or jump twice. */
 export const ONE_SHOT_BITS = BTN.JUMP | BTN.RELOAD;
 
-export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag'];
+export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag', 'claw'];
 /** Index 0 is "not emoting". Matches EMOTES in src/emotes.js. */
 export const EMOTE_IDS = [null, 'wave', 'hiphop', 'robot', 'chicken', 'macarena', 'ymca', 'thriller', 'victory'];
-export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival', 'war'];
+export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival', 'war', 'zombie'];
 export { CHARACTER_IDS } from '../skins.js';
 export const MAX_PLAYERS = 10;
 export const MAX_SPECTATORS = 16;
@@ -119,7 +119,7 @@ export function decodeInput(buf) {
       yawQ: v.getUint16(o + 2),
       pitchQ: Math.max(-32000, Math.min(32000, v.getInt16(o + 4))),
       buttons: cleanButtons(v.getUint16(o + 6)),
-      weapon: Math.min(v.getUint8(o + 8), WEAPON_IDS.length - 1),
+      weapon: Math.min(v.getUint8(o + 8), WEAPON_IDS.indexOf('frag')),   // 'claw' is the zombies' and never selectable
       emote: v.getUint8(o + 9) < EMOTE_IDS.length ? v.getUint8(o + 9) : 0,
     });
     o += INPUT_CMD;

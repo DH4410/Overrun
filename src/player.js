@@ -7,7 +7,7 @@ import {
 import { world } from './physics.js';
 import { HB_PLAYER } from './projectiles.js';
 import { canon } from './keybinds.js';
-import { aimToggles, assistLevel, autoSprints, lookBoost, settings } from './settings.js';
+import { aimToggles, assistLevel, lookBoost, settings } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
 import { DEFAULT_LOADOUT } from './loadout.js';
@@ -205,7 +205,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
 
 /* ----------------------------- movement ----------------------------- */
 
-let crouchLatch = false, sprintLatch = false;
+let crouchLatch = false;
 const moveHooks = { land: () => Audio.step?.(), slide: () => Audio.slide?.() };
 const moveCmd = { ix: 0, iz: 0, crouch: false, sprint: false, aiming: false, jump: false };
 
@@ -264,16 +264,12 @@ function readMoveInput(out) {
   if (keys.KeyA || keys.GpLeft || (settings.arrowKeys && keys.ArrowLeft)) ix -= 1;
 
   /**
-   * Sprint: held, latched, or — with autoSprint — implied by walking forward.
-   *
-   * Holding Shift with the same hand that is covering WASD is genuinely awkward on a laptop
-   * keyboard, and toggle-sprint only half solves it because you still have to remember to turn
-   * it off. autoSprint needs the FORWARD key specifically, not just any movement, and stands
-   * down while aiming: strafing to peek an angle stays at walking pace, and walking pace stays
-   * reachable at all, which matters because sprinting is the widest accuracy cone in the game.
+   * Sprint is always on: walking forward runs, and the sprint key still runs in any direction.
+   * Strafing alone stays at walking pace, and the sprint lets go the moment the trigger is held
+   * (and while aiming, which the sim does itself), because a sprinting spray is the widest
+   * accuracy cone in the game.
    */
-  const wantSprint = (settings.toggleSprint ? sprintLatch : !!(keys.ShiftLeft || keys.GpSprint))
-    || (autoSprints() && iz > 0);
+  const wantSprint = (!!(keys.ShiftLeft || keys.GpSprint) || iz > 0) && !firing;
 
   out.ix = ix;
   out.iz = iz;
@@ -329,7 +325,7 @@ function resetStance() {
 }
 
 function switchWeapon(id) {
-  if (online()) { if (getNet().selectWeapon(id)) { Audio.equip(); aiming = false; sprintLatch = false; } return; }
+  if (online()) { if (getNet().selectWeapon(id)) { Audio.equip(); aiming = false; } return; }
   if (player.current === id || !WEAPON_BY_ID[id]) return;
   if (id === 'frag' && player.fragCount <= 0) return;
   if (id !== 'frag' && !player.loadout.includes(id)) return;   // not carried
@@ -338,7 +334,7 @@ function switchWeapon(id) {
   player.cooldown = Math.max(player.cooldown, 0.25);
   Audio.equip();
   // The crouch latch survives a swap: with toggle-crouch on, every swap used to stand you up.
-  aiming = false; sprintLatch = false;
+  aiming = false;
   updateAmmoHud();
 }
 
@@ -497,7 +493,6 @@ function bindInput() {
 
     // Toggle latches for the trackpad-friendly bindings.
     if (code === 'KeyC' && settings.toggleCrouch) crouchLatch = !crouchLatch;
-    if (code === 'ShiftLeft' && settings.toggleSprint) sprintLatch = !sprintLatch;
 
     switch (code) {
       case 'Digit1': switchWeapon(player.loadout[0]); break;

@@ -8,8 +8,8 @@ test('hold B, point at an emote, let go: the player dances in third person until
   await page.evaluate(() => { for (const b of globalThis.__game.bots) b.fireCd = Infinity; });
   await pumpFrames(page, 20);
 
-  // The match music is running and the audio graph is up.
-  expect(await page.evaluate(() => globalThis.__game.Audio._song?.kind)).toBe('match');
+  // There is no match music any more.
+  expect(await page.evaluate(() => globalThis.__game.Audio._song?.kind ?? null)).toBeNull();
 
   await page.keyboard.down('KeyB');
   await expect(page.locator('#emote-wheel')).toHaveClass(/on/);
@@ -59,7 +59,7 @@ test('hold B, point at an emote, let go: the player dances in third person until
   });
   expect(after.active).toBeNull();
   expect(after.emoting).toBe(false);
-  expect(after.song).toBe('match');
+  expect(after.song ?? null).toBeNull();
   expect(after.camAway).toBeLessThan(0.2);
 });
 

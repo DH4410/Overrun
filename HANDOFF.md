@@ -53,7 +53,10 @@ Protocol bumps to v5 once, with the combat/items wire changes (not yet done).
   (LIVENESS 75 s), host kick (`{t:'kick', id}`, 120 s token ban, `CLOSE.KICKED`/`REPLACED`), host
   `{t:'lobby'}` from any phase, everyone-left → lobby after ALONE_GRACE 8 s. UI: roster with ✕ in the
   lobby, RETURN TO LOBBY + REMOVE buttons in the pause menu. Tests: `tests/unit/mp-host-powers.test.mjs`.
-- [ ] 2. Always-on sprint, white crosshair (+ settings migration), music removed, snappy emote wheel
+- [x] 2. Always-on sprint (forward runs; drops while the trigger is held; the autoSprint/toggleSprint
+  settings are gone), white crosshair (settings `version` 2 migration), all lobby/match music removed
+  (only the emote groove remains until step 9), snappy emote wheel (6 px deadzone, 36 px leash,
+  clips preloaded after 12 s idle). sw cache v36.
 - [ ] 3. Crouch depth (measure first)
 - [ ] 4. Damage balance + falloff + shield model + Fortnite-style items + weapon rarity (protocol v5)
 - [ ] 5. Zombie Escape mode

@@ -29,6 +29,7 @@ const boneKey = (name) => name.replace(MIXAMO_PREFIX, '').toLowerCase();
 const AVATAR_SCALE = 1.2;       // BOT_MESH_SCALE: the avatar is drawn exactly as a bot is
 const AVATAR_FOOT = 0.78;       // soles below the mesh origin at that scale
 const CAM_DIST = 3.4, CAM_HEIGHT = 1.5, LOOK_HEIGHT = 1.1;
+const DEADZONE = 6, REACH = 36;   // px of mouse travel to pick a slice, and how far the pick vector may stretch
 
 export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio }) {
   const clips = {};
@@ -122,8 +123,16 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     if (!wheelOpen) return;
     wheelOpen = false;
     wheel.classList.remove('on');
-    if (play && pick >= 0) start(EMOTES[pick].id);
+    if (!play || pick < 0) return;
+    const id = EMOTES[pick].id;
+    // Let go before the clips arrived: dance as soon as they do.
+    if (clips[id]) start(id); else load().then(() => start(id));
   }
+
+  // The clips are fetched in the background once the page has settled, so the wheel is ready the
+  // first time it is opened.
+  const preload = () => (window.requestIdleCallback ?? setTimeout)(load, 1);
+  setTimeout(preload, 12000);
 
   // While the wheel is open the mouse picks a slice instead of turning the view. This runs in
   // the capture phase so player.js never sees the movement.
@@ -131,12 +140,13 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     if (!wheelOpen) return;
     e.stopImmediatePropagation();
     mx += e.movementX; my += e.movementY;
+    // A short leash (the pointer cannot wander far from the hub), so swinging to the opposite
+    // slice is one flick rather than a long drag, and a tiny nudge already points at one.
     const len = Math.hypot(mx, my);
-    if (len > 60) { mx *= 60 / len; my *= 60 / len; }
-    if (len > 24) {
+    if (len > REACH) { mx *= REACH / len; my *= REACH / len; }
+    if (len > DEADZONE) {
       const a = (Math.atan2(mx, -my) + Math.PI * 2) % (Math.PI * 2);
-      const i = Math.round(a / (Math.PI * 2 / EMOTES.length)) % EMOTES.length;
-      if (clips[EMOTES[i].id]) pick = i;
+      pick = Math.round(a / (Math.PI * 2 / EMOTES.length)) % EMOTES.length;
     }
     highlight();
   }, true);
@@ -169,8 +179,8 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     Audio.playMusic('emote');
   }
 
-  /** End the dance. `resume` puts the match music back; not when the match itself is over. */
-  function stop(resume = true) {
+  /** End the dance. */
+  function stop() {
     if (!active) return;
     action?.stop();
     avatar.userData.mixer.uncacheAction(action.getClip());
@@ -178,7 +188,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     active = null;
     avatar.visible = false;
     document.body.classList.remove('emoting');
-    if (resume) Audio.playMusic('match');
+    Audio.playMusic(null);
   }
 
   const _look = new THREE.Vector3(), _want = new THREE.Vector3();

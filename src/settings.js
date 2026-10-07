@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS = {
   adsSensitivity: 0.75,
   fov: 78,
   invertY: false,
-  crosshairColor: '#00ff87',
+  crosshairColor: '#ffffff',
   crosshairGap: 8,
   showDamageNumbers: true,
   showEnemyHealth: false,
@@ -47,12 +47,11 @@ export const DEFAULT_SETTINGS = {
   viewBob: true,
   toggleAim: false,
   toggleCrouch: true,
-  toggleSprint: false,
   arrowKeys: false,
   touchpad: false,
   trackpadLook: false,
-  autoSprint: false,
   aimAssist: 0.35,
+  version: 2,
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
@@ -68,7 +67,6 @@ export const adsFov = (base) => base * (settings.fov / DEFAULT_SETTINGS.fov);
  */
 export const aimToggles = () => settings.touchpad || settings.toggleAim;
 export const lookBoost = () => settings.touchpad || settings.trackpadLook;
-export const autoSprints = () => settings.touchpad || settings.autoSprint;
 /** Friction-only assist is never below half strength on a touchpad; the pull above that stays the player's choice. */
 export const assistLevel = () => (settings.touchpad ? Math.max(settings.aimAssist, 0.5) : settings.aimAssist);
 
@@ -77,6 +75,11 @@ export function loadSettings() {
     const raw = localStorage.getItem('overrun.settings');
     if (raw) Object.assign(settings, JSON.parse(raw));
   } catch { /* corrupt or unavailable storage just means defaults */ }
+  // Version 2: the crosshair is white by default (an older profile carries the old green), and the
+  // sprint switches are gone because sprint is always on.
+  if (!(settings.version >= 2)) settings.crosshairColor = DEFAULT_SETTINGS.crosshairColor;
+  delete settings.autoSprint; delete settings.toggleSprint;
+  settings.version = DEFAULT_SETTINGS.version;
   if (!QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
   // A cap that is not one of the offered values would be paced against nonsense, and a profile
   // saved before the setting existed carries no cap at all.

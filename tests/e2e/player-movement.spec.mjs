@@ -60,13 +60,13 @@ test('jumps are a quick committed hop, and movement has weight', async ({ page }
     }
     g.step(30);
     player.yaw = Math.PI / 2;
-    keys.KeyW = true;
+    keys.KeyA = true;   // strafing: walking pace (forward would sprint)
     let tFull = null;
     for (let i = 0; i < 120; i++) {
       g.step(1);
       if (tFull === null && Math.hypot(player.body.velocity.x, player.body.velocity.z) > 4.75) tFull = (i + 1) / 120;
     }
-    keys.KeyW = false;
+    keys.KeyA = false;
     let tStop = null;
     for (let i = 0; i < 120; i++) {
       g.step(1);

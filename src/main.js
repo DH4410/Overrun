@@ -112,9 +112,7 @@ let spawnCastY = 0;
 const Audio = createAudio({
   getCamera: () => camera,
 });
-// Browsers only start audio after a gesture, so the lobby music begins on the first click or key.
-// Menu buttons tick on hover and click.
-Audio.playMusic('lobby');
+// Browsers only start audio after a gesture. Menu buttons tick on hover and click.
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => Audio.init(), { once: true, capture: true });
 addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(); }, true);
 addEventListener('pointerover', (e) => {
@@ -1315,7 +1313,6 @@ net = createNetClient({
     appState = APP_STATE.PLAYING;
     Audio.init();
     Audio.startAmbient();
-    Audio.playMusic('match');
     requestLock();
   },
   onLeave: (message) => {
@@ -1343,7 +1340,6 @@ net = createNetClient({
     el.menuResult.textContent = message || 'Left the online match';
     appState = APP_STATE.MENU;
     document.exitPointerLock?.();
-    Audio.playMusic('lobby');
     camera.position.set(-40, 13, 40);
     camera.lookAt(0, 3, 0);
   },

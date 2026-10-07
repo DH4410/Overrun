@@ -28,20 +28,6 @@ const ROOTS = [45, 41, 48, 43];
  * a quarter-second ahead of time, and schedules whatever falls on that step.
  */
 const SONGS = {
-  // The lobby: slow pads and a soft arpeggio.
-  lobby: {
-    bpm: 84,
-    play(a, step, t, out) {
-      const bar = Math.floor(step / 16) % 4, s = step % 16, chord = CHORDS[bar];
-      const barLen = (60 / 84) * 4;
-      if (s === 0) for (const n of chord) a.pad(midi(n), t, barLen, 0.05, out);
-      if (s % 2 === 0) {
-        const n = chord[[0, 1, 2, 1, 0, 2, 1, 2][s / 2]] + 12;
-        a.tone({ f0: midi(n), f1: midi(n), dur: 0.5, gain: 0.035, type: 'triangle', at: t, out });
-      }
-      if (s === 0) a.tone({ f0: midi(ROOTS[bar] - 12), f1: midi(ROOTS[bar] - 12), dur: barLen * 0.9, gain: 0.08, type: 'sine', at: t, out });
-    },
-  },
   // Emoting: a bouncy, swung groove with a hand-clap.
   emote: {
     bpm: 108,
@@ -56,24 +42,6 @@ const SONGS = {
       if (s === 2 || s === 6 || s === 14) {
         for (const n of CHORDS[bar ? 1 : 0]) a.tone({ f0: midi(n + 12), f1: midi(n + 12), dur: 0.12, gain: 0.025, type: 'square', at: t + swing, out });
       }
-    },
-  },
-  // In a match: four-on-the-floor, offbeat hats, a pumping bass. Kept low under the gunfire.
-  match: {
-    bpm: 124,
-    play(a, step, t, out) {
-      const bar = Math.floor(step / 16) % 4, s = step % 16;
-      if (s % 4 === 0) a.tone({ f0: 150, f1: 42, dur: 0.22, gain: 0.34, type: 'sine', at: t, out });
-      if (s === 4 || s === 12) {
-        a.burst({ dur: 0.14, gain: 0.12, type: 'bandpass', freq: 1900, q: 0.9, decay: 0.12, at: t, out });
-        a.tone({ f0: 220, f1: 130, dur: 0.08, gain: 0.08, type: 'triangle', at: t, out });
-      }
-      if (s % 2 === 1) a.burst({ dur: 0.03, gain: s % 4 === 3 ? 0.05 : 0.03, type: 'highpass', freq: 7500, decay: 0.025, at: t, out });
-      if ([0, 3, 6, 8, 10, 11, 14].includes(s)) {
-        const n = ROOTS[bar] - 12 + (s === 10 || s === 14 ? 12 : 0);
-        a.bass(midi(n), t, 0.16, 0.11, out);
-      }
-      if (s === 0 && bar % 2 === 0) for (const n of CHORDS[bar]) a.pad(midi(n + 12), t, 1.9, 0.018, out);
     },
   },
 };

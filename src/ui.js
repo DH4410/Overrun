@@ -158,8 +158,7 @@ const SETTINGS_SCHEMA = [
   },
   { group: 'CONTROLS' },
   { key: 'touchpad', type: 'toggle', label: 'I am using a touchpad',
-    hint: 'One switch for laptop play: fast swipes turn further, right-click toggles aim, you sprint '
-        + 'whenever you walk forward, and aim assist slows the crosshair over enemies so you stop on '
+    hint: 'One switch for laptop play: fast swipes turn further, right-click toggles aim, and aim assist slows the crosshair over enemies so you stop on '
         + 'target. The individual options below are left as you set them.' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
@@ -170,15 +169,10 @@ const SETTINGS_SCHEMA = [
   { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle' ,
     hint: 'Trackpad friendly — right-click toggles aim instead of having to hold it.' },
   { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
-  { key: 'toggleSprint', type: 'toggle', label: 'Sprint: press to toggle' },
   { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
   { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
     hint: 'Fast swipes turn further, slow ones are untouched — so a trackpad can manage a 180 '
         + 'without giving up fine aim.' },
-  { key: 'autoSprint', type: 'toggle', label: 'Sprint automatically',
-    hint: 'Runs whenever you hold forward, so Shift never has to be held down. Off while '
-        + 'aiming, and never while strafing, because sprinting is the widest accuracy cone in '
-        + 'the game.' },
   { key: 'aimAssist', type: 'range', label: 'Aim assist', min: 0, max: 1, step: 0.05,
     hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
         + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
@@ -193,7 +187,6 @@ const SETTINGS_SCHEMA = [
     hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
   { group: 'AUDIO' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
-  { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
 ];
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */

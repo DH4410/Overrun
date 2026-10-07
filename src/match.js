@@ -174,7 +174,6 @@ function beginMatch() {
   setAppState(APP_STATE.PLAYING);
   Audio.init();
   Audio.startAmbient();
-  Audio.playMusic('match');
   Audio.roundStart();
   requestLock();
 }
@@ -232,7 +231,6 @@ function finishMatch(title, sub, podium) {
   match.outro = null;
   setAppState(APP_STATE.MENU);
   document.exitPointerLock?.();
-  Audio.playMusic('lobby');
   document.body.classList.remove('outro');
   $id('outro').className = '';
   el.hud.classList.add('hidden');

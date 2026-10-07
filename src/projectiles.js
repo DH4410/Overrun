@@ -8,6 +8,7 @@ import { rand } from './utils.js';
 import {
   PLAYER_ZONE_MULT, ZONES, ZONE_MULT, analyticHit, segmentCapsule, segmentSphere,
 } from './sim/hitmath.js';
+import { damageAt } from './sim/weaponData.js';
 
 export { HB_BOT, HB_PLAYER, HB_PLAYER_CROUCH, PLAYER_ZONE_MULT, ZONE_MULT } from './sim/hitmath.js';
 
@@ -132,7 +133,8 @@ function stepBullets(dt) {
     if (cHit && cHit.t <= wallT) {
       _hitPoint.copy(b.prev).addScaledVector(_dir, cHit.t);
       const table = cHit.target === getPlayer() ? PLAYER_ZONE_MULT : ZONE_MULT;
-      const dmg = b.damage * (table[cHit.zone] ?? 1);
+      const base = b.owner === getPlayer() ? damageAt(b.weapon, b.travelled + cHit.t, b.damage) : b.damage;
+      const dmg = base * (table[cHit.zone] ?? 1);
       spawnBlood(_hitPoint);
       applyDamage(cHit.target, dmg, b.owner, _hitPoint, cHit.head, cHit.zone, b.weapon.id);
       despawnBullet(i);
@@ -185,7 +187,7 @@ function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1, coneOverri
       _fireDir.z += rand(-spread, spread);
       _fireDir.normalize();
     }
-    spawnBullet(origin, _fireDir, weapon, shooter, weapon.damage);
+    spawnBullet(origin, _fireDir, weapon, shooter, shooter === getPlayer() ? weapon.damage : (weapon.botDamage ?? weapon.damage));
   }
   // The player's own gun plays dry; everyone else's is placed in 3D where they stand, so you
   // can tell where you are being shot from, and how far, before you see anyone.

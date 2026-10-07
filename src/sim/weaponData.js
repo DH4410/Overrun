@@ -21,7 +21,8 @@
 export const WEAPONS = [
   {
     id: 'pistol', name: 'PISTOL', slot: 1, auto: false,
-    damage: 15, speed: 400, cooldown: 0.22, mag: 15, reserve: 90, reload: 1.2,
+    damage: 20, botDamage: 15, falloff: [18, 45, 0.6],
+    speed: 400, cooldown: 0.22, mag: 15, reserve: 90, reload: 1.2,
     spread: 0.006, pellets: 1, recoil: 0.017, kick: 0.05, zoom: false,
     rest: 0.0016, move: 0.010, air: 0.050,
     bloomStep: 0.0040, bloomMax: 0.030, bloomDecay: 0.090,
@@ -30,7 +31,8 @@ export const WEAPONS = [
   },
   {
     id: 'ar', name: 'ASSAULT RIFLE', slot: 2, auto: true,
-    damage: 26, speed: 380, cooldown: 0.09, mag: 30, reserve: 180, reload: 2.0,
+    damage: 24, botDamage: 26, falloff: [25, 70, 0.7],
+    speed: 380, cooldown: 0.09, mag: 30, reserve: 180, reload: 2.0,
     spread: 0.025, pellets: 1, recoil: 0.014, kick: 0.045, zoom: false,
     rest: 0.0018, move: 0.013, air: 0.070,
     bloomStep: 0.0035, bloomMax: 0.042, bloomDecay: 0.110,
@@ -47,7 +49,8 @@ export const WEAPONS = [
     // Built to be used on the move: the lightest movement penalty of the automatics and the
     // fastest rate of fire, paid for with damage that falls behind the rifle past close range.
     id: 'smg', name: 'SMG', slot: 2, auto: true,
-    damage: 17, speed: 360, cooldown: 0.066, mag: 30, reserve: 210, reload: 1.7,
+    damage: 18, botDamage: 17, falloff: [10, 38, 0.5],
+    speed: 360, cooldown: 0.066, mag: 30, reserve: 210, reload: 1.7,
     spread: 0.035, pellets: 1, recoil: 0.009, kick: 0.03, zoom: false,
     rest: 0.0040, move: 0.0065, air: 0.045,
     bloomStep: 0.0028, bloomMax: 0.050, bloomDecay: 0.150,
@@ -59,7 +62,10 @@ export const WEAPONS = [
   },
   {
     id: 'shotgun', name: 'SHOTGUN', slot: 3, auto: false,
-    damage: 10, speed: 280, cooldown: 0.9, mag: 8, reserve: 40, reload: 2.5,
+    // 8 pellets of 19 is 152 at point-blank: a full load kills a fresh 100 + 50 spawn in one
+    // shot, and the falloff takes it to a fifth of that by 16 m.
+    damage: 19, botDamage: 10, falloff: [5, 16, 0.2],
+    speed: 280, cooldown: 0.9, mag: 8, reserve: 40, reload: 2.5,
     spread: 0.08, pellets: 8, recoil: 0.06, kick: 0.16, zoom: false,
     // `rest` IS the pellet pattern here, not an error term — a shotgun is supposed to
     // spread. Moving barely matters for the same reason.
@@ -70,8 +76,10 @@ export const WEAPONS = [
   },
   {
     id: 'sniper', name: 'SNIPER RIFLE', slot: 4, auto: false,
-    // 110 so a body shot kills an unarmoured target, which is the sniper's whole job.
-    damage: 110, speed: 700, cooldown: 1.4, mag: 5, reserve: 25, reload: 2.8,
+    // 150 so a body shot kills a fresh 100 + 50 spawn, which is the sniper's whole job. A full
+    // 100 shield on top of 100 health takes two, or one to the head.
+    damage: 150, botDamage: 110, falloff: null,
+    speed: 700, cooldown: 1.4, mag: 5, reserve: 25, reload: 2.8,
     spread: 0.0015, pellets: 1, recoil: 0.075, kick: 0.2, zoom: true, zoomFov: 25,
     // The heaviest movement penalty in the game: a sniper that can be run-and-gunned makes
     // every other gun pointless.
@@ -89,6 +97,18 @@ export const WEAPONS = [
 ];
 
 export const WEAPON_BY_ID = Object.fromEntries(WEAPONS.map((weapon) => [weapon.id, weapon]));
+
+/**
+ * Damage of one projectile that has flown `dist` metres. `falloff` is [near, far, min]: full
+ * damage out to `near`, a straight line down to `min` of it at `far`, flat beyond. The shotgun
+ * is the gun this exists for; a pump that kills at the muzzle and tickles at 20 m is the point.
+ */
+export function damageAt(weapon, dist, base = weapon.damage) {
+  const f = weapon.falloff;
+  if (!f || dist <= f[0]) return base;
+  if (dist >= f[1]) return base * f[2];
+  return base * (1 - (1 - f[2]) * ((dist - f[0]) / (f[1] - f[0])));
+}
 
 /** Aiming tightens the cone; it does not remove the movement or spray penalty. */
 export const ADS_SPREAD_MULT = 0.45;

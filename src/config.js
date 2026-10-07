@@ -61,7 +61,7 @@ export const CONFIG = {
   MAX_HEALTH: 100,
   MAX_ARMOR: 100,
   START_ARMOR: 50,
-  ARMOR_ABSORB: 0.55,
+  ARMOR_ABSORB: 1,
 
   // Bullets
   MAX_RANGE: 400,

@@ -293,7 +293,7 @@ export const HASHED_CONFIG = [
 ];
 const HASHED_WEAPON = [
   'id', 'auto', 'damage', 'speed', 'cooldown', 'mag', 'reserve', 'reload', 'spread', 'pellets', 'recoil',
-  'rest', 'move', 'air', 'bloomStep', 'bloomMax', 'bloomDecay', 'pattern',
+  'rest', 'move', 'air', 'bloomStep', 'bloomMax', 'bloomDecay', 'pattern', 'botDamage', 'falloff',
 ];
 const pick = (o, keys) => keys.map((k) => o[k]);
 

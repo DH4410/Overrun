@@ -16,7 +16,7 @@ import {
 } from '../src/sim/protocol.js';
 import { applyCommand } from '../src/sim/tick.js';
 import { killFlags } from '../src/sim/killinfo.js';
-import { WEAPONS } from '../src/sim/weaponData.js';
+import { WEAPONS, WEAPON_BY_ID, damageAt } from '../src/sim/weaponData.js';
 import { G_NADE, G_WORLD, MAT_NADE, RAY_OPTS } from '../src/sim/world.js';
 import { botCommand, botSpec, navFor, newAi } from './bots.js';
 import { ctfDrop, ctfInit, ctfStep, flagsWire } from './ctf.js';
@@ -671,7 +671,7 @@ export class Room {
         d.z += (this.rng() * 2 - 1) * cone;
         d.normalize();
       }
-      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: w.damage * (p.dmgMult ?? 1), owner: p, weapon: w.id };
+      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: (p.bot ? (w.botDamage ?? w.damage) : w.damage) * (p.dmgMult ?? 1), owner: p, weapon: w.id };
       // Fly it through the ticks the shooter was behind, against where everyone was then.
       let gone = false;
       for (let j = rewind; j >= 1 && !gone; j--) gone = this.stepBullet(b, FIXED_DT, this.tick - j);
@@ -738,7 +738,8 @@ export class Room {
     const wallT = _ray.hasHit ? _ray.distance : Infinity;
     if (best && bestT <= wallT) {
       _hp.copy(b.prev).addScaledVector(_dir, bestT);
-      this.applyDamage(best, b.damage * (PLAYER_ZONE_MULT[bestZone] ?? 1), owner, _hp, bestZone === 'head', bestZone, b.weapon);
+      const base = owner.bot ? b.damage : damageAt(WEAPON_BY_ID[b.weapon], b.travelled + bestT, b.damage);
+      this.applyDamage(best, base * (PLAYER_ZONE_MULT[bestZone] ?? 1), owner, _hp, bestZone === 'head', bestZone, b.weapon);
       return true;
     }
     if (_ray.hasHit) return true;

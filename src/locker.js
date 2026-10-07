@@ -19,7 +19,7 @@ export const GUN_CARD = {
 /** Stat bars, 0..1, read off the tuning table so they cannot drift from how the guns play. */
 function gunStats(w) {
   return [
-    ['DAMAGE', clamp((w.damage * w.pellets) / 110, 0.04, 1)],
+    ['DAMAGE', clamp((w.damage * w.pellets) / 160, 0.04, 1)],
     ['FIRE RATE', clamp(1 / w.cooldown / 16, 0.04, 1)],
     ['ACCURACY', clamp(1 - w.rest / 0.085, 0.04, 1)],
     ['MOBILITY', clamp(1 - w.move / 0.034, 0.04, 1)],

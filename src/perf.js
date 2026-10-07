@@ -14,6 +14,9 @@
  */
 export const IDLE_FPS = 15;
 
+/** The online lobby animates a character on a podium, so it gets more than a menu but far less than a match. */
+export const LOBBY_FPS = 30;
+
 /**
  * A render-rate limiter that keeps frames evenly spaced.
  *

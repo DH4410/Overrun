@@ -47,7 +47,7 @@ import {
   mapBodies,
   world,
 } from './physics.js';
-import { IDLE_FPS, createFrameGate, createResScaler } from './perf.js';
+import { IDLE_FPS, LOBBY_FPS, createFrameGate, createResScaler } from './perf.js';
 import { markShared } from './rendering.js';
 import {
   ZONE_MULT,
@@ -1094,6 +1094,7 @@ function updateCamera(dt) {
 function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
   if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
+  if (net.inLobby) return 1 / LOBBY_FPS;   // a character standing on a podium needs no more than this
   return settings.frameCap > 0 ? 1 / settings.frameCap : 0;
 }
 

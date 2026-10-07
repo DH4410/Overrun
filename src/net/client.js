@@ -1464,6 +1464,7 @@ export function createNetClient(d) {
 
   return {
     get active() { return active; },
+    get inLobby() { return active && welcomed && phase === PHASE.LOBBY; },
     get spectating() { return active && spectator; },
     get playing() { return active && !spectator && phase === PHASE.PLAYING; },
     join,

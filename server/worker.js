@@ -7,6 +7,7 @@ import warzone from '../assets/maps/warzone.json';
 import depot from '../assets/maps/depot.json';
 import bastion from '../assets/maps/bastion.json';
 import arena from '../assets/maps/arena.json';
+import metro from '../assets/maps/metro.json';
 import { Governor } from './governor.js';
 import { Room } from './room.js';
 
@@ -20,7 +21,7 @@ import { Room } from './room.js';
  * reads ~0 here; measure cost with server/node.js and tests/mp/swarm.mjs.
  */
 
-const COLLIDERS = { port, desert, snow, warzone, depot, bastion, arena };
+const COLLIDERS = { port, desert, snow, warzone, depot, bastion, arena, metro };
 
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {

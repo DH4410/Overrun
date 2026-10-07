@@ -12,7 +12,7 @@ import { join, makeRoom, run, startRound } from './room-kit.mjs';
  * lobby can start opens with every player on solid ground inside the map, clear of every blocker.
  */
 
-const NEW_MAPS = ['depot', 'bastion', 'arena'];
+const NEW_MAPS = ['depot', 'bastion', 'arena', 'metro'];
 
 for (const id of NEW_MAPS) {
   const def = MAP_DATA[id];

@@ -35,6 +35,14 @@ One global, server-authoritative room: up to 10 players plus about 16 spectators
 - **Network overlay**: F3 cycles off, PING/LOSS, and the full debug text. It shows by itself when ping is over 150 ms or loss is 3% or more. A reconnect shows a card with the retry timer.
 - Tests that need a match at once start the room with `autostart` (`MP_AUTOSTART=1` for `server/node.js`).
 
+## Zombie Escape
+
+- **Mode `zombie`** (teams, coop, 1 to 10 players, host picks the time; maps that host survival). Everyone is BLUE; the dead are server-driven RED seats built on the survival hostiles (`spawnBot(true)`, `zombieSpec` in `server/bots.js`): walkers (crowd), runners (sprint, thin) and brutes (about 200 health, hard claw), more of the nasty ones as the round ages. They hold no gun: `stepZombie` in `server/room.js` swings the claw (1.9 m, own cooldown, line of sight) through `applyDamage(..., 'claw')`.
+- **The zone** is the spawn furthest from the people's start that the nav grid can reach; it travels with the match info (`zone`). It opens 60 s in, holding it 10 s (`ZOMBIE_HOLD`, decays at half speed when empty) wins for the people (ESCAPED). The score word carries the state: 0 = locked, else 1 + tenths of a second held; `scoreB` is the zombies about.
+- A fallen person is reinforced after 25 s while a friend still lives; if nobody is alive, or the clock ends, it is OVERRUN. Zombies drop healing items only (35% of kills).
+- Client: `src/net/zone.js` (ring, beam, chip `#mp-zone`), zombies are the soldier skins tinted green with no gun (`roster.zombie`).
+- Defaults chosen without asking: 10 s hold, zone opens at 60 s, 25 s reinforcement, cap of 5 + 3 per person + 1 per 25 s (up to 28, +40% while the zone is held).
+
 ## Run it locally
 
 ```sh

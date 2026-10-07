@@ -60,12 +60,22 @@ Protocol bumps to v5 once, with the combat/items wire changes (not yet done).
 - [x] 3. Crouch depth: eye 1.8 m standing, 0.95 m crouched (was 1.15). CROUCH_HEIGHT .57, chest .2, HB_PLAYER_CROUCH
   {halfH .2, headY .35, leg .38}, BODY_OFFSETS.crouch [.2,.52]. (In-pane screenshots of the 3D canvas were stale
   in headless, so it was verified by camera Y numbers: 1.80 -> 0.95.)
-- [ ] 4. Damage balance + falloff + shield model + Fortnite-style items + weapon rarity (protocol v5)
-- [ ] 5. Zombie Escape mode
+- [x] 4. Damage balance (distance falloff `damageAt`, pump strong close, sniper one-shot body, AR nerfed), the shield
+  as a separate pool, Fortnite-style items (bandage +15 to 75 / 3 s, medkit +100 / 6 s, mini shield +25 to 50 / 2 s,
+  big shield +50 to 100 / 4 s; `src/sim/items.js`; channelled, cancelled by fire/frag/smoke/emote/weapon swap),
+  weapon tiers 0-3 (x1 / 1.08 / 1.16 / 1.25) on gun drops, kill drops, item bar + use bar HUD, first-person use
+  animation, puppet heal spark (protocol v5). Health lag fix: `takeAuthority` copies health/armor/items from every
+  you-block (before, `agrees()` ignored health so the HUD lagged until the next correction): test in mp-predict.
+  The Mixamo heal clip is not done (needs the user to sign in); the procedural animation stands in for it.
+- [x] 5. Zombie Escape (`mode 'zombie'`, protocol v6): see MULTIPLAYER.md. Melee zombies (walker / runner / brute),
+  extraction zone (a far, reachable spawn) opens at 60 s and must be held 10 s, reinforcements after 25 s while a
+  friend lives, OVERRUN when everyone is down or the clock ends. Tests: `tests/unit/mp-zombie.test.mjs`, e2e in
+  multiplayer.spec. `claw` is appended to WEAPON_IDS; the input weapon byte is clamped to `frag` so it is never selectable.
 - [ ] 6. Network: adaptive interpolation, bigger input queue, colo in /stats
-- [ ] 7. Lobby redesign
+- [~] 7. Lobby polish only so far (calmer spotlight column, map card scrim, zombie tile); a full redesign is open.
 - [ ] 8. Lazy map loading, then new Blender maps (one per commit)
-- [ ] 9. Emote songs, battery tricks
+- [~] 9. Battery: the online lobby renders at 30 fps (`LOBBY_FPS`, `net.inLobby`); menus were already 15 fps and
+  Battery saver already exists. Emote songs: handed to a worktree agent (see the merge notes at the end of the session).
 
 ---
 

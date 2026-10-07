@@ -11,17 +11,17 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v37';
+const CACHE = 'overrun-v38';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
   './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hud.js',
   './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapArena.js', './src/mapBastion.js','./src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
-  './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js',
+  './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js', './src/emoteMusic.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
   // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).
-  './src/net/chat.js', './src/net/client.js', './src/net/flags.js', './src/net/lobby.js', './src/net/predict.js', './src/net/stage.js',
+  './src/net/chat.js', './src/net/client.js', './src/net/flags.js', './src/net/lobby.js', './src/net/netQuality.js', './src/net/predict.js', './src/net/stage.js',
   './src/sim/colliders.js', './src/sim/combat.js', './src/sim/gridBroadphase.js', './src/sim/hitmath.js', './src/sim/killinfo.js', './src/sim/mapData.js', './src/sim/modes.js',
   './src/sim/items.js', './src/sim/movement.js', './src/sim/protocol.js', './src/sim/tick.js', './src/sim/weaponData.js', './src/sim/world.js',
   './assets/bots/anim/manifest.json',

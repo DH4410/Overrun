@@ -31,12 +31,14 @@ const AVATAR_FOOT = 0.78;       // soles below the mesh origin at that scale
 const CAM_DIST = 3.4, CAM_HEIGHT = 1.5, LOOK_HEIGHT = 1.1;
 const DEADZONE = 6, REACH = 36;   // px of mouse travel to pick a slice, and how far the pick vector may stretch
 
-export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio }) {
+const TAP_MS = 280;               // a press of B shorter than this, with nothing pointed at, repeats the last emote
+
+export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio, music = null }) {
   const clips = {};
   let loading = null;
   let avatar = null, avatarId = null, action = null, active = null;
   let startYaw = 0, camDist = CAM_DIST;
-  let wheelOpen = false, pick = -1, mx = 0, my = 0;
+  let wheelOpen = false, pick = -1, mx = 0, my = 0, openedAt = 0, lastId = null;
 
   /* ---------------------------- loading ---------------------------- */
 
@@ -112,7 +114,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
 
   function openWheel() {
     if (wheelOpen || !player.alive) return;
-    wheelOpen = true; pick = -1; mx = 0; my = 0;
+    wheelOpen = true; pick = -1; mx = 0; my = 0; openedAt = performance.now();
     if (!wheel.firstChild) buildWheel();
     load().then(highlight);
     wheel.classList.add('on');
@@ -123,14 +125,19 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     if (!wheelOpen) return;
     wheelOpen = false;
     wheel.classList.remove('on');
+    // A quick tap of B with nothing pointed at dances the last emote again, with no wheel to aim.
+    if (play && pick < 0 && lastId && performance.now() - openedAt < TAP_MS) pick = EMOTES.findIndex((e) => e.id === lastId);
     if (!play || pick < 0) return;
     const id = EMOTES[pick].id;
+    lastId = id;
     // Let go before the clips arrived: dance as soon as they do.
     if (clips[id]) start(id); else load().then(() => start(id));
   }
 
   // The clips are fetched in the background once the page has settled, so the wheel is ready the
   // first time it is opened.
+  // Joining an online match asks for it straight away as well (net/client.js), since a puppet
+  // that dances before the clips arrive just stands there.
   const preload = () => (window.requestIdleCallback ?? setTimeout)(load, 1);
   setTimeout(preload, 12000);
 
@@ -176,7 +183,10 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     camDist = CAM_DIST;
     avatar.visible = true;
     document.body.classList.add('emoting');
-    Audio.playMusic('emote');
+    // An emote with its own song (src/emoteMusic.js) plays that, positioned like everyone else's;
+    // the rest keep the generic loop.
+    Audio.playMusic(music?.songFor(id) ? null : 'emote');
+    music?.play('self', id, avatar.position.x, avatar.position.y, avatar.position.z);
   }
 
   /** End the dance. */
@@ -189,6 +199,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     avatar.visible = false;
     document.body.classList.remove('emoting');
     Audio.playMusic(null);
+    music?.stop('self');
   }
 
   const _look = new THREE.Vector3(), _want = new THREE.Vector3();
@@ -225,6 +236,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     avatar.position.set(p.x, feet + AVATAR_FOOT, p.z);
     avatar.rotation.y = startYaw;
     avatar.userData.mixer.update(dt);
+    music?.play('self', active, avatar.position.x, avatar.position.y, avatar.position.z);
 
     // Out along the player's view direction: in front of the avatar to begin with, since it
     // faces where you were looking, then wherever the mouse has swung it.
@@ -257,7 +269,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
   }
 
   return {
-    openWheel, closeWheel, update, stop, load, playOn, stopOn,
+    openWheel, closeWheel, update, stop, load, preload, playOn, stopOn,
     get active() { return active; },
     get wheelOpen() { return wheelOpen; },
   };

@@ -863,7 +863,7 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 #mp-lobby button.mcard { cursor: pointer; }
 #mp-lobby button.mcard:hover { border-color: var(--accent); transform: translateX(-2px); }
 #mp-lobby .mcard .ti-art { position: absolute; inset: 0; background-size: cover; background-position: center; }
-#mp-lobby .mcard .ti-art::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(4, 6, 9, .92) 5%, rgba(4, 6, 9, .15) 80%); }
+#mp-lobby .mcard .ti-art::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(4, 6, 9, .95) 8%, rgba(4, 6, 9, .72) 55%, rgba(4, 6, 9, .35) 100%), linear-gradient(90deg, rgba(4, 6, 9, .55), transparent 70%); }
 #mp-lobby .mcard .ct { position: relative; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; padding: 10px 14px 11px; }
 #mp-lobby .mcard .ct .lbl { margin: 0; }
 #mp-lobby .mcard b { font-size: 22px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.1; }

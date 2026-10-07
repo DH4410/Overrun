@@ -322,7 +322,7 @@ export function createStage({ scene, camera }) {
       const team = e.team === TEAM.BLUE || e.team === TEAM.RED ? TEAM_COLOR[e.team] : null;
       p.userData.ring.material.color.setHex(team ?? color);
       p.userData.col.material.color.setHex(color);
-      p.userData.col.material.opacity = e.ready || e.host ? 0.2 : 0.07;
+      p.userData.col.material.opacity = e.ready || e.host ? 0.09 : 0.035;
       p.visible = true;
     });
     for (let i = list.length; i < pads.length; i++) pads[i].visible = false;

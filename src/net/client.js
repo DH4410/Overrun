@@ -10,6 +10,7 @@ import {
   readSnapshot,
 } from '../sim/protocol.js';
 import { savedSkin } from '../skins.js';
+import { ITEMS, ITEM_SHIFT, TIERS, canUse, lootFor } from '../sim/items.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { killLine } from '../sim/killinfo.js';
 import { MODE_INFO, teamScore } from '../sim/modes.js';
@@ -86,6 +87,9 @@ export function createNetClient(d) {
   let seq = 0, lastSent = null, sentAt = 0, tickAcc = 0;
   const pending = [];
   let selected = null, reloadLatch = false;
+  // The item you asked to use. It stays asked for until the server's channel ends (or never began),
+  // so one tap is enough; a second tap, or anything that takes your hands, withdraws it.
+  let useWant = 0, useWantAt = 0, useSeen = false, useWeapon = null;
   let rtt = 0;
   let clockOffset = null, interp = INTERP_MIN;
   const lateness = [];
@@ -687,6 +691,9 @@ export function createNetClient(d) {
       reconSnap = s;
     }
     for (const e of s.events) onEvent(e, s);
+    knownDrops.clear();
+    for (const k of s.drops) knownDrops.set(k.id, k);
+    d.syncDrops?.(s.drops);
 
     // Pickups the server says are there.
     d.ammoChests.forEach((c, i) => setAvailable(c, (s.chestMask >> i) & 1, 26));
@@ -749,6 +756,23 @@ export function createNetClient(d) {
   function faceSpawn(y) {
     player.yaw = Math.atan2(y.px, y.pz);
     player.pitch = 0;
+  }
+
+  const knownDrops = new Map();     // id -> the drop as last seen, so a pickup event can say what it was
+
+  function pickupLabel(e) {
+    if (e.what === 1) {
+      const c = d.consumables[e.index];
+      const loot = c && lootFor(c.kind, e.index);
+      return loot ? `+${loot.qty} ${ITEMS[loot.item].name}` : 'PICKED UP';
+    }
+    if (e.what === 2) {
+      const k = knownDrops.get(e.index);
+      if (!k) return 'PICKED UP';
+      if (k.type === 1) return `+${k.b} ${ITEMS[k.a].name}`;
+      return `${TIERS[k.b].name} ${WEAPON_BY_ID[WEAPON_IDS[k.a]]?.name ?? ''}`.trim();
+    }
+    return 'AMMO RESUPPLIED';
   }
 
   function onEvent(e, s) {
@@ -822,8 +846,7 @@ export function createNetClient(d) {
       case EV.PICKUP:
         if (e.who === myId) {
           Audio.pickup();
-          const c = e.what === 1 ? d.consumables[e.index] : null;
-          d.showToast(c ? `+${c.spec.amount} ${c.spec.label}` : 'AMMO RESUPPLIED');
+          d.showToast(pickupLabel(e));
         }
         break;
       default: break;
@@ -851,6 +874,27 @@ export function createNetClient(d) {
     },
   };
 
+  /** Which item the next command asks for. `p` is the predicted player, whose useKind is the server's word. */
+  function stepUseWant(p, buttons, emote, weapon) {
+    const now = performance.now();
+    const press = d.takeItemPress?.() ?? 0;
+    if (press) {
+      if (useWant === press) { d.showToast(`${ITEMS[press].name} CANCELLED`); useSeen = false; return 0; }
+      if (!canUse(p, press)) {
+        const it = ITEMS[press];
+        d.showToast((p.items?.[press] ?? 0) <= 0 ? `NO ${it.name}` : it.stat === 'health' ? 'HEALTH ALREADY HIGH ENOUGH' : 'SHIELD ALREADY HIGH ENOUGH');
+        return useWant;
+      }
+      useWant = press; useWantAt = now; useSeen = false; useWeapon = weapon;
+    }
+    if (!useWant) return 0;
+    // Anything that takes your hands withdraws it, the same list the server breaks a channel on.
+    if (buttons & (BTN.FIRE | BTN.FRAG | BTN.SMOKE) || emote || weapon !== useWeapon) return 0;
+    if (p.useKind === useWant) useSeen = true;
+    else if (useSeen || now - useWantAt > 1500) return 0;      // it finished or was cancelled, or never started
+    return useWant;
+  }
+
   function buildCmd() {
     const p = pred.p;
     const L = lastSent;
@@ -858,6 +902,7 @@ export function createNetClient(d) {
     if (!p.alive || phase === PHASE.LOBBY || phase === PHASE.COUNTDOWN) {
       // Dead, or waiting for the match: nothing held, so nothing carries over. The server does
       // the same in the lobby and the countdown, so prediction agrees with it.
+      useWant = 0;
       return { ix: 0, iz: 0, yawQ: L?.yawQ ?? 0, pitchQ: L?.pitchQ ?? 0, buttons: 0, weapon: L?.weapon ?? weapon, emote: 0 };
     }
     d.readMoveInput(moveIn);
@@ -871,6 +916,8 @@ export function createNetClient(d) {
     if (keys.KeyG) buttons |= BTN.FRAG;
     if (keys.KeyF) buttons |= BTN.SMOKE;
     const emote = Math.max(0, EMOTE_IDS.indexOf(d.emotes.active ?? null));
+    useWant = stepUseWant(p, buttons, emote, weapon);
+    if (useWant) { buttons |= useWant << ITEM_SHIFT; buttons &= ~BTN.SPRINT; }
     // While dancing the mouse orbits the camera, so the body keeps the yaw it started with.
     const yawQ = emote && L ? L.yawQ : quantYaw(player.yaw);
     return { ix: moveIn.ix, iz: moveIn.iz, yawQ, pitchQ: quantPitch(player.pitch), buttons, weapon, emote };
@@ -910,7 +957,7 @@ export function createNetClient(d) {
   const MIRROR = [
     'alive', 'health', 'armor', 'current', 'fragCount', 'smokeCount', 'reloading', 'reloadTotal', 'cooldown',
     'recoilPitch', 'recoilYaw', 'bloom', 'sprayIndex', 'sinceShot', 'crouching', 'grounded', 'sprinting',
-    'landTime', 'landKick', 'cooking', 'invulnTimer', 'respawnTimer',
+    'landTime', 'landKick', 'cooking', 'invulnTimer', 'respawnTimer', 'items', 'tiers', 'useKind', 'useP',
   ];
 
   /** Copy the predicted player into the one the camera, viewmodel and HUD read. */

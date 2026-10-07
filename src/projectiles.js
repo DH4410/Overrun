@@ -8,6 +8,8 @@ import { rand } from './utils.js';
 import {
   PLAYER_ZONE_MULT, ZONES, ZONE_MULT, analyticHit, segmentCapsule, segmentSphere,
 } from './sim/hitmath.js';
+import { tierMult } from './sim/items.js';
+import { WEAPON_IDS } from './sim/protocol.js';
 import { damageAt } from './sim/weaponData.js';
 
 export { HB_BOT, HB_PLAYER, HB_PLAYER_CROUCH, PLAYER_ZONE_MULT, ZONE_MULT } from './sim/hitmath.js';
@@ -187,7 +189,7 @@ function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1, coneOverri
       _fireDir.z += rand(-spread, spread);
       _fireDir.normalize();
     }
-    spawnBullet(origin, _fireDir, weapon, shooter, shooter === getPlayer() ? weapon.damage : (weapon.botDamage ?? weapon.damage));
+    spawnBullet(origin, _fireDir, weapon, shooter, shooter === getPlayer() ? weapon.damage * tierMult(shooter.tiers?.[WEAPON_IDS.indexOf(weapon.id)]) : (weapon.botDamage ?? weapon.damage));
   }
   // The player's own gun plays dry; everyone else's is placed in 3D where they stand, so you
   // can tell where you are being shot from, and how far, before you see anyone.

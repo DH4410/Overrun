@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-import { CONFIG } from './config.js';
 import { RAY_OPTS, world } from './physics.js';
 import { matte } from './rendering.js';
 import { rand } from './utils.js';
+import { ITEM, ITEMS, TIERS, addItem, canCarry, lootFor, rollDrop } from './sim/items.js';
+import { WEAPON_IDS } from './sim/protocol.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
 /** Dropped weapons, ammo chests, and health/shield consumables. */
@@ -32,59 +33,172 @@ const _spRes = new CANNON.RaycastResult();
 
 const pickups = [];
 
-function spawnPickup(pos, weaponId) {
-  const w = WEAPON_BY_ID[weaponId];
+/* ----------------------------- loot models ----------------------------- */
+
+/**
+ * Everything on the floor is opaque and self-lit: a transparent or additive glow is a blended
+ * pass with no early-z, and eight of them once cost most of a frame (see buildConsumableMesh).
+ * Rarity and item kind are read from colour and silhouette instead, plus a thin lit column that
+ * shows from across the map.
+ */
+const hex = (c) => new THREE.Color(c);
+const lit = (c, k = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.35, metalness: 0.15, emissive: c, emissiveIntensity: k });
+
+function ringOf(color, r, y) {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.016, 6, 24), new THREE.MeshBasicMaterial({ color }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = y;
+  return ring;
+}
+
+/** The four healing items, each with its own silhouette. */
+function buildItemMesh(kind) {
+  const it = ITEMS[kind];
   const g = new THREE.Group();
-  const gun = buildBotGun(weaponId);
-  gun.scale.setScalar(1.1);
-  gun.rotation.z = 0.35;
-  g.add(gun);
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.55, 12, 9),
-    new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.16, depthWrite: false }),
-  );
-  g.add(glow);
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.34, 0.34, 2.4, 10, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffb454, transparent: true, opacity: 0.10,
-      side: THREE.DoubleSide, depthWrite: false,
-    }),
-  );
-  beam.position.y = 1.0;
-  g.add(beam);
-  g.position.set(pos.x, 0.75, pos.z);
-  scene.add(g);
-  pickups.push({ mesh: g, weaponId, life: 25, name: w.name });
+  if (kind === ITEM.BANDAGE) {
+    // A roll of gauze with a loose tail and a red stripe.
+    const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.16, 16), matte(0xf2eee6, 0.7, 0.05));
+    roll.rotation.z = Math.PI / 2;
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.17, 10), matte(0x6b6358, 0.9, 0));
+    hole.rotation.z = Math.PI / 2;
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.153, 0.153, 0.04, 16), lit(0xe5484d, 0.5));
+    stripe.rotation.z = Math.PI / 2;
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.09), matte(0xf2eee6, 0.7, 0.05));
+    tail.position.set(0, -0.14, 0.12);
+    tail.rotation.x = 0.35;
+    g.add(roll, hole, stripe, tail);
+  } else if (kind === ITEM.MEDKIT) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.17), matte(0xeeeeee, 0.5, 0.1));
+    const lidLine = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.012, 0.18), matte(0x9aa0a6, 0.5, 0.3));
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.05), matte(0x4a4f55, 0.5, 0.4));
+    handle.position.y = 0.165;
+    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.19, 0.185), lit(it.color, 0.9));
+    const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.07, 0.185), lit(it.color, 0.9));
+    g.add(box, lidLine, handle, crossV, crossH);
+  } else {
+    // A flask: round body, glass neck, cork. The big one is a fat potion, the mini a slim vial.
+    const big = kind === ITEM.BIG;
+    const r = big ? 0.2 : 0.12;
+    const body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), lit(it.color, big ? 0.85 : 0.7));
+    body.scale.y = big ? 1.0 : 1.25;
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.38, r * 0.5, r * 0.9, 10), lit(it.color, 0.5));
+    neck.position.y = r * (big ? 1.05 : 1.3);
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.4, r * 0.34, r * 0.4, 8), matte(0x9a7a4a, 0.8, 0.05));
+    cork.position.y = neck.position.y + r * 0.62;
+    const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.5, 10, 8), new THREE.MeshBasicMaterial({ color: hex(it.color).lerp(new THREE.Color(0xffffff), 0.5) }));
+    g.add(body, neck, cork, core);
+    g.userData.ring = ringOf(it.color, r * 1.6, -r * 0.8);
+    g.add(g.userData.ring);
+  }
+  return g;
+}
+
+/** A dropped gun or a few items, with a lit column in its rarity colour. */
+function buildDropMesh(type, a, b) {
+  const g = new THREE.Group();
+  let color;
+  if (type === 1) {
+    const m = buildItemMesh(a);
+    m.scale.setScalar(1.25);
+    g.add(m);
+    color = ITEMS[a].color;
+  } else {
+    color = TIERS[b].color;
+    const gun = buildBotGun(WEAPON_IDS[a]);
+    gun.scale.setScalar(1.3);
+    gun.rotation.z = 0.3;
+    g.add(gun);
+    g.add(ringOf(color, 0.42, -0.1));
+  }
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.7, 6), new THREE.MeshBasicMaterial({ color }));
+  col.position.y = 0.9;
+  g.add(col);
+  g.userData.tint = color;
+  return g;
+}
+
+function dropLabel(type, a, b) {
+  if (type === 1) return `+${b} ${ITEMS[a].name}`;
+  return `${TIERS[b].name} ${WEAPON_BY_ID[WEAPON_IDS[a]].name}`.trim();
+}
+
+/**
+ * Single player: a bot's death drops what the server's rollDrop says (src/sim/items.js). A gun is
+ * ammo for that gun and, if its tier beats yours, an upgrade; items go in the bag if there is room.
+ */
+function spawnPickup(pos, weaponId) {
+  const drop = rollDrop(Math.max(0, WEAPON_IDS.indexOf(weaponId)), Math.random(), Math.random());
+  const mesh = buildDropMesh(drop.type, drop.a, drop.b);
+  mesh.position.set(pos.x, 0.75, pos.z);
+  scene.add(mesh);
+  pickups.push({ mesh, ...drop, life: 40 });
+}
+
+function takeDrop(d) {
+  if (d.type === 1) return addItem(player, d.a, d.b) > 0;
+  const w = WEAPON_BY_ID[WEAPON_IDS[d.a]];
+  const a = player.ammo[w.id];
+  if (!a) return false;
+  const upgrade = d.b > (player.tiers[d.a] ?? 0);
+  if (!upgrade && a.mag >= w.mag && a.reserve >= w.reserve * 1.5) return false;
+  if (upgrade) player.tiers[d.a] = d.b;
+  a.mag = w.mag;
+  a.reserve = Math.min(w.reserve * 1.5, a.reserve + Math.ceil(w.mag * 1.5));
+  return true;
 }
 
 function updatePickups(dt) {
+  const t = performance.now() * 0.003;
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.life -= dt;
     p.mesh.rotation.y += dt * 1.4;
-    p.mesh.position.y = 0.75 + Math.sin(performance.now() * 0.003) * 0.09;
+    p.mesh.position.y = 0.75 + Math.sin(t + i) * 0.09;
+    if (p.mesh.userData.ring) p.mesh.userData.ring.rotation.z += dt;
 
-    if (player.alive && p.mesh.position.distanceTo(player.body.position) < 1.6) {
-      const a = player.ammo[p.weaponId];
-      const w = WEAPON_BY_ID[p.weaponId];
-      a.reserve = Math.min(w.reserve * 1.5, a.reserve + Math.ceil(w.mag * 1.5));
-      if (a.mag === 0) a.mag = w.mag;
+    if (player.alive && p.mesh.position.distanceTo(player.body.position) < 1.6 && takeDrop(p)) {
       Audio.pickup();
-      showToast(`PICKED UP ${w.name}`);
+      showToast(dropLabel(p.type, p.a, p.b));
       updateAmmoHud();
       scene.remove(p.mesh); pickups.splice(i, 1);
       continue;
     }
     if (p.life <= 0) { scene.remove(p.mesh); pickups.splice(i, 1); }
   }
+  // Multiplayer drops are the server's; they only need to turn and bob.
+  for (const m of mpDrops.values()) {
+    m.mesh.rotation.y += dt * 1.4;
+    m.mesh.position.y = m.y + Math.sin(t + m.id) * 0.09;
+  }
+}
+
+/** Multiplayer: show exactly the drops in the newest snapshot. */
+const mpDrops = new Map();
+function syncDrops(list) {
+  const live = new Set();
+  for (const k of list) {
+    live.add(k.id);
+    if (mpDrops.has(k.id)) continue;
+    const mesh = buildDropMesh(k.type, k.a, k.b);
+    const y = k.pos.y + 0.45;
+    mesh.position.set(k.pos.x, y, k.pos.z);
+    scene.add(mesh);
+    mpDrops.set(k.id, { id: k.id, mesh, y });
+  }
+  for (const [id, m] of mpDrops) if (!live.has(id)) { scene.remove(m.mesh); mpDrops.delete(id); }
 }
 
 function clearPickups() {
   for (const p of pickups) scene.remove(p.mesh);
   pickups.length = 0;
+  for (const m of mpDrops.values()) scene.remove(m.mesh);
+  mpDrops.clear();
 }
 
+/* ------------------------- ammo chests');
+if(i<0||j<0) throw new Error('markers');
+t=t.slice(0,i)+blk+t.slice(j);
+fs.writeFileSync(p,t);
 /* ------------------------- ammo chests ------------------------- */
 
 /**
@@ -215,65 +329,11 @@ function resetAmmoChests() {
  */
 const consumables = [];
 
+// Seconds to come back. What a spot holds is src/sim/items.js lootFor(kind, index): it is shared with the server.
 const CONSUMABLE_KINDS = {
-  health: {
-    label: 'HEALTH', color: 0x46e07a, amount: 35, respawn: 22,
-    wanted: (p) => p.health < CONFIG.MAX_HEALTH,
-    apply(p) {
-      if (!this.wanted(p)) return false;
-      p.health = Math.min(CONFIG.MAX_HEALTH, p.health + this.amount);
-      return true;
-    },
-  },
-  shield: {
-    label: 'SHIELD', color: 0x4db4ff, amount: 40, respawn: 30,
-    wanted: (p) => p.armor < CONFIG.MAX_ARMOR,
-    apply(p) {
-      if (!this.wanted(p)) return false;
-      p.armor = Math.min(CONFIG.MAX_ARMOR, p.armor + this.amount);
-      return true;
-    },
-  },
+  health: { color: 0x46e07a, respawn: 22 },
+  shield: { color: 0x4db4ff, respawn: 30 },
 };
-
-/** Potion-ish vial: tinted glass body, glowing core, floating ring. */
-function buildConsumableMesh(kind) {
-  const spec = CONSUMABLE_KINDS[kind];
-  const g = new THREE.Group();
-  const glass = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.17, 0.21, 0.34, 12),
-    // Opaque, not transparent glass. Transparency here meant a blended pass with no early-z
-    // for 8 objects, measured at ~3 ms of a 4.9 ms frame at 400x300 — and that scales with
-    // resolution, so it is much worse on a real display. A strong emissive reads as "glowing
-    // vial" just as well and costs a normal opaque draw.
-    new THREE.MeshStandardMaterial({
-      color: spec.color, roughness: 0.25, metalness: 0.1,
-      emissive: spec.color, emissiveIntensity: 0.7,
-    }),
-  );
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.07, 0.09, 0.12, 10),
-    matte(0xdad6cc, 0.6, 0.2),
-  );
-  neck.position.y = 0.22;
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.10, 10, 8),
-    new THREE.MeshBasicMaterial({ color: spec.color }),
-  );
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.30, 0.018, 6, 22),
-    new THREE.MeshBasicMaterial({ color: spec.color }),
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = -0.16;
-  // No additive glow sprite here, deliberately. An earlier version had one and it was
-  // catastrophic: 8 pickups took a 400x300 frame from 1.8 ms to 77 ms, because a camera-facing
-  // additive sprite is pure overdraw and eight of them covered the screen several times over.
-  // The emissive core plus the light this pickup leases carry the same read for nothing.
-  g.add(glass, neck, core, ring);
-  g.userData.ring = ring;
-  return g;
-}
 
 /** Pickups past this are not worth drawing; they are dots on screen and pure overdraw. */
 const PICKUP_DRAW_DIST = 34;
@@ -288,14 +348,16 @@ function spawnConsumables(entries, max = 8) {
     world.raycastClosest(_spFrom, _spTo, RAY_OPTS, _spRes);
     if (!_spRes.hasHit) continue;
     const spec = CONSUMABLE_KINDS[kind];
-    const mesh = buildConsumableMesh(kind);
+    const loot = lootFor(kind, consumables.length);
+    const mesh = buildItemMesh(loot.item);
+    mesh.scale.setScalar(1.2);
     const baseY = _spRes.hitPointWorld.y + 0.5;
     mesh.position.set(x, baseY, z);
     scene.add(mesh);
     const emitter = addLightEmitter({
-      x, y: baseY + 0.2, z, color: spec.color, intensity: 18, distance: 4.5, priority: 0,
+      x, y: baseY + 0.2, z, color: ITEMS[loot.item].color, intensity: 18, distance: 4.5, priority: 0,
     });
-    consumables.push({ kind, spec, mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
+    consumables.push({ kind, spec, loot, index: consumables.length, mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
   }
 }
 
@@ -315,19 +377,21 @@ function updateConsumables(dt, visualOnly = false) {
     if (!c.mesh.visible) continue;
     c.mesh.rotation.y += dt * 0.9;
     c.mesh.position.y = c.baseY + Math.sin(t * 2.0 + c.phase) * 0.14;
-    c.mesh.userData.ring.rotation.z += dt * 1.6;
+    if (c.mesh.userData.ring) c.mesh.userData.ring.rotation.z += dt * 1.6;
     c.emitter.y = c.mesh.position.y + 0.2;
 
     if (!player.alive || visualOnly) continue;
     const d = c.mesh.position.distanceTo(player.body.position);
     // Only offer what can actually be taken: "walk in to collect" at full health was a promise
     // the pickup then refused.
-    if (d < 2.4 && c.spec.wanted(player)) prompt = c.spec.label;
+    const room = canCarry(player, c.loot.item);
+    if (d < 2.4 && room) prompt = ITEMS[c.loot.item].name;
     if (d > 1.5) continue;
 
-    if (!c.spec.apply(player)) continue;      // already full — leave it for later
+    if (!room) continue;      // bag already full of these: leave it for later
+    addItem(player, c.loot.item, c.loot.qty);
     Audio.pickup();
-    showToast(`+${c.spec.amount} ${c.spec.label}`);
+    showToast(`+${c.loot.qty} ${ITEMS[c.loot.item].name}`);
     updateVitals();
     c.mesh.visible = false;
     c.emitter.intensity = 0;
@@ -354,6 +418,8 @@ return {
   ammoChests,
   consumables,
   spawnPickup,
+  syncDrops,
+  buildItemMesh,
   updatePickups,
   clearPickups,
   spawnAmmoChests,

@@ -62,6 +62,7 @@ import { createMinimap } from './minimap.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import { createNetClient } from './net/client.js';
+import { useProgress } from './sim/items.js';
 import {
   ADS_FOV,
   CONFIG,
@@ -662,6 +663,8 @@ const {
   ammoChests,
   consumables,
   spawnPickup,
+  syncDrops,
+  buildItemMesh,
   updatePickups,
   clearPickups,
   spawnAmmoChests,
@@ -825,6 +828,7 @@ const {
   isGamepadActive,
   stopFiring,
   takeFireLatch,
+  takeItemPress,
   readMoveInput,
 } = createPlayerRuntime({
   player,
@@ -943,6 +947,8 @@ function fixedStep(dt) {
 /** 0 at the hip, 1 fully aimed. Eased, so the gun travels up to the eye rather than snapping. */
 let vmAds = 0;
 let vmReload = 0;
+let vmUse = 0;                   // 0..1 eased: the gun lowered and an item raised while one is used
+const vmItems = [];              // one first-person prop per item kind, built when first used
 const _vmHip = new THREE.Vector3();
 const _vmAim = new THREE.Vector3();
 
@@ -981,6 +987,30 @@ function updateViewModel(dt) {
   }
   vmReload += (dip - vmReload) * (1 - Math.exp(-dt * 14));
   _vmTarget.y -= 0.12 * vmReload;
+
+  // Healing: the gun drops out of the way and the item comes up in the off hand, working as the
+  // channel fills. Driven by useKind, which is the server's word in multiplayer.
+  const useKind = player.alive ? player.useKind : 0;
+  vmUse += ((useKind ? 1 : 0) - vmUse) * (1 - Math.exp(-dt * 12));
+  if (vmUse > 0.01) {
+    _vmTarget.y -= 0.32 * vmUse;
+    _vmTarget.x += 0.06 * vmUse;
+  }
+  for (let k = 1; k < vmItems.length; k++) if (vmItems[k]) vmItems[k].visible = false;
+  if (useKind && vmUse > 0.05) {
+    let prop = vmItems[useKind];
+    if (!prop) {
+      prop = vmItems[useKind] = buildItemMesh(useKind);
+      prop.scale.setScalar(1.7);
+      vmScene.add(prop);
+    }
+    const prog = player.useP ?? useProgress(player);
+    const e = Math.min(1, vmUse * 1.1);
+    const work = Math.sin(prog * Math.PI * 7) * 0.012;
+    prop.position.set(0.17 - 0.03 * (1 - e), -0.34 + 0.15 * e + work, -0.52);
+    prop.rotation.set(0.5 + work * 6, -0.5 + prog * 0.9, 0.15);
+    prop.visible = !scoped && player.alive;
+  }
 
   // Recoil: straight back into the shoulder, muzzle up, decaying fast.
   vmRecoil *= Math.pow(0.0005, dt);
@@ -1283,7 +1313,7 @@ addEventListener('keydown', (e) => {
 net = createNetClient({
   player, bots, Bot, el, Audio, camera, keys, match, scene, allyMarks, playerBlip, vmModels,
   ammoChests, consumables, loadedCharacters, loadCharacter, isCharacterLoaded, switchMap, getCurrentMapId, losClear,
-  readMoveInput, isFiring, isAiming, takeFireLatch, isPointerLocked, emotes,
+  readMoveInput, isFiring, isAiming, takeFireLatch, takeItemPress, syncDrops, isPointerLocked, emotes,
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,

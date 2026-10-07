@@ -26,6 +26,10 @@ export const ACTIONS = [
   { id: 'slot3', label: 'Weapon slot 3', def: 'Digit3', group: 'WEAPONS' },
   { id: 'slot4', label: 'Weapon slot 4', def: 'Digit4', group: 'WEAPONS' },
   { id: 'slot5', label: 'Grenade slot', def: 'Digit5', group: 'WEAPONS' },
+  { id: 'item1', label: 'Bandage', def: 'Digit6', group: 'ITEMS' },
+  { id: 'item2', label: 'Medkit', def: 'Digit7', group: 'ITEMS' },
+  { id: 'item3', label: 'Mini shield', def: 'Digit8', group: 'ITEMS' },
+  { id: 'item4', label: 'Shield potion', def: 'Digit9', group: 'ITEMS' },
   { id: 'board', label: 'Scoreboard (hold)', def: 'Tab', group: 'OTHER' },
   { id: 'emote', label: 'Emote wheel (hold)', def: 'KeyB', group: 'OTHER' },
 ];

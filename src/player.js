@@ -12,6 +12,7 @@ import { clamp, lerp, rand } from './utils.js';
 import { WEAPON_BY_ID, WEAPONS, playerSpread, recoilStep } from './weapons.js';
 import { DEFAULT_LOADOUT } from './loadout.js';
 import { killFlags } from './sim/killinfo.js';
+import { USE, canUse, emptyItems, stepUse } from './sim/items.js';
 import {
   createPlayerBody as createSharedBody,
   setCrouch as sharedSetCrouch,
@@ -62,6 +63,7 @@ export function createPlayerState() {
   // Seconds since the last hard landing and how hard it was, for the camera dip.
   landTime: 99, landKick: 0,
   airVy: 0,
+  items: emptyItems(), tiers: [0, 0, 0, 0, 0], useKind: 0, useT: 0, useLatch: 0,
 };
 }
 
@@ -109,6 +111,8 @@ let firing = false, aiming = false;
 // A press that has not been seen by a multiplayer tick yet, so a click shorter than a frame
 // still fires.
 let fireLatch = false;
+let itemPress = 0;          // 1-4: an item key went down since the last look (see src/sim/items.js)
+let itemWant = 0, itemWeapon = null;     // single player: the item asked for, and the gun held when it was
 let pointerLocked = false;
 
 // Shared gameplay scratch remains local to the player runtime; projectile simulation owns its
@@ -130,6 +134,10 @@ function resetPlayerAmmo() {
   }
   player.fragCount = 3;
   player.smokeCount = 1;                 // one smoke per life — reset here, on every respawn
+  player.items = emptyItems();
+  player.tiers = [0, 0, 0, 0, 0];
+  player.useKind = 0; player.useT = 0; player.useLatch = 0;
+  itemWant = 0;
 }
 
 /* ------------------------- shared damage path ------------------------- */
@@ -236,6 +244,7 @@ function stepPlayer(dt) {
 
   if (!player.alive) { b.velocity.x = 0; b.velocity.z = 0; return; }
 
+  if (!online()) stepItemsSP(dt);
   readMoveInput(moveCmd);
   stepMovement(world, player, moveCmd, dt, moveHooks);
 
@@ -255,6 +264,23 @@ function stepPlayer(dt) {
   if (b.position.y < -20) respawnPlayer();
 }
 
+/**
+ * Single player's healing items: the same channel rules the server runs (src/sim/items.js). A tap
+ * asks for the item, a second tap withdraws it, and firing, throwing or swapping guns does too.
+ */
+function stepItemsSP(dt) {
+  const press = itemPress; itemPress = 0;
+  if (press) {
+    if (itemWant === press) itemWant = 0;
+    else if (canUse(player, press)) { itemWant = press; itemWeapon = player.current; }
+  }
+  if (itemWant && (firing || player.cooking || player.current !== itemWeapon)) itemWant = 0;
+  const r = stepUse(player, itemWant, false, dt);
+  if (r === USE.DONE || r === USE.CANCEL) itemWant = 0;
+  else if (itemWant && !player.useKind && !canUse(player, itemWant)) itemWant = 0;
+  if (r === USE.DONE) updateAmmoHud();
+}
+
 /** The movement keys as a command, shared with the multiplayer client. */
 function readMoveInput(out) {
   let ix = 0, iz = 0;
@@ -269,7 +295,7 @@ function readMoveInput(out) {
    * (and while aiming, which the sim does itself), because a sprinting spray is the widest
    * accuracy cone in the game.
    */
-  const wantSprint = (!!(keys.ShiftLeft || keys.GpSprint) || iz > 0) && !firing;
+  const wantSprint = (!!(keys.ShiftLeft || keys.GpSprint) || iz > 0) && !firing && !player.useKind;
 
   out.ix = ix;
   out.iz = iz;
@@ -500,6 +526,7 @@ function bindInput() {
       case 'Digit3': switchWeapon(player.loadout[2]); break;
       case 'Digit4': switchWeapon(player.loadout[3]); break;
       case 'Digit5': switchWeapon('frag'); break;
+      case 'Digit6': case 'Digit7': case 'Digit8': case 'Digit9': itemPress = Number(code.slice(5)) - 5; break;
       case 'KeyR': startReload(); break;
       case 'KeyG': startCook('frag'); break;
       case 'KeyF': startCook('smoke'); break;
@@ -780,6 +807,7 @@ return {
   setAiming: (on) => { aiming = !!on; },      // test and debug hook
   isFiring: () => firing,
   takeFireLatch: () => { const f = fireLatch; fireLatch = false; return f; },
+  takeItemPress: () => { const k = itemPress; itemPress = 0; return k; },
   readMoveInput,
   isPointerLocked: () => pointerLocked,
   isGamepadActive: () => gamepadActive,

@@ -5,6 +5,8 @@ import { codeOf, keyName } from './keybinds.js';
 import { killIcon } from './killicons.js';
 import { MULTIKILL_WINDOW_S, killTags, multiKillLabel } from './sim/killinfo.js';
 import { hipFov, settings } from './settings.js';
+import { ITEMS, TIERS, packItems, useProgress } from './sim/items.js';
+import { WEAPON_IDS } from './sim/protocol.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
 
@@ -286,6 +288,7 @@ function updateVitals() {
 function updateAmmoHud() {
   const w = currentWeapon();
   el.aname.textContent = w.name;
+  tierSig = -1;                    // updateItemHud paints the tier prefix again
   if (w.thrown) {
     el.amag.textContent = player.fragCount;
     el.ares.textContent = '∞';
@@ -406,6 +409,65 @@ function updateHudTimers(dt) {
   updateCrosshairSpread();
   updateShotReady();
   updateVitals();
+  updateItemHud();
+}
+
+/**
+ * The item bar (what is in the bag, and the key for each) and the channel bar while one runs.
+ * The DOM is only touched when the bag, the tier or the channel actually changed.
+ */
+const itemEls = [];
+const useBar = document.getElementById('usebar');
+const itemsBar = document.getElementById('items');
+if (itemsBar) {
+  for (let k = 1; k < ITEMS.length; k++) {
+    const it = ITEMS[k];
+    const n = document.createElement('div');
+    n.className = 'it';
+    n.style.setProperty('--c', `#${it.color.toString(16).padStart(6, '0')}`);
+    n.innerHTML = `<i class="ico ${it.id}"></i><b></b><span></span>`;
+    itemsBar.appendChild(n);
+    itemEls[k] = n;
+  }
+}
+let itemSig = '', tierSig = -1, useSig = '';
+function updateItemHud() {
+  if (!itemsBar) return;
+  const items = player.items;
+  const sig = items ? `${packItems(items)}|${player.useKind}` : '';
+  if (sig !== itemSig) {
+    itemSig = sig;
+    for (let k = 1; k < ITEMS.length; k++) {
+      const n = itemEls[k], have = items?.[k] ?? 0;
+      n.children[1].textContent = keyName(codeOf(`item${k}`));
+      n.children[2].textContent = have;
+      n.classList.toggle('empty', have === 0);
+      n.classList.toggle('using', player.useKind === k);
+    }
+    itemsBar.classList.toggle('none', !items || !items.some((q) => q > 0));
+  }
+  const w = currentWeapon();
+  const idx = WEAPON_IDS.indexOf(w.id);
+  const tier = player.tiers?.[idx] ?? 0;
+  const tsig = tier * 16 + idx;
+  if (tsig !== tierSig) {
+    tierSig = tsig;
+    el.aname.textContent = tier ? `${TIERS[tier].name} ${w.name}` : w.name;
+    el.aname.style.color = tier ? `#${TIERS[tier].color.toString(16).padStart(6, '0')}` : '';
+  }
+  const kind = player.alive ? player.useKind : 0;
+  if (!kind) {
+    if (useSig) { useSig = ''; useBar.classList.remove('on'); }
+    return;
+  }
+  const p = player.useP ?? useProgress(player);
+  if (useSig !== String(kind)) {
+    useSig = String(kind);
+    useBar.style.setProperty('--c', `#${ITEMS[kind].color.toString(16).padStart(6, '0')}`);
+    useBar.firstElementChild.textContent = ITEMS[kind].stat === 'health' ? `HEALING · ${ITEMS[kind].name}` : `SHIELDING · ${ITEMS[kind].name}`;
+    useBar.classList.add('on');
+  }
+  useBar.lastElementChild.firstElementChild.style.transform = `scaleX(${clamp(p, 0, 1).toFixed(3)})`;
 }
 
 /**

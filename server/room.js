@@ -42,6 +42,9 @@ export const MAX_REWIND = 30;            // ticks lag compensation may rewind (2
 export const QUEUE_MAX = 30;             // commands buffered per player (250 ms)
 const MAX_GUESS = 12;                    // ticks a held command is repeated while starved (100 ms)
 const RECONNECT_GRACE = 60;              // s a dropped player's seat is held for its token
+const LIVENESS = 75;                     // s of silence (clients ping every 10; a hidden tab's timers can slip to one a minute) before a connection is declared dead
+const ALONE_GRACE = 8;                   // s a round may run with fewer people than its mode needs before everyone goes back to the lobby
+const KICK_BAN = 120;                    // s a removed player's token is refused for
 const NAME_MAX = 16;
 const CHEST_RANGE = 1.5, CHEST_RESPAWN = 25;
 const CONSUMABLES = {
@@ -105,6 +108,8 @@ export class Room {
     this.flags = [];
     this.sv = null;                      // survival: { wave, state, breakT, queue, cap, spawnIn, counter, nextId }
     this.rosterDirty = false;
+    this.kicked = new Map();             // token -> time it may rejoin
+    this.aloneFor = 0;                   // s the round has had too few people
     this.loadMap(this.settings.map);
     if (autostart) this.startMatch(this.settings.mode, this.settings.map);
   }
@@ -153,7 +158,7 @@ export class Room {
   /** A connection opened; nothing happens until its hello. */
   open(conn) {
     this.clients.set(conn, {
-      conn, player: null, spectator: false, queued: false, helloMsg: null, hello: false, tokens: 10, tokenAt: this.now(),
+      conn, player: null, spectator: false, queued: false, helloMsg: null, hello: false, tokens: 10, tokenAt: this.now(), seen: this.now(),
       json: 0, jsonAt: this.now(), chat: 0, chatAt: this.now(), bad: 0,
     });
   }
@@ -180,10 +185,37 @@ export class Room {
 
   get empty() { return this.clients.size === 0; }
 
+  /** Shut a connection from this end. Its client is forgotten first, so the adapter's later close() finds nothing. */
+  dropConnection(conn, reason, code = CLOSE.REPLACED) {
+    const c = this.clients.get(conn);
+    if (!c) return;
+    this.clients.delete(conn);
+    if (c.player && c.player.conn === conn) { c.player.conn = null; c.player.connected = false; c.player.droppedAt = this.now(); }
+    try { conn.send(JSON.stringify({ t: 'error', code, reason })); } catch { /* gone already */ }
+    try { conn.close(code, reason); } catch { /* gone already */ }
+  }
+
+  /** Connections that have said nothing for LIVENESS seconds are dead networks, not quiet players. */
+  reapSilent() {
+    const t = this.now();
+    for (const c of [...this.clients.values()]) {
+      if (t - c.seen <= LIVENESS * 1000) continue;
+      const p = c.player;
+      this.dropConnection(c.conn, 'The connection timed out.', 1001);
+      if (p) {
+        p.alive = false; p.cooking = null; p.emote = 0; p.queue.length = 0; p.ready = false;
+        this.log(`timeout ${p.name} (#${p.id})`);
+        this.say(`${p.name} lost connection`);
+        this.broadcastRoster();
+      }
+    }
+  }
+
   message(conn, data) {
     const c = this.clients.get(conn);
     if (!c) return;
     this.governor.poll();   // a new UTC day first, so this message counts toward it
+    c.seen = this.now();
     this.governor.add(1);
     this.stats.msgsIn++;
     this.stats.window.msgs++;
@@ -233,6 +265,8 @@ export class Room {
     else if (m.t === 'gear') this.onGear(c.player, m);
     else if (m.t === 'start') this.onStart(c.player);
     else if (m.t === 'end') this.onEnd(c.player);
+    else if (m.t === 'lobby') this.onLobby(c.player);
+    else if (m.t === 'kick') this.onKick(c.player, m);
     // Anything else (the client's 'ka' keepalive) is only a message: on Cloudflare, that tops up the CPU allowance.
   }
 
@@ -248,13 +282,22 @@ export class Room {
       this.refuse(c, CLOSE.CLOSED, 'The server is closed for today: its free daily budget is used up.', { resetInSec: this.governor.resetIn });
       return;
     }
+    if (typeof m.token === 'string' && (this.kicked.get(m.token) ?? 0) > this.now()) {
+      this.refuse(c, CLOSE.KICKED, 'The host removed you from this room.');
+      return;
+    }
     c.hello = true;
     c.helloMsg = { name: m.name, character: m.character, loadout: m.loadout };
     let p = null;
-    // A token resumes a held seat.
-    if (typeof m.token === 'string') {
-      p = this.players.find((q) => q.token === m.token && !q.connected) ?? null;
-      if (p) this.resumeSeat(p, c);
+    // A token resumes its seat: a held one, or one whose old connection is still "open" because the
+    // network under it died without a close (poor wifi). Without the second case the returning
+    // player was seated afresh and showed up twice.
+    if (typeof m.token === 'string' && m.token) {
+      p = this.players.find((q) => !q.bot && q.token === m.token) ?? null;
+      if (p) {
+        if (p.conn) this.dropConnection(p.conn, 'You signed in again from somewhere else.');
+        this.resumeSeat(p, c);
+      }
     }
     if (!p && !m.spectate && this.canSeat()) {
       p = this.newSeat(c, m);
@@ -579,11 +622,25 @@ export class Room {
     }
     if (this.tick % TICK_HZ === 0) {
       const t = this.now();
+      this.reapSilent();
       for (const p of [...this.players]) {
-        if (!p.connected && t - p.droppedAt > RECONNECT_GRACE * 1000) this.freeSeat(p);
+        if (!p.bot && !p.connected && t - p.droppedAt > RECONNECT_GRACE * 1000) this.freeSeat(p);
       }
+      for (const [token, until] of this.kicked) if (until <= t) this.kicked.delete(token);
+      this.checkAlone();
     }
     if (this.tick % SNAP_EVERY === 0) this.snapDue = true;
+  }
+
+  /**
+   * A round of a mode that needs company, with the company gone: after a short grace (a friend's
+   * wifi blip should not end it) everyone still here goes back to the lobby, instead of playing
+   * on alone against nobody. A duel decides this itself (the one who stayed wins).
+   */
+  checkAlone() {
+    const need = MODE_INFO[this.mode].min;
+    if (this.phase !== PHASE.PLAYING || need < 2 || this.mode === 'duel' || this.humans().length >= need) { this.aloneFor = 0; return; }
+    if (++this.aloneFor >= ALONE_GRACE) { this.aloneFor = 0; this.toLobby('EVERYONE ELSE LEFT'); }
   }
 
   /** Emotes run until the player does anything, as in src/emotes.js; the server enforces it. */
@@ -924,6 +981,28 @@ export class Room {
   onEnd(p) {
     if (p !== this.hostSeat || this.phase !== PHASE.PLAYING || !MODE_INFO[this.mode].untimed) return;
     this.endOnTime();
+  }
+
+  /** The host calls everyone back to the lobby, from any phase and any mode, to change the mode or map. */
+  onLobby(p) {
+    if (p !== this.hostSeat || this.phase === PHASE.LOBBY || this.phase === PHASE.CLOSED) return;
+    this.toLobby('THE HOST SENT EVERYONE BACK TO THE LOBBY');
+  }
+
+  /**
+   * The host removes a player (a stuck or doubled-up seat, or someone being a nuisance). The seat is
+   * freed at once rather than held for a reconnect, and the same token is refused for a while.
+   */
+  onKick(p, m) {
+    if (p !== this.hostSeat) return;
+    const target = this.players.find((q) => !q.bot && q.id === m.id);
+    if (!target || target === p) return;
+    this.kicked.set(target.token, this.now() + KICK_BAN * 1000);
+    const conn = target.conn;
+    if (conn) this.dropConnection(conn, 'The host removed you from this room.', CLOSE.KICKED);
+    this.log(`kick ${target.name} (#${target.id})`);
+    this.say(`${target.name} was removed by the host`);
+    this.freeSeat(target);
   }
 
   onStart(p) {

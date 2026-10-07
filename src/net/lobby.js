@@ -172,6 +172,24 @@ export function createLobby({ send, onLeave }) {
     sh.append(el('span', 'lbl', 'MATCH'), el('span', `tag${isHost ? ' host' : ''}`, isHost ? 'YOU ARE HOST' : 'HOST CHOOSES'));
     side.appendChild(sh);
 
+    // Who is here. The host gets a ✕ on every other seat (a duplicate or a stuck player goes this way).
+    const rost = el('div', 'roster');
+    for (const r of roster) {
+      const row = el('div', `rrow${r.id === myId ? ' me' : ''}`);
+      row.append(
+        el('span', 'rmark', r.id === host ? '♛' : r.ready ? '✓' : ''),
+        el('span', 'rname', r.name),
+      );
+      if (isHost && r.id !== myId) {
+        const kick = el('button', 'rkick', '✕');
+        kick.type = 'button'; kick.title = `Remove ${r.name}`; kick.setAttribute('aria-label', `Remove ${r.name}`);
+        kick.addEventListener('click', () => send({ t: 'kick', id: r.id }));
+        row.appendChild(kick);
+      }
+      rost.appendChild(row);
+    }
+    side.appendChild(rost);
+
     const card = (kind, label, value, sub, art) => {
       const c = el(isHost ? 'button' : 'div', `mcard k-${kind}${isHost ? '' : ' ro'}`);
       if (isHost) { c.type = 'button'; c.addEventListener('click', () => openPop(kind)); }

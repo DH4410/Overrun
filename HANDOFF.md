@@ -43,6 +43,27 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ---
 
+## Session 9 (2026-10-07): playtest fixes, new modes, more maps (in progress)
+
+Source: the user's playtest list. `npx wrangler deploy` is blocked for me; the user deploys. Work
+on `claude/overrun-mp-lobby-modes`, one commit per step, never push, never commit `spike/`.
+Protocol bumps to v5 once, with the combat/items wire changes (not yet done).
+
+- [x] 1. Host powers and seat robustness: token takeover (no doubled players), silent sockets reaped
+  (LIVENESS 75 s), host kick (`{t:'kick', id}`, 120 s token ban, `CLOSE.KICKED`/`REPLACED`), host
+  `{t:'lobby'}` from any phase, everyone-left → lobby after ALONE_GRACE 8 s. UI: roster with ✕ in the
+  lobby, RETURN TO LOBBY + REMOVE buttons in the pause menu. Tests: `tests/unit/mp-host-powers.test.mjs`.
+- [ ] 2. Always-on sprint, white crosshair (+ settings migration), music removed, snappy emote wheel
+- [ ] 3. Crouch depth (measure first)
+- [ ] 4. Damage balance + falloff + shield model + Fortnite-style items + weapon rarity (protocol v5)
+- [ ] 5. Zombie Escape mode
+- [ ] 6. Network: adaptive interpolation, bigger input queue, colo in /stats
+- [ ] 7. Lobby redesign
+- [ ] 8. Lazy map loading, then new Blender maps (one per commit)
+- [ ] 9. Emote songs, battery tricks
+
+---
+
 ## Session 8 (2026-10-04): multiplayer lobby, skins, controls, physics cost
 
 The multiplayer work is documented in MULTIPLAYER.md; this is what else changed on

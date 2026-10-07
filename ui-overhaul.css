@@ -845,6 +845,13 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 #mp-lobby .sh .lbl { margin: 0; font-size: 14px; color: var(--ink); }
 #mp-lobby .tag { padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--ink-2); border: 1px solid var(--ink-4); }
 #mp-lobby .tag.host { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+#mp-lobby .roster { display: flex; flex-direction: column; gap: 3px; }
+#mp-lobby .rrow { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(255, 255, 255, .04); font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+#mp-lobby .rrow.me { border-left: 3px solid var(--accent); }
+#mp-lobby .rmark { width: 16px; text-align: center; color: var(--accent); }
+#mp-lobby .rname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mp-lobby .rkick { cursor: pointer; padding: 0 7px; border: 0; background: none; color: var(--ink-3); font-size: 15px; }
+#mp-lobby .rkick:hover { color: #ff5d5d; }
 #mp-lobby .opts { display: flex; flex-wrap: wrap; gap: 5px; }
 #mp-lobby .opts button, #mp-lobby .actions button, #mp-lobby .done { cursor: pointer; padding: 6px 12px; border: 1px solid var(--ink-4); background: rgba(255, 255, 255, .04);
   color: var(--ink); font: 700 14px var(--f-display); letter-spacing: 1px; }

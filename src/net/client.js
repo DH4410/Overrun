@@ -193,6 +193,25 @@ export function createNetClient(d) {
   // Warzone has no clock: the host ends it from the pause screen.
   const endBtn = document.getElementById('end-match');
   endBtn.addEventListener('click', () => { sendJson({ t: 'end' }); el.pause.classList.remove('on', 'dead'); });
+  // The host's other powers: send everyone back to the lobby, and remove a seat (a duplicate or a stuck player).
+  const lobbyBtn = document.getElementById('to-lobby');
+  lobbyBtn.addEventListener('click', () => { sendJson({ t: 'lobby' }); el.pause.classList.remove('on', 'dead'); });
+  const kickBox = document.getElementById('p-kick');
+  let kickKey = '';
+  function drawKick(show) {
+    const list = show ? rosterList.filter((r) => r.id !== myId && !r.bot) : [];
+    const key = list.map((r) => `${r.id}:${r.name}`).join('|');
+    kickBox.hidden = !list.length;
+    if (key === kickKey) return;
+    kickKey = key;
+    kickBox.textContent = '';
+    for (const r of list) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = `REMOVE ${r.name}`;
+      b.addEventListener('click', () => sendJson({ t: 'kick', id: r.id }));
+      kickBox.appendChild(b);
+    }
+  }
 
   async function loadColliders() {
     if (colliders) return;
@@ -238,7 +257,7 @@ export function createNetClient(d) {
     if (!active || leaving) return;
     const why = refusal ?? reason;
     if (code === CLOSE.REFRESH) { finish(why || 'A new version of the game is out. Refresh to update.'); return; }
-    if (code === CLOSE.FULL || code === CLOSE.CLOSED || code === CLOSE.KICKED) { finish(why || 'Disconnected.'); return; }
+    if (code === CLOSE.FULL || code === CLOSE.CLOSED || code === CLOSE.KICKED || code === CLOSE.REPLACED) { finish(why || 'Disconnected.'); return; }
     if (!welcomed) { finish(why || 'Could not reach the multiplayer server.'); return; }
     // Anything else is the network: try again a few times, holding the seat with the token.
     if (retries >= 5) { finish('Lost the connection to the server.'); return; }
@@ -1328,7 +1347,10 @@ export function createNetClient(d) {
     if (performance.now() - chatTick > 500) { chatTick = performance.now(); chat.refresh(); }
     if (endInfo) tickEndTimer();
     ui.debug.classList.toggle('on', netMode === 2);
-    endBtn.hidden = !(active && welcomed && phase === PHASE.PLAYING && MODE_INFO[mode]?.untimed && myId !== null && myId === lobbyInfo.host);
+    const amHost = active && welcomed && myId !== null && myId === lobbyInfo.host;
+    endBtn.hidden = !(amHost && phase === PHASE.PLAYING && MODE_INFO[mode]?.untimed);
+    lobbyBtn.hidden = !(amHost && phase !== PHASE.LOBBY);
+    drawKick(amHost);
     // Ping and loss: on request (F3), and by itself when the connection is bad enough to matter.
     let seen = 0, missed = 0;
     for (const g of gaps) { seen += g.n; missed += g.missed; }

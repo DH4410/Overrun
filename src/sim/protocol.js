@@ -30,7 +30,7 @@ export { CHARACTER_IDS } from '../skins.js';
 export const MAX_PLAYERS = 10;
 export const MAX_SPECTATORS = 16;
 /** Close codes the client explains to the player instead of reconnecting. */
-export const CLOSE = { REFRESH: 4001, FULL: 4002, CLOSED: 4003, KICKED: 4004 };
+export const CLOSE = { REFRESH: 4001, FULL: 4002, CLOSED: 4003, KICKED: 4004, REPLACED: 4005 };
 
 /** LOBBY: waiting and readying up. COUNTDOWN: spawned, unarmed. INTERMISSION: the results screen. */
 export const PHASE = { PLAYING: 1, INTERMISSION: 2, CLOSED: 3, LOBBY: 4, COUNTDOWN: 5 };

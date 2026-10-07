@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v36';
+const CACHE = 'overrun-v37';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
@@ -23,7 +23,7 @@ const PRECACHE = [
   // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).
   './src/net/chat.js', './src/net/client.js', './src/net/flags.js', './src/net/lobby.js', './src/net/predict.js', './src/net/stage.js',
   './src/sim/colliders.js', './src/sim/combat.js', './src/sim/gridBroadphase.js', './src/sim/hitmath.js', './src/sim/killinfo.js', './src/sim/mapData.js', './src/sim/modes.js',
-  './src/sim/movement.js', './src/sim/protocol.js', './src/sim/tick.js', './src/sim/weaponData.js', './src/sim/world.js',
+  './src/sim/items.js', './src/sim/movement.js', './src/sim/protocol.js', './src/sim/tick.js', './src/sim/weaponData.js', './src/sim/world.js',
   './assets/bots/anim/manifest.json',
   // Characters and their clips are cache-first assets; listing them here means the
   // first offline load has a full roster rather than falling back to blocky humanoids.

@@ -6,6 +6,9 @@ import { DEFAULT_LOADOUT, validLoadout } from '../src/loadout.js';
 import { buildMapWorld, floorAt, inBlockers, validSpawnPoints } from '../src/sim/colliders.js';
 import { aimDirection, launchVelocity, resetAmmo, throwAim } from '../src/sim/combat.js';
 import { HB_PLAYER, PLAYER_ZONE_MULT, HB_PLAYER_CROUCH, analyticHit } from '../src/sim/hitmath.js';
+import {
+  ITEM_MASK, ITEM_SHIFT, USE, addItem, canCarry, cancelUse, emptyItems, lootFor, rollDrop, stepUse, tierMult,
+} from '../src/sim/items.js';
 import { MAP_DATA, MAP_IDS } from '../src/sim/mapData.js';
 import { DEFAULT_SETTINGS, MODE_INFO, PLAYABLE, cleanSettings, teamMode, teamScore } from '../src/sim/modes.js';
 import { createPlayerBody, setCrouch, syncPlayerPoints } from '../src/sim/movement.js';
@@ -47,10 +50,8 @@ const ALONE_GRACE = 15;                  // s a round may run with fewer people 
 const KICK_BAN = 120;                    // s a removed player's token is refused for
 const NAME_MAX = 16;
 const CHEST_RANGE = 1.5, CHEST_RESPAWN = 25;
-const CONSUMABLES = {
-  health: { amount: 35, respawn: 22, stat: 'health', max: CONFIG.MAX_HEALTH },
-  shield: { amount: 40, respawn: 30, stat: 'armor', max: CONFIG.MAX_ARMOR },
-};
+const CONSUMABLE_RESPAWN = { health: 30, shield: 35 };    // s; what a spot holds is src/sim/items.js lootFor
+const DROP_RANGE = 1.6, DROP_LIFE = 40, MAX_DROPS = 14;
 const NADE_ROLL_SPEED = 2.6;
 const BOT_ID0 = 100, BOT_IDS = 150;      // hostile ids count up from here, so a seat id and a hostile id never meet
 const BOT_SKINS = ['gasmask', 'trooper', 'crypto', 'swat'].filter((id) => CHARACTER_IDS.includes(id));
@@ -139,6 +140,8 @@ export class Room {
       const y = floorAt(world, x, z, castY);
       if (y !== null) this.chests.push({ x, y: y + 0.45, z, cooldown: 0 });
     }
+    this.drops = [];
+    this.nextDrop = 0;
     this.consumables = [];
     for (const [kind, x, z] of def.consumables) {
       if (this.consumables.length >= 8) break;
@@ -368,6 +371,7 @@ export class Room {
       current: 'pistol', ammo: {}, fragCount: 3, smokeCount: 1,
       cooldown: 0, fireCarry: 0, reloading: 0, reloadTotal: 0, bloom: 0, sprayIndex: 0, sinceShot: 99,
       recoilPitch: 0, recoilYaw: 0, cooking: null, chargeTicks: 0, prevButtons: 0,
+      items: emptyItems(), tiers: [0, 0, 0, 0, 0], useKind: 0, useT: 0, useWeapon: 'pistol',
       emote: 0, emoteBlock: 0,
       queue: [], lastCmd: IDLE_CMD, ackSeq: 0, ackTick: this.tick, lastSeq: 0, merge: 0, guesses: 0, minDepth: Infinity, depthAt: this.tick,
       rtt: 0, interpMs: 100, echoTime: 0, echoAt: 0,
@@ -582,6 +586,7 @@ export class Room {
       let cmd = p.bot ? botCommand(this, p) : this.nextCommand(p);
       if (frozen && (cmd.ix || cmd.iz || cmd.buttons || cmd.emote)) cmd = { ...cmd, ix: 0, iz: 0, buttons: 0, emote: 0 };
       applyCommand(this.world, p, p.cmd = cmd, dt, armed, this);
+      if (!p.bot) this.stepItems(p, cmd, armed);
     }
     this.world.step(dt);
     const slot = this.tick % HIST;
@@ -643,11 +648,24 @@ export class Room {
     if (++this.aloneFor >= ALONE_GRACE) { this.aloneFor = 0; this.toLobby('EVERYONE ELSE LEFT'); }
   }
 
+  /**
+   * Healing items: the command holds the item's number in its upper button bits for as long as
+   * the channel runs (src/sim/items.js has the rules). Anything that takes your hands cancels it.
+   */
+  stepItems(p, cmd, armed) {
+    const sel = (cmd.buttons & ITEM_MASK) >> ITEM_SHIFT;
+    if (!armed) { cancelUse(p); return; }
+    const busy = (cmd.buttons & (BTN.FIRE | BTN.FRAG | BTN.SMOKE)) !== 0 || !!p.cooking || cmd.emote !== 0
+      || (p.useKind !== 0 && p.current !== p.useWeapon);
+    const r = stepUse(p, sel, busy, FIXED_DT);
+    if (r === USE.START) p.useWeapon = p.current;
+  }
+
   /** Emotes run until the player does anything, as in src/emotes.js; the server enforces it. */
   stepEmote(p) {
     const want = p.cmd?.emote ?? 0;
     const v = p.body.velocity;
-    const busy = !p.alive || (p.cmd.buttons & BTN.FIRE) || Math.hypot(v.x, v.z) > 1.2 || v.y > 1.5;
+    const busy = !p.alive || p.useKind !== 0 || (p.cmd.buttons & BTN.FIRE) || Math.hypot(v.x, v.z) > 1.2 || v.y > 1.5;
     if (want === 0) { p.emote = 0; p.emoteBlock = 0; return; }
     if (p.emote === want) {
       if (busy) { p.emote = 0; p.emoteBlock = want; }
@@ -671,7 +689,7 @@ export class Room {
         d.z += (this.rng() * 2 - 1) * cone;
         d.normalize();
       }
-      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: (p.bot ? (w.botDamage ?? w.damage) : w.damage) * (p.dmgMult ?? 1), owner: p, weapon: w.id };
+      const b = { pos: p.eye.clone(), prev: p.eye.clone(), vel: d.multiplyScalar(w.speed), travelled: 0, damage: (p.bot ? (w.botDamage ?? w.damage) : w.damage * tierMult(p.tiers[WEAPON_IDS.indexOf(w.id)])) * (p.dmgMult ?? 1), owner: p, weapon: w.id };
       // Fly it through the ticks the shooter was behind, against where everyone was then.
       let gone = false;
       for (let j = rewind; j >= 1 && !gone; j--) gone = this.stepBullet(b, FIXED_DT, this.tick - j);
@@ -791,6 +809,8 @@ export class Room {
     if (target.bot) target.removeAt = this.tick + 5 * TICK_HZ;
     target.cooking = null;
     target.emote = 0;
+    cancelUse(target);
+    this.dropLoot(target);
     this.idleCommand(target);
     const w = weapon ?? 'frag';
     const dist = source && source !== target ? source.pos.distanceTo(target.pos) : 0;
@@ -854,7 +874,48 @@ export class Room {
     }
   }
 
+  /** A kill leaves something on the floor: a gun of some tier, or a few healing items. Never in a duel. */
+  dropLoot(victim) {
+    if (this.mode === 'duel') return;
+    if (this.drops.length >= MAX_DROPS) this.drops.shift();
+    const id = victim.current === 'frag' ? victim.loadout[0] : victim.current;
+    const luck = this.mode === 'survival' && this.sv ? Math.min(0.25, this.sv.wave * 0.02) : 0;
+    const d = rollDrop(Math.max(0, WEAPON_IDS.indexOf(id)), this.rng(), this.rng(), luck);
+    this.nextDrop = (this.nextDrop + 1) % 250;
+    this.drops.push({
+      id: this.nextDrop, ...d, life: DROP_LIFE,
+      x: victim.body.position.x, y: victim.body.position.y - CONFIG.PLAYER_RADIUS + 0.35, z: victim.body.position.z,
+    });
+  }
+
+  /** Try to hand `d` to `p`: an upgrade or ammo for a gun, room in the bag for items. False leaves it on the floor. */
+  takeDrop(p, d) {
+    if (d.type === 1) return addItem(p, d.a, d.b) > 0;
+    const w = WEAPON_BY_ID[WEAPON_IDS[d.a]];
+    const a = p.ammo[w.id];
+    if (!a) return false;
+    const upgrade = d.b > p.tiers[d.a];
+    if (!upgrade && a.mag >= w.mag && a.reserve >= w.reserve * 1.5) return false;
+    if (upgrade) p.tiers[d.a] = d.b;
+    a.mag = w.mag;
+    a.reserve = Math.min(w.reserve * 1.5, a.reserve + Math.ceil(w.mag * 1.5));
+    return true;
+  }
+
   stepPickups(dt) {
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      if ((d.life -= dt) <= 0) { this.drops.splice(i, 1); continue; }
+      for (const p of this.players) {
+        if (!p.connected || !p.alive || p.bot) continue;
+        const b = p.body.position;
+        if (Math.hypot(b.x - d.x, b.z - d.z) > DROP_RANGE || Math.abs(b.y - d.y) > 2) continue;
+        if (!this.takeDrop(p, d)) continue;
+        this.events.push({ kind: EV.PICKUP, who: p.id, what: 2, index: d.id });
+        this.drops.splice(i, 1);
+        break;
+      }
+    }
     this.chests.forEach((c, index) => {
       if (c.cooldown > 0) { c.cooldown -= dt; return; }
       for (const p of this.players) {
@@ -875,13 +936,13 @@ export class Room {
     });
     this.consumables.forEach((c, index) => {
       if (c.cooldown > 0) { c.cooldown -= dt; return; }
-      const spec = CONSUMABLES[c.kind];
+      const loot = lootFor(c.kind, index);
       for (const p of this.players) {
-        if (!p.connected || !p.alive || p.bot || p[spec.stat] >= spec.max) continue;
+        if (!p.connected || !p.alive || p.bot || !canCarry(p, loot.item)) continue;
         const b = p.body.position;
         if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) > 1.5) continue;
-        p[spec.stat] = Math.min(spec.max, p[spec.stat] + spec.amount);
-        c.cooldown = spec.respawn;
+        addItem(p, loot.item, loot.qty);
+        c.cooldown = CONSUMABLE_RESPAWN[c.kind] ?? 30;
         this.events.push({ kind: EV.PICKUP, who: p.id, what: 1, index });
         return;
       }
@@ -1030,7 +1091,7 @@ export class Room {
     this.scoreA = 0; this.scoreB = 0;
     this.flags = [];
     for (const g of this.grenades) this.world.removeBody(g.body);
-    this.grenades = []; this.bullets = []; this.smokes = [];
+    this.grenades = []; this.bullets = []; this.smokes = []; this.drops = [];
     for (const c of this.chests) c.cooldown = 0;
     for (const c of this.consumables) c.cooldown = 0;
     // Teams are dealt afresh each round: shuffled, then alternated.
@@ -1124,7 +1185,9 @@ export class Room {
       if (!p.alive) { this.respawn(p); continue; }
       p.health = Math.min(CONFIG.MAX_HEALTH, p.health + 40);
       p.armor = Math.min(CONFIG.MAX_ARMOR, p.armor + 25);
+      const { items, tiers } = p;
       resetAmmo(p);
+      p.items = items; p.tiers = tiers;     // the between-wave refill keeps what you found
     }
     const n = Math.max(1, people.length);
     sv.queue = Math.min(80, Math.round((2 + 2 * w) * (1 + 0.5 * (n - 1))));
@@ -1318,6 +1381,8 @@ export class Room {
     this.chests.forEach((c, i) => { if (c.cooldown <= 0) chestMask |= 1 << i; });
     this.consumables.forEach((c, i) => { if (c.cooldown <= 0) consMask |= 1 << i; });
     sh.u16(chestMask); sh.u16(consMask);
+    sh.u8(this.drops.length);
+    for (const d of this.drops) { sh.u8(d.id); sh.u8(d.type); sh.u8(d.a); sh.u8(d.b); sh.pos(d.x, d.y, d.z); }
     sh.u8(Math.min(255, this.grenades.length));
     for (const g of this.grenades.slice(0, 255)) { sh.u8(g.id); sh.u8(g.kind === 'smoke' ? 2 : 1); sh.pos(g.body.position.x, g.body.position.y, g.body.position.z); }
     sh.u8(Math.min(255, this.smokes.length));

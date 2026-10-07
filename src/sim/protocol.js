@@ -5,7 +5,9 @@
  * Bump PROTOCOL_VERSION whenever anything here or in the shared simulation changes meaning: it
  * is folded into the map hash, so a stale client is told to refresh instead of desyncing.
  */
-export const PROTOCOL_VERSION = 4;
+import { ITEMS, TIERS, packItems, packTiers, unpackItems, unpackTiers, useProgress } from './items.js';
+
+export const PROTOCOL_VERSION = 5;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -15,7 +17,11 @@ export const SNAPSHOT_HZ = 20;
 export const INPUT_HZ = 20;
 export const MAX_CMDS_PER_PACKET = 16;
 
-/** Command buttons. FIRE/AIM/CROUCH/SPRINT/FRAG/SMOKE are held state; JUMP/RELOAD are one-shots. */
+/**
+ * Command buttons. FIRE/AIM/CROUCH/SPRINT/FRAG/SMOKE are held state; JUMP/RELOAD are one-shots.
+ * Bits 8-10 are not buttons: they carry the item being used (src/sim/items.js), held for the
+ * whole channel.
+ */
 export const BTN = {
   FIRE: 1, AIM: 2, JUMP: 4, CROUCH: 8, SPRINT: 16, RELOAD: 32, FRAG: 64, SMOKE: 128,
 };
@@ -88,6 +94,12 @@ export function encodeInput(cmds, firstSeq, clientTime, rtt, interpMs, viewTick)
   return buf;
 }
 
+/** The eight button bits plus an item field that names a real item (1-4) or nothing. */
+function cleanButtons(b) {
+  const item = (b >> 8) & 7;
+  return (b & 0xff) | (item >= 1 && item <= 4 ? item << 8 : 0);
+}
+
 /** Decode and clamp; returns null for anything malformed. Never trusts a field. */
 export function decodeInput(buf) {
   if (!(buf instanceof ArrayBuffer) || buf.byteLength < INPUT_HEADER) return null;
@@ -106,7 +118,7 @@ export function decodeInput(buf) {
       ix: Math.sign(v.getInt8(o)), iz: Math.sign(v.getInt8(o + 1)),
       yawQ: v.getUint16(o + 2),
       pitchQ: Math.max(-32000, Math.min(32000, v.getInt16(o + 4))),
-      buttons: v.getUint16(o + 6) & 0xff,
+      buttons: cleanButtons(v.getUint16(o + 6)),
       weapon: Math.min(v.getUint8(o + 8), WEAPON_IDS.length - 1),
       emote: v.getUint8(o + 9) < EMOTE_IDS.length ? v.getUint8(o + 9) : 0,
     });
@@ -152,7 +164,7 @@ export class Reader {
 }
 
 /** Player flags in a snapshot. */
-export const PF = { ALIVE: 1, CROUCH: 2, AIM: 4, INVULN: 8, GROUNDED: 16, SPRINT: 32, CONNECTED: 64 };
+export const PF = { ALIVE: 1, CROUCH: 2, AIM: 4, INVULN: 8, GROUNDED: 16, SPRINT: 32, CONNECTED: 64, USING: 128 };
 
 /**
  * Snapshot layout (all big-endian):
@@ -161,6 +173,7 @@ export const PF = { ALIVE: 1, CROUCH: 2, AIM: 4, INVULN: 8, GROUNDED: 16, SPRINT
  *   u8 inputRate, u8 budgetFlags, u8 youId
  *   [you block when youId != NO_ID]
  *   u8 nPlayers, players..., u16 chestMask, u16 consumableMask,
+ *   u8 nDrops, drops (u8 id, u8 type, u8 a, u8 b, pos)...,
  *   u8 nGrenades, grenades..., u8 nSmokes, smokes..., u8 nEvents, events...
  * The header and you-block are per recipient; everything from nPlayers on is shared. The
  * you-block is the state after command ackSeq and then ackAge ticks without a new command.
@@ -186,6 +199,8 @@ export function writeYou(w, p) {
   w.u8(p.cooking === 'frag' ? 1 : p.cooking === 'smoke' ? 2 : 0); w.u16(Math.min(65535, p.chargeTicks));
   w.u16(p.prevButtons);
   w.f64(p.respawnTimer); w.f64(p.invulnTimer);
+  w.u16(packItems(p.items)); w.u16(packTiers(p.tiers));
+  w.u8(p.useKind); w.u8(Math.round(useProgress(p) * 255));
 }
 
 export function readYou(r) {
@@ -207,6 +222,8 @@ export function readYou(r) {
   y.cooking = [null, 'frag', 'smoke'][r.u8()] ?? null; y.chargeTicks = r.u16();
   y.prevButtons = r.u16();
   y.respawnTimer = r.f64(); y.invulnTimer = r.f64();
+  y.items = unpackItems(r.u16()); y.tiers = unpackTiers(r.u16());
+  y.useKind = r.u8(); y.useP = r.u8() / 255;
   return y;
 }
 
@@ -215,7 +232,7 @@ export function writePlayer(w, p) {
   w.u8(p.id);
   w.u8((p.alive ? PF.ALIVE : 0) | (p.crouching ? PF.CROUCH : 0) | (p.aiming ? PF.AIM : 0)
     | (p.invulnTimer > 0 ? PF.INVULN : 0) | (p.grounded ? PF.GROUNDED : 0) | (p.sprinting ? PF.SPRINT : 0)
-    | (p.connected ? PF.CONNECTED : 0));
+    | (p.connected ? PF.CONNECTED : 0) | (p.useKind ? PF.USING : 0));
   w.u8(p.team);
   w.pos(b.position.x, b.position.y, b.position.z);
   w.pos(b.velocity.x, b.velocity.y, b.velocity.z);
@@ -233,7 +250,7 @@ export function readPlayer(r) {
     id, team, pos, vel,
     alive: !!(f & PF.ALIVE), crouching: !!(f & PF.CROUCH), aiming: !!(f & PF.AIM),
     invuln: !!(f & PF.INVULN), grounded: !!(f & PF.GROUNDED), sprinting: !!(f & PF.SPRINT),
-    connected: !!(f & PF.CONNECTED),
+    connected: !!(f & PF.CONNECTED), using: !!(f & PF.USING),
     yaw: dequantYaw(r.u16()), pitch: dequantPitch(r.i16()),
     health: r.u8(), weapon: WEAPON_IDS[r.u8()] ?? 'pistol', emote: r.u8(),
     kills: r.u8(), deaths: r.u8(),
@@ -307,6 +324,7 @@ export function mapHash(colliders, mapData, config, weapons) {
   return fnv1a(JSON.stringify([
     PROTOCOL_VERSION, ids.map((id) => [colliders[id], mapData[id]]),
     pick(config, HASHED_CONFIG), weapons.map((w) => pick(w, HASHED_WEAPON)),
+    ITEMS.map((i) => i && [i.id, i.stat, i.gain, i.cap, i.time, i.max]), TIERS.map((t) => t.mult),
   ]));
 }
 
@@ -323,6 +341,8 @@ export function readSnapshot(buf) {
   if (s.youId !== NO_ID) s.you = readYou(r);
   for (let n = r.u8(); n > 0; n--) s.players.push(readPlayer(r));
   s.chestMask = r.u16(); s.consumableMask = r.u16();
+  s.drops = [];
+  for (let n = r.u8(); n > 0; n--) s.drops.push({ id: r.u8(), type: r.u8(), a: r.u8(), b: r.u8(), pos: r.pos() });
   for (let n = r.u8(); n > 0; n--) s.grenades.push({ id: r.u8(), kind: r.u8() === 2 ? 'smoke' : 'frag', pos: r.pos() });
   for (let n = r.u8(); n > 0; n--) s.smokes.push({ id: r.u8(), pos: r.pos(), age: r.u16() / 10 });
   for (let n = r.u8(); n > 0; n--) s.events.push(readEvent(r));

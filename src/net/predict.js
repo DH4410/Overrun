@@ -33,7 +33,7 @@ export function createSimPlayer(loadout) {
     alive: false, health: 0, armor: 0, respawnTimer: 0, invulnTimer: 0,
     loadout: [...loadout], current: loadout[0], ammo: {}, fragCount: 3, smokeCount: 1,
     cooldown: 0, fireCarry: 0, reloading: 0, reloadTotal: 0, bloom: 0, sprayIndex: 0, sinceShot: 99,
-    recoilPitch: 0, recoilYaw: 0, cooking: null, chargeTicks: 0, prevButtons: 0,
+    recoilPitch: 0, recoilYaw: 0, cooking: null, chargeTicks: 0, prevButtons: 0, useP: 0,
   };
   resetAmmo(p);
   return p;
@@ -44,6 +44,16 @@ const SCALARS = [
   'fragCount', 'smokeCount', 'cooldown', 'fireCarry', 'reloading', 'reloadTotal', 'bloom', 'sprayIndex',
   'sinceShot', 'recoilPitch', 'recoilYaw', 'cooking', 'chargeTicks', 'prevButtons', 'respawnTimer', 'invulnTimer',
 ];
+
+/**
+ * State only the server changes (damage, healing, loot): nothing here is predicted, so the
+ * newest you-block is simply taken. Without this a hit that did not move you left the health bar
+ * where it was, because an agreeing position never triggers `apply`.
+ */
+function takeAuthority(p, y) {
+  p.health = y.health; p.armor = y.armor; p.respawnTimer = y.respawnTimer;
+  if (y.items) { p.items = y.items; p.tiers = y.tiers; p.useKind = y.useKind; p.useP = y.useP; }
+}
 
 /** The player's state in the you-block's shape (see readYou). */
 function capture(p) {
@@ -99,6 +109,7 @@ export class Predictor {
     b.previousPosition.set(y.px, y.py, y.pz);
     b.velocity.set(y.vx, y.vy, y.vz);
     for (const k of SCALARS) p[k] = y[k];
+    takeAuthority(p, y);
     for (const id in y.ammo) {
       if (p.ammo[id]) { p.ammo[id].mag = y.ammo[id].mag; p.ammo[id].reserve = y.ammo[id].reserve; }
     }
@@ -131,6 +142,7 @@ export class Predictor {
   reconcile(snap, armed) {
     const y = snap.you;
     if (!y || !this.world) return 0;
+    takeAuthority(this.p, y);
     const { ackSeq, ackAge } = snap;
     // The newest tick the server has also simulated: its command acked, with no more unsent
     // ticks after it than the server has repeated.

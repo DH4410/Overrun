@@ -2,6 +2,7 @@ import { Euler, Quaternion } from 'three';
 
 import { CONFIG } from '../config.js';
 import { clamp, lerp } from '../utils.js';
+import { emptyItems } from './items.js';
 import { BTN, WEAPON_IDS } from './protocol.js';
 import { WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep } from './weaponData.js';
 
@@ -30,6 +31,10 @@ export function resetAmmo(p) {
   }
   p.fragCount = 3;
   p.smokeCount = 1;
+  // A life's worth of loot: what you carry and the tier of each gun go when you do.
+  p.items = emptyItems();
+  p.tiers = [0, 0, 0, 0, 0];
+  p.useKind = 0; p.useT = 0;
 }
 
 const _e = new Euler(0, 0, 0, 'YXZ');

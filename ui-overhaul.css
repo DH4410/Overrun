@@ -175,28 +175,27 @@ button { font: inherit; color: inherit; }
   background: radial-gradient(ellipse at 50% 70%, rgba(0, 0, 0, .45), transparent 70%);
 }
 #vitals .name { display: none; }
-.vrow { display: flex; align-items: center; gap: 10px; }
-.vrow .vicon { width: 18px; height: 18px; flex: none; fill: currentColor; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .8)); }
-.vrow .vnum { font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; min-width: 52px; text-align: left; }
-.vrow.hp { color: #7fdc8c; margin-top: 5px; }
-.vrow.hp .vnum { font-size: 34px; }
-.vrow.ap { color: var(--ap); }
-.vrow.ap .vnum { font-size: 22px; }
-.vrow.ap .vicon { width: 15px; height: 15px; }
-.bar { flex: 1; height: 22px; position: relative; overflow: hidden; border-radius: 3px;
-  background: rgba(8, 10, 14, .62); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 2px 6px rgba(0, 0, 0, .5); }
-.vrow.ap .bar { height: 12px; }
+.vrow { display: flex; align-items: center; gap: 12px; }
+.vrow .vicon { display: none; }
+.vrow::before { content: 'HP'; flex: none; width: 24px; font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--ink-3); }
+.vrow.ap::before { content: 'SH'; }
+.vrow .vnum { order: 3; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; min-width: 44px; text-align: right; color: var(--ink); }
+.vrow.hp { margin-top: 7px; }
+.vrow.hp .vnum { font-size: 28px; }
+.vrow.ap .vnum { font-size: 16px; color: #8fd2ff; }
+/* Thin, flat and segmented in tens: no gradients, no glow, nothing to look like a toy. */
+.bar { flex: 1; height: 8px; position: relative; overflow: hidden; background: rgba(255, 255, 255, .13);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%); }
+.vrow.ap .bar { height: 4px; }
 .bar > span { position: absolute; inset: 0; transform-origin: left center; }
 .bar > .fill { transition: transform .08s ease-out; }
-.bar > .chip { background: #fff4d6; transition: transform .45s ease-in .35s; }
-/* Quarter ticks, so "about half" reads at a glance. */
-.bar::after { content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(90deg, transparent calc(25% - 1px), rgba(0, 0, 0, .45) 0 25%, transparent 0 calc(50% - 1px), rgba(0, 0, 0, .45) 0 50%, transparent 0 calc(75% - 1px), rgba(0, 0, 0, .45) 0 75%, transparent 0); }
-#hpfill { background: linear-gradient(180deg, #a8f0b0, #4fc26a 55%, #3aa556); }
-#apfill { background: linear-gradient(180deg, #bfe0ff, #5aa8f5 55%, #3d8de0); }
-#vitals.noshield .vrow.ap { opacity: .45; }
-#vitals.low .vrow.hp { color: var(--hp-low); }
-#vitals.low #hpfill { background: linear-gradient(180deg, #ffb0a8, #ff5a4e 55%, #d8392e); animation: hpPulse .9s ease-in-out infinite; }
+.bar > .chip { background: rgba(255, 120, 108, .9); transition: transform .45s ease-in .3s; }
+.bar::after { display: none; }
+#hpfill { background: #f1f4f7; }
+#apfill { background: #62c3ff; }
+#vitals.noshield .vrow.ap { opacity: .4; }
+#vitals.low .vrow.hp .vnum { color: var(--hp-low); }
+#vitals.low #hpfill { background: #ff5a4e; animation: hpPulse .9s ease-in-out infinite; }
 @keyframes hpPulse { 50% { opacity: .55; } }
 
 /* ---- ammo, bottom right beside the map ---- */
@@ -961,7 +960,7 @@ body:has(#pause.dead) #vitals, body:has(#pause.dead) #ammo { opacity: 0; transit
 #items { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); display: flex; gap: 8px; zoom: var(--hud-scale, 1); }
 #items.none { opacity: .5; }
 #items .it { position: relative; width: 58px; height: 52px; border-radius: 5px; background: rgba(8, 10, 14, .62);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), inset 0 -2px 0 var(--c); text-shadow: var(--shadow);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); text-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .15s; }
 #items .it b { position: absolute; left: 4px; top: 2px; font-size: 11px; font-weight: 700; color: var(--ink-3); }
 #items .it span { position: absolute; right: 5px; bottom: 2px; font-size: 15px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }

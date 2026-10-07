@@ -90,3 +90,37 @@ for (const mapId of MAP_IDS) {
     assert.ok(r.differ <= allowed && (!r.differ || r.worst < 0.15), `diverged ${r.differ} times, worst ${r.worst.toFixed(4)} m, first ${JSON.stringify(r.firstDiff)}`);
   });
 }
+
+test('a hit that does not move you still reaches the predicted health at once', () => {
+  const mapId = MAP_IDS[0];
+  const t = Date.UTC(2026, 0, 1, 12);
+  let seed = 3;
+  const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const room = new Room({ colliders, now: () => t, rng, governor: new Governor({ now: () => t }), mapId, mode: 'dm' });
+  const conns = [], players = [];
+  for (let i = 0; i < 2; i++) {
+    const conn = { send() {}, close() {} };
+    room.open(conn);
+    room.message(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, hash: room.hash, name: `P${i}`, loadout: LOADOUT }));
+    players.push(room.clients.get(conn).player); conns.push(conn);
+  }
+  room.message(conns[1], JSON.stringify({ t: 'ready', ready: true }));
+  room.message(conns[0], JSON.stringify({ t: 'start' }));
+  for (let i = 0; i < (COUNTDOWN + 0.6) * 120; i++) room.step();
+  const me = players[0];
+  const pred = new Predictor(LOADOUT);
+  pred.setMap(mapId, colliders[mapId], MAP_DATA[mapId].half);
+  pred.apply(you(me));
+  let seq = 0;
+  for (let k = 0; k < 60; k++) {
+    me.queue.push({ seq: k + 1, ix: 0, iz: 0, yawQ: quantYaw(0), pitchQ: quantPitch(0), buttons: 0, weapon: 0, emote: 0, viewTick: room.tick });
+    const cmd = me.queue[me.queue.length - 1];
+    room.step();
+    pred.tick(cmd, ++seq, true);
+  }
+  me.health = 55; me.armor = 0;                       // shot while standing still: nothing about the position changes
+  const y = you(me);
+  pred.reconcile({ you: y, ackSeq: seq, ackAge: 0 }, true);
+  assert.equal(pred.p.health, 55);
+  assert.equal(pred.p.armor, 0);
+});

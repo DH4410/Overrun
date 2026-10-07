@@ -20,6 +20,7 @@ import { createZone } from './zone.js';
 import { loadScreen } from '../loading.js';
 import { createLobby, historyRow, loadHistory, pushHistory } from './lobby.js';
 import { Predictor } from './predict.js';
+import { InterpController, qualityReadout } from './netQuality.js';
 import { createStage } from './stage.js';
 
 /**
@@ -36,7 +37,7 @@ const STEP = 1 / TICK_HZ;
 const MAX_TICKS_PER_FRAME = 30;     // a longer stall drops ticks; the server repeats, we reconcile
 const SNAP_DIST = 1;                // m: a correction this big is a teleport, not something to blend
 const BLEND_RATE = 30;              // 1/s: a correction is ~95% gone in 100 ms
-const INTERP_MIN = 0.1, INTERP_MAX = 0.15, EXTRAP_MAX = 0.1;   // s
+const INTERP_MIN = 0.1, EXTRAP_MAX = 0.1;   // s: the delay before anything is measured, and how far a puppet is carried past its last snapshot
 const SNAP_KEEP = 60;               // snapshots kept: interpolation needs 1.5 s, the killcam replays the last 2 s
 const SNAP_EVERY = TICK_HZ / SNAPSHOT_HZ;
 const KC_FRAMES = 42;               // snapshots a killcam replays (2.05 s)
@@ -93,7 +94,8 @@ export function createNetClient(d) {
   let useWant = 0, useWantAt = 0, useSeen = false, useWeapon = null;
   let rtt = 0;
   let clockOffset = null, interp = INTERP_MIN;
-  const lateness = [];
+  let interpCtl = new InterpController();   // the adaptive interpolation delay (see netQuality.js)
+  let urgentSend = false;                   // a command that should not wait for the next 20 Hz packet
   const snaps = [];                 // { tick, players: Map, grenades: Map }
   let latest = null;
   const puppets = new Map();        // id -> Bot
@@ -340,12 +342,14 @@ export function createNetClient(d) {
   function onWelcome(m) {
     reconRestored();
     retries = 0; refusal = null; welcomed = true;
+    d.emotes.preload?.();
     myId = m.id; spectator = m.spectator; queued = !!m.queued;
     try { if (m.token) storage('sessionStorage')?.setItem(TOKEN_KEY, m.token); } catch { /* private mode */ }
     setRoster(m.roster);
     applyMatchInfo(m);
     seq = 0; lastSent = null; pending.length = 0; tickAcc = 0; started = false;
     snaps.length = 0; clockOffset = null; latest = null; reconSnap = null; reconSpawn = false; lastSnapTick = null;
+    interpCtl = new InterpController(); interp = INTERP_MIN;
     if (spectator) {
       pred = null;
       player.alive = false;
@@ -549,6 +553,7 @@ export function createNetClient(d) {
     if (!active) return;
     leaving = true;
     active = false;
+    d.emoteMusic?.stopAll();
     clearTimeout(retryTimer); retryTimer = null;
     const sock = ws;
     ws = null;
@@ -614,6 +619,7 @@ export function createNetClient(d) {
     const b = puppets.get(id);
     if (!b) return;
     puppets.delete(id);
+    d.emoteMusic?.stop(id);
     b.dispose();
     const i = bots.indexOf(b);
     if (i >= 0) bots.splice(i, 1);
@@ -672,8 +678,10 @@ export function createNetClient(d) {
     if (!s) return;
     stats.snaps++; stats.bytes += buf.byteLength;
     const tnow = performance.now();
+    let missedNow = 0;
     if (lastSnapTick !== null && s.tick > lastSnapTick) {
-      gaps.push({ at: tnow, n: 1, missed: Math.max(0, Math.round((s.tick - lastSnapTick) / SNAP_EVERY) - 1) });
+      missedNow = Math.max(0, Math.round((s.tick - lastSnapTick) / SNAP_EVERY) - 1);
+      gaps.push({ at: tnow, n: 1, missed: missedNow });
     }
     lastSnapTick = s.tick;
     while (gaps.length && tnow - gaps[0].at > LOSS_WINDOW) gaps.shift();
@@ -681,14 +689,14 @@ export function createNetClient(d) {
     inputRate = s.inputRate || 20; budgetFlags = s.budgetFlags;
     if (MAP_IDS[s.map] && MAP_IDS[s.map] !== mapId) switchToMap(MAP_IDS[s.map]);
     if (s.you && s.echoClientTime) rtt = ((Date.now() & 0xffff) - s.echoClientTime - s.echoAge + 0x10000) & 0xffff;
+    if (rtt > 0 && rtt < 5000) interpCtl.onRtt(rtt);
 
     // The clock: the least-delayed snapshot says how far ahead the server is; how late the rest
-    // run sets the interpolation delay.
+    // run (and whether any never came) sets the interpolation delay.
     const nowT = performance.now() / 1000 * TICK_HZ;
     const cand = s.tick - nowT;
     if (clockOffset === null || cand > clockOffset || clockOffset - cand > TICK_HZ * 2) clockOffset = cand;
-    lateness.push(clockOffset - cand);
-    if (lateness.length > 60) lateness.shift();
+    interpCtl.onSnapshot(clockOffset - cand, missedNow, tnow);
 
     const players = new Map();
     for (const q of s.players) players.set(q.id, q);
@@ -951,6 +959,9 @@ export function createNetClient(d) {
     const idle = L && !cmd.ix && !cmd.iz && !cmd.buttons && !L.ix && !L.iz && !L.buttons
       && L.yawQ === cmd.yawQ && L.pitchQ === cmd.pitchQ && L.weapon === cmd.weapon && L.emote === cmd.emote;
     predPrev.copy(pred.p.body.position);
+    // A shot or an emote should not wait for the next 20 Hz packet: up to 50 ms of that is pure input lag,
+    // and the packet's view tick is stamped when it leaves, so a late one also aims at a later picture.
+    if (!idle && ((cmd.buttons & BTN.FIRE && !(L?.buttons & BTN.FIRE)) || cmd.emote !== (L?.emote ?? 0))) urgentSend = true;
     if (!idle) { seq++; pending.push(cmd); lastSent = cmd; }
     pred.tick(cmd, idle ? null : seq, phase === PHASE.PLAYING, fx);
     d.stepBullets(STEP);
@@ -964,7 +975,9 @@ export function createNetClient(d) {
   function flush() {
     if (!pending.length) return;
     const now = performance.now();
-    if (now - sentAt < 1000 / inputRate) return;
+    // Urgent sends skip the 20 Hz wait but never go out closer than 20 ms apart, so the rate stays bounded.
+    if (now - sentAt < (urgentSend ? Math.min(20, 1000 / inputRate) : 1000 / inputRate)) return;
+    urgentSend = false;
     sentAt = now;
     const view = Math.max(0, Math.floor(renderTick()));
     while (pending.length) {
@@ -1341,13 +1354,9 @@ export function createNetClient(d) {
     if (phase === PHASE.PLAYING || phase === PHASE.INTERMISSION || phase === PHASE.COUNTDOWN) timeLeft = Math.max(0, timeLeft - dt);
     if (clockOffset !== null) clockOffset -= dt * 0.5;      // drift down; the next fast snapshot lifts it
 
-    // The interpolation delay: one snapshot interval, plus how late they have been arriving.
-    if (lateness.length > 5) {
-      const sorted = [...lateness].sort((x, y) => x - y);
-      const p95 = sorted[Math.floor(sorted.length * 0.95)] / TICK_HZ;
-      const want = Math.min(INTERP_MAX, Math.max(INTERP_MIN, 0.05 + p95 + 0.01));
-      interp += (want - interp) * Math.min(1, dt * 2);
-    }
+    // The interpolation delay: one snapshot interval, how late they have been arriving, and a
+    // spare interval after a loss; held down where it would cost hit registration (netQuality.js).
+    interp = interpCtl.step(dt);
 
     if (reconSnap) { reconcile(reconSnap, reconSpawn); reconSnap = null; reconSpawn = false; }
     if (pred && started) {
@@ -1441,15 +1450,16 @@ export function createNetClient(d) {
     let seen = 0, missed = 0;
     for (const g of gaps) { seen += g.n; missed += g.missed; }
     const loss = seen + missed ? (100 * missed) / (seen + missed) : 0;
-    const bad = rtt > 150 || loss >= 3;
-    ui.net.classList.toggle('on', netMode === 1 || (netMode === 0 && bad && !!ws));
-    ui.net.classList.toggle('bad', bad);
-    ui.net.textContent = `PING ${rtt} ms \u00b7 LOSS ${loss.toFixed(loss < 10 ? 1 : 0)}%`;
+    const q = qualityReadout({ rtt: interpCtl.rtt || rtt, jitterMs: interpCtl.jitterMs, lossPct: loss, delayMs: interp * 1000 });
+    ui.net.classList.toggle('on', netMode === 1 || (netMode === 0 && q.level !== 'good' && !!ws));
+    ui.net.classList.toggle('bad', q.level === 'bad');
+    ui.net.classList.toggle('warn', q.level === 'warn');
+    ui.net.textContent = q.text;
     if (netMode === 2) {
       const ps = pred?.stats;
       const flags = [budgetFlags & BUDGET.REDUCED && 'REDUCED', budgetFlags & BUDGET.LAST_ROUND && 'LAST ROUND', budgetFlags & BUDGET.CLOSED && 'CLOSED'].filter(Boolean).join(' ') || '-';
       ui.debug.textContent = [
-        `rtt ${rtt} ms · loss ${loss.toFixed(1)}% (snapshot gaps) · interp ${(interp * 1000).toFixed(0)} ms · input ${inputRate}/s · budget ${flags}`,
+        `rtt ${rtt} ms · loss ${loss.toFixed(1)}% (snapshot gaps) · interp ${(interp * 1000).toFixed(0)} ms (cap ${(interpCtl.cap * 1000).toFixed(0)}, jitter ${interpCtl.jitterMs.toFixed(0)}) · input ${inputRate}/s · budget ${flags}`,
         `snapshots ${stats.snaps} · avg ${stats.snaps ? Math.round(stats.bytes / stats.snaps) : 0} B · sent ${stats.packets} pkts / ${stats.cmds} cmds`,
         ps ? `prediction ${ps.compares ? (100 * ps.agreed / ps.compares).toFixed(1) : '-'}% agreed · corrections ${stats.corrections} (snapped ${stats.snapped}) · resyncs ${stats.resyncs} · last ${stats.lastErr.toFixed(3)} m` : 'spectating',
       ].join('\n');

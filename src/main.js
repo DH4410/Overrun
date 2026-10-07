@@ -59,6 +59,7 @@ import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
 import { saveSkin, savedSkin, SKINS } from './skins.js';
 import { createMinimap } from './minimap.js';
+import { createEmoteMusic } from './emoteMusic.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import { createNetClient } from './net/client.js';
@@ -1145,6 +1146,7 @@ function frame() {
     if (cameraPlaced) vmRig.visible = false;
     else { updateViewModel(dt); updateCamera(dt); }
     emotes.update(dt, { running: net.playing, firing: isFiring() });
+    updateEmoteSongs();
     updatePlates(dt);
     updateAllyMarkers();
     updateHudTimers(dt);
@@ -1303,9 +1305,22 @@ const locker = createLocker({
   },
   onClose: () => { if (match.running) requestLock(); },
 });
+const emoteMusic = createEmoteMusic({ Audio, getCamera: () => camera });
 const emotes = createEmotes({
-  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio,
+  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio, music: emoteMusic,
 });
+/**
+ * Online: every dancing puppet sings its emote's song from where it stands. The puppet's emote
+ * is the server's (the snapshot's emote byte), so the songs follow the dances, and a dancer who
+ * dies, leaves or stops is dropped from here (and a voice nobody refreshes stops by itself).
+ */
+function updateEmoteSongs() {
+  for (const b of bots) {
+    if (b.netId === undefined) continue;
+    if (b.emoteId && b.alive) emoteMusic.play(b.netId, b.emoteId, b.pos.x, b.pos.y, b.pos.z);
+    else emoteMusic.stop(b.netId);
+  }
+}
 addEventListener('keydown', (e) => {
   if (canon(e.code) === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
       && ((match.running && !match.outro) || net.playing)) emotes.openWheel();
@@ -1314,7 +1329,7 @@ addEventListener('keydown', (e) => {
 net = createNetClient({
   player, bots, Bot, el, Audio, camera, keys, match, scene, allyMarks, playerBlip, vmModels,
   ammoChests, consumables, loadedCharacters, loadCharacter, isCharacterLoaded, switchMap, getCurrentMapId, losClear,
-  readMoveInput, isFiring, isAiming, takeFireLatch, takeItemPress, syncDrops, isPointerLocked, emotes,
+  readMoveInput, isFiring, isAiming, takeFireLatch, takeItemPress, syncDrops, isPointerLocked, emotes, emoteMusic,
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,

@@ -70,10 +70,31 @@ test('when everyone else leaves a round that needs company, the host is returned
   startRound(room, [A, B], { mode: 'dm' });
   B.conn.close = () => {};
   room.close(B.conn);
-  run(room, 3);
-  assert.equal(room.phase, PHASE.PLAYING, 'a short blip does not end the round');
-  run(room, 8);
+  run(room, 10);
+  assert.equal(room.phase, PHASE.PLAYING, 'a blip as long as the client\'s whole retry window does not end the round');
+  run(room, 7);
   assert.equal(room.phase, PHASE.LOBBY);
+});
+
+test('kicking a flag carrier sends the flag home', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  startRound(room, [A, B], { mode: 'ctf', map: 'bastion' });
+  const flag = room.flags.find((f) => f.team !== B.p.team);
+  flag.state = 'carried'; flag.carrier = B.p.id;
+  A.say({ t: 'kick', id: B.p.id });
+  run(room, 1);
+  assert.notEqual(flag.state, 'carried');
+  assert.equal(flag.carrier, null);
+});
+
+test('kicking a duelist ends the duel instead of leaving it hanging', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  startRound(room, [A, B], { mode: 'duel', map: 'depot' });
+  A.say({ t: 'kick', id: B.p.id });
+  run(room, 6);
+  assert.notEqual(room.phase, PHASE.PLAYING, 'a duel with one person left does not carry on');
 });
 
 test('a friend who reconnects inside the grace period keeps the round going', () => {

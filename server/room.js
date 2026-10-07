@@ -43,7 +43,7 @@ export const QUEUE_MAX = 30;             // commands buffered per player (250 ms
 const MAX_GUESS = 12;                    // ticks a held command is repeated while starved (100 ms)
 const RECONNECT_GRACE = 60;              // s a dropped player's seat is held for its token
 const LIVENESS = 75;                     // s of silence (clients ping every 10; a hidden tab's timers can slip to one a minute) before a connection is declared dead
-const ALONE_GRACE = 8;                   // s a round may run with fewer people than its mode needs before everyone goes back to the lobby
+const ALONE_GRACE = 15;                  // s a round may run with fewer people than its mode needs before everyone goes back to the lobby
 const KICK_BAN = 120;                    // s a removed player's token is refused for
 const NAME_MAX = 16;
 const CHEST_RANGE = 1.5, CHEST_RESPAWN = 25;

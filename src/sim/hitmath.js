@@ -2,11 +2,11 @@ import { Vector3 } from 'three';
 
 /** Combatant hitbox profiles. Offsets are relative to the combatant chest position. */
 // The player stands 2.0 m tall, as tall as the bots: legs to 0.73 m, torso to 1.57 m, and a
-// bot-sized head (0.22 m) centred at 1.78 m, at the 1.8 m eye. Crouched it is 1.39 m. It used to
+// bot-sized head (0.22 m) centred at 1.78 m, at the 1.8 m eye. Crouched it is 1.15 m, the eye at 0.95. It used to
 // top out at 2.3 m, which only made you easier to hit than anyone you were fighting. The head
 // sits right on the torso: a bigger head any lower caught chest shots that drifted up.
 export const HB_PLAYER = { bodyR: 0.42, bodyHalfH: 0.42, headR: 0.22, headY: 0.63, legLen: 0.73 };
-export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.28, headR: 0.22, headY: 0.42, legLen: 0.47 };
+export const HB_PLAYER_CROUCH = { bodyR: 0.42, bodyHalfH: 0.2, headR: 0.22, headY: 0.35, legLen: 0.38 };
 export const HB_BOT = { bodyR: 0.38, bodyHalfH: 0.45, headR: 0.22, headY: 0.62 };
 
 /**

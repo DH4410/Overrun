@@ -44,8 +44,8 @@ function newPlayer(world, x, y, z, yaw) {
 /* ---- the reference: src/player.js before the extraction, verbatim where it moves bodies ---- */
 function referenceStepper(world, player) {
   const BODY_R = 0.3;
-  const BODY_OFFSETS = { stand: [0.7, 1.2], crouch: [0.4, 0.72] };
-  const HEAD_TOP = { stand: 1.2 + BODY_R, crouch: 0.72 + BODY_R };
+  const BODY_OFFSETS = { stand: [0.7, 1.2], crouch: [0.2, 0.52] };
+  const HEAD_TOP = { stand: 1.2 + BODY_R, crouch: 0.52 + BODY_R };
   function applyFriction(b, dt) {
     const sp = Math.hypot(b.velocity.x, b.velocity.z);
     if (sp < 1e-4) { b.velocity.x = 0; b.velocity.z = 0; return; }

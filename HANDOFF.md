@@ -57,7 +57,9 @@ Protocol bumps to v5 once, with the combat/items wire changes (not yet done).
   settings are gone), white crosshair (settings `version` 2 migration), all lobby/match music removed
   (only the emote groove remains until step 9), snappy emote wheel (6 px deadzone, 36 px leash,
   clips preloaded after 12 s idle). sw cache v36.
-- [ ] 3. Crouch depth (measure first)
+- [x] 3. Crouch depth: eye 1.8 m standing, 0.95 m crouched (was 1.15). CROUCH_HEIGHT .57, chest .2, HB_PLAYER_CROUCH
+  {halfH .2, headY .35, leg .38}, BODY_OFFSETS.crouch [.2,.52]. (In-pane screenshots of the 3D canvas were stale
+  in headless, so it was verified by camera Y numbers: 1.80 -> 0.95.)
 - [ ] 4. Damage balance + falloff + shield model + Fortnite-style items + weapon rarity (protocol v5)
 - [ ] 5. Zombie Escape mode
 - [ ] 6. Network: adaptive interpolation, bigger input queue, colo in /stats

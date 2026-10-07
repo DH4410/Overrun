@@ -96,7 +96,7 @@ test('a bot aims where you were for a beat after you crouch, then finds you', as
     return { settledStanding, justCrouched, after100ms, after1s };
   });
   expect(Math.abs(r.settledStanding)).toBeLessThan(0.01);
-  // The chest drops 0.28 m; the bot is still aiming at where it was.
+  // The chest drops about 0.57 m; the bot is still aiming at where it was.
   expect(r.justCrouched).toBeGreaterThan(0.25);
   expect(r.after100ms).toBeGreaterThan(0.1);
   expect(r.after1s).toBeLessThan(0.02);

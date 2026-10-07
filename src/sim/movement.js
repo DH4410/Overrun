@@ -19,13 +19,13 @@ import { G_BODY, MAT_BODY, RAY_OPTS } from './world.js';
 
 /**
  * Chest (hitbox centre, what bots aim at) and eye, above the body centre, which is the centre of
- * the foot sphere. Standing puts the eye 1.8 m above the floor and crouching 1.15 m. The eye used
+ * the foot sphere. Standing puts the eye 1.8 m above the floor and crouching 0.95 m (it was 1.15, which read as barely any change). The eye used
  * to sit 2.1 m up, a head above the 2 m bots, so up close every opponent looked a size smaller
  * than you. The eye heights match the camera's (CONFIG.EYE_HEIGHT / CROUCH_HEIGHT), so what you
  * see down the barrel and where your rounds and line of sight start are the same point.
  */
 export const PLAYER_CHEST = 0.65;
-export const PLAYER_CHEST_CROUCH = 0.37;  // lowers bots' aim point to match crouching camera height
+export const PLAYER_CHEST_CROUCH = 0.2;   // lowers bots' aim point to match crouching camera height
 
 /**
  * The player's collider: a wide sphere at the feet and two narrow ones up the body to the top
@@ -38,8 +38,8 @@ export const PLAYER_CHEST_CROUCH = 0.37;  // lowers bots' aim point to match cro
  * hoist the body onto one — and they only come into play against something overhead.
  */
 export const BODY_R = 0.3;
-export const BODY_OFFSETS = { stand: [0.7, 1.2], crouch: [0.4, 0.72] };
-export const HEAD_TOP = { stand: 1.2 + BODY_R, crouch: 0.72 + BODY_R };
+export const BODY_OFFSETS = { stand: [0.7, 1.2], crouch: [0.2, 0.52] };
+export const HEAD_TOP = { stand: 1.2 + BODY_R, crouch: 0.52 + BODY_R };
 
 export const SLIDE_TIME = 0.75;       // seconds a slide lasts at most
 export const SLIDE_BOOST = 1.2;       // times sprint speed at the start of a slide

@@ -108,7 +108,7 @@ test('you stand as tall as the bots you fight, and a respawn moves your eye with
   expect(r.stand.eye).toBeCloseTo(1.8, 1);
   expect(r.stand.top).toBeGreaterThan(1.9);
   expect(r.stand.top).toBeLessThan(2.1);
-  expect(r.crouch.eye).toBeCloseTo(1.15, 1);
+  expect(r.crouch.eye).toBeCloseTo(0.95, 1);
   expect(r.crouch.top).toBeLessThan(r.stand.top - 0.5);
   expect(r.respawnEye[0]).toBeCloseTo(12, 5);
   expect(r.respawnEye[1]).toBeCloseTo(-24, 5);

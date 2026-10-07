@@ -89,6 +89,7 @@ test('CORE-02: player travel remains consistent at 60 and 30 render Hz', async (
     const game = globalThis.__game;
     game.match.running = false;
     game.world.gravity.set(0, 0, 0);
+    game.CONFIG.PLAYER_GRAVITY = -game.CONFIG.GRAVITY;   // no falling out of the world (and no respawn) mid-measure
     game.player.body.collisionResponse = false;
     for (const bot of game.bots) bot.alive = false;
 

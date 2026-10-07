@@ -1078,7 +1078,7 @@ class Bot {
    * could only ever headshot you by accident. `headBias` is the share of shots aimed at the
    * head instead. It reads the target's live hitbox rather than a constant, so crouching
    * genuinely moves the aim point down: HB_PLAYER.headY is 0.63 standing and
-   * HB_PLAYER_CROUCH.headY is 0.42, and `player.hb` is swapped as you crouch. The move reaches
+   * HB_PLAYER_CROUCH.headY is 0.35, and `player.hb` is swapped as you crouch. The move reaches
    * the aim over aim.trackLag, through trackY.
    */
   aimPoint(target, out) {

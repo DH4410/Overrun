@@ -31,7 +31,7 @@ export const CONFIG = {
   // Player
   // Eye above the body centre (the foot sphere's centre): 1.8 m and 1.15 m above the floor.
   EYE_HEIGHT: 1.3,
-  CROUCH_HEIGHT: 0.77,
+  CROUCH_HEIGHT: 0.57,
   PLAYER_RADIUS: 0.5,
   CROUCH_RADIUS: 0.38,
   PLAYER_MASS: 80,

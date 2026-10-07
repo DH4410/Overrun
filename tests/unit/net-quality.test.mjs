@@ -32,7 +32,7 @@ test('a missed snapshot adds a margin that later expires', () => {
 });
 
 test('on a long ping the cap stops the delay eating the server rewind budget', () => {
-  const c = new InterpController(); c.onRtt(200);
+  const c = new InterpController(); c.onRtt(300);
   feed(c, (i) => (i % 4 === 0 ? 24 : 0), 64);
   settle(c);
   assert.ok(c.cap <= 0.15 + 1e-9);
@@ -52,8 +52,8 @@ test('it rises faster than it falls, and never jumps', () => {
 test('readout levels', () => {
   assert.equal(qualityReadout({ rtt: 40, jitterMs: 5, lossPct: 0, delayMs: 70 }).level, 'good');
   assert.equal(qualityReadout({ rtt: 130, jitterMs: 5, lossPct: 0, delayMs: 70 }).level, 'warn');
-  const lim = qualityReadout({ rtt: 200, jitterMs: 5, lossPct: 0, delayMs: 100 });
+  const lim = qualityReadout({ rtt: 350, jitterMs: 5, lossPct: 0, delayMs: 100 });
   assert.equal(lim.level, 'bad');
-  assert.match(lim.text, /PING 200 ms/);
+  assert.match(lim.text, /PING 350 ms/);
   assert.match(lim.text, /LAG-COMP LIMIT/);
 });

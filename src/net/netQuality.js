@@ -17,10 +17,10 @@ import { SNAPSHOT_HZ, TICK_HZ } from '../sim/protocol.js';
 /** Seconds between snapshots. */
 export const SNAP_INTERVAL = 1 / SNAPSHOT_HZ;
 /**
- * What the server will rewind a shot by: MAX_REWIND in server/room.js (30 ticks, 250 ms). The
+ * What the server will rewind a shot by: MAX_REWIND in server/room.js (48 ticks, 400 ms). The
  * client cannot import the server, so this is a copy; if the server's changes, change it here.
  */
-export const REWIND_BUDGET = 30 / TICK_HZ;
+export const REWIND_BUDGET = 48 / TICK_HZ;
 const QUEUE_ALLOWANCE = 0.03;     // s a command waits in the server's input queue, on average
 
 export const INTERP_FLOOR = 0.07;     // s: below this a single late snapshot freezes everyone

@@ -14,7 +14,7 @@ async function setup(page) {
     const g = globalThis.__game;
     for (const b of g.bots) { b.body.type = 4; b.body.position.set(200, 60, 200); b.state = 'SPAWN'; b.stateTime = -1e9; }
     g.step = (n) => { for (let i = 0; i < n; i++) g.fixedStep(1 / 120); };
-    g.press = (code) => { dispatchEvent(new KeyboardEvent('keydown', { code })); dispatchEvent(new KeyboardEvent('keyup', { code })); };
+    g.press = (code) => { window.dispatchEvent(new KeyboardEvent('keydown', { code })); window.dispatchEvent(new KeyboardEvent('keyup', { code })); };
     g.player.invulnTimer = 0;
   });
 }

@@ -71,7 +71,8 @@ export function stepUse(p, sel, interrupted, dt) {
   if (p.useKind) {
     const it = ITEMS[p.useKind];
     if (interrupted || sel !== p.useKind || p[it.stat] >= it.cap) {
-      p.useLatch = sel;
+      // Switching straight to another item is allowed; the key that was held is not.
+      p.useLatch = sel === p.useKind ? sel : 0;
       return cancelUse(p) ? USE.CANCEL : USE.NONE;
     }
     p.useT += dt;

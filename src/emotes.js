@@ -138,7 +138,8 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
   // first time it is opened.
   // Joining an online match asks for it straight away as well (net/client.js), since a puppet
   // that dances before the clips arrive just stands there.
-  const preload = () => (window.requestIdleCallback ?? setTimeout)(load, 1);
+  // (requestIdleCallback takes an options object, setTimeout a number: they cannot share the argument.)
+  const preload = () => (window.requestIdleCallback ? window.requestIdleCallback(load, { timeout: 1000 }) : setTimeout(load, 1));
   setTimeout(preload, 12000);
 
   // While the wheel is open the mouse picks a slice instead of turning the view. This runs in

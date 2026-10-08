@@ -342,7 +342,7 @@ export function createNetClient(d) {
   function onWelcome(m) {
     reconRestored();
     retries = 0; refusal = null; welcomed = true;
-    d.emotes.preload?.();
+    try { d.emotes.preload?.(); } catch { /* a background fetch must never stop the join */ }
     myId = m.id; spectator = m.spectator; queued = !!m.queued;
     try { if (m.token) storage('sessionStorage')?.setItem(TOKEN_KEY, m.token); } catch { /* private mode */ }
     setRoster(m.roster);

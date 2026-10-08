@@ -64,6 +64,8 @@ import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import { createNetClient } from './net/client.js';
 import { useProgress } from './sim/items.js';
+import { loadItemModels } from './itemModels.js';
+import { createHealAnim } from './healAnim.js';
 import {
   ADS_FOV,
   CONFIG,
@@ -465,18 +467,22 @@ function warmUpShaders() {
   for (const c of ammoChests) if (!c.mesh.visible) { c.mesh.visible = true; hidden.push(c.mesh); }
   for (const c of consumables) if (!c.mesh.visible) { c.mesh.visible = true; hidden.push(c.mesh); }
   scene.updateMatrixWorld(true);
+  heal.showAll(true);
   vmScene.updateMatrixWorld(true);
 
   renderer.compile(scene, camera);
   renderer.compile(vmScene, vmCamera);
+  heal.showAll(false);
 
   // compile() only covers what it can reach; actually drawing a frame is what proves it. This
   // runs behind the loading screen or at match start, so the cost is invisible.
   const vw = vmRig.visible;
   vmRig.visible = true;
+  heal.showAll(true);
   renderer.render(scene, camera);
   renderer.clearDepth();
   renderer.render(vmScene, vmCamera);
+  heal.showAll(false);
   vmRig.visible = vw;
 
   for (const m of hidden) m.visible = false;
@@ -665,7 +671,6 @@ const {
   consumables,
   spawnPickup,
   syncDrops,
-  buildItemMesh,
   updatePickups,
   clearPickups,
   spawnAmmoChests,
@@ -949,7 +954,7 @@ function fixedStep(dt) {
 let vmAds = 0;
 let vmReload = 0;
 let vmUse = 0;                   // 0..1 eased: the gun lowered and an item raised while one is used
-const vmItems = [];              // one first-person prop per item kind, built when first used
+const heal = createHealAnim({ vmScene });   // the gloved hands and the held item (healAnim.js)
 const _vmHip = new THREE.Vector3();
 const _vmAim = new THREE.Vector3();
 
@@ -992,25 +997,16 @@ function updateViewModel(dt) {
   // Healing: the gun drops out of the way and the item comes up in the off hand, working as the
   // channel fills. Driven by useKind, which is the server's word in multiplayer.
   const useKind = player.alive ? player.useKind : 0;
-  vmUse += ((useKind ? 1 : 0) - vmUse) * (1 - Math.exp(-dt * 12));
+  vmUse = heal.update(dt, {
+    useKind,
+    useP: player.useP ?? useProgress(player),
+    items: player.items,
+    alive: player.alive,
+    hidden: scoped,
+  });
   if (vmUse > 0.01) {
     _vmTarget.y -= 0.32 * vmUse;
     _vmTarget.x += 0.06 * vmUse;
-  }
-  for (let k = 1; k < vmItems.length; k++) if (vmItems[k]) vmItems[k].visible = false;
-  if (useKind && vmUse > 0.05) {
-    let prop = vmItems[useKind];
-    if (!prop) {
-      prop = vmItems[useKind] = buildItemMesh(useKind);
-      prop.scale.setScalar(1.7);
-      vmScene.add(prop);
-    }
-    const prog = player.useP ?? useProgress(player);
-    const e = Math.min(1, vmUse * 1.1);
-    const work = Math.sin(prog * Math.PI * 7) * 0.012;
-    prop.position.set(0.17 - 0.03 * (1 - e), -0.34 + 0.15 * e + work, -0.52);
-    prop.rotation.set(0.5 + work * 6, -0.5 + prog * 0.9, 0.15);
-    prop.visible = !scoped && player.alive;
   }
 
   // Recoil: straight back into the shoulder, muzzle up, decaying fast.
@@ -1464,7 +1460,10 @@ async function boot() {
 
   // Optional assets. Each resolves to "did it load", and every one of them has a working
   // fallback already in place, so a 404 costs a nicety and never the match.
-  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier([savedSkin()].filter(Boolean)), loadViewModels(), loadGlbMaps()]);
+  // The item models are held to a short deadline: past it the primitive stand-ins stay and the
+  // real ones swap in whenever they arrive (itemModels.js refills the live meshes).
+  const itemsReady = Promise.race([loadItemModels(), new Promise((r) => setTimeout(r, 2500))]);
+  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier([savedSkin()].filter(Boolean)), loadViewModels(), loadGlbMaps(), itemsReady]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];

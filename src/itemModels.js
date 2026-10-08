@@ -80,12 +80,14 @@ function instantiate(name, fp) {
   const root = src.clone(true);
   const drop = [];
   root.traverse((o) => {
+    // Blender suffixes a repeated object name (liquid.001 in the potion, which shares a session with the vial)
+    o.name = o.name.replace(/\.\d{3}$/, '');
     if (!o.isMesh) return;
     o.castShadow = false;
     if (o.material.name?.startsWith('glass')) {
       if (!fp) { drop.push(o); return; }
       o.material = o.material.clone();
-      Object.assign(o.material, { transparent: true, opacity: 0.22, depthWrite: false });
+      Object.assign(o.material, { transparent: true, opacity: 0.13, depthWrite: false, envMapIntensity: 0.6 });
       o.renderOrder = 3;
     } else if (fp) {
       o.material = o.material.clone();

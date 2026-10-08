@@ -11,13 +11,13 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v41';
+const CACHE = 'overrun-v42';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
   './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hud.js',
   './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapArena.js', './src/mapBastion.js','./src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapMetro.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
-  './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js', './src/emoteMusic.js',
+  './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js', './src/emoteMusic.js', './src/itemModels.js', './src/healAnim.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/ui.js', './src/utils.js', './src/weapons.js',
   // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).
@@ -30,6 +30,8 @@ const PRECACHE = [
   './assets/bots/soldier.glb', './assets/bots/swat.glb', './assets/bots/trooper.glb',
   './assets/bots/gasmask.glb', './assets/bots/crypto.glb', './assets/bots/ely.glb',
   './assets/bots/steve.glb',
+  // The healing items, ammo chest and first-person gloves (small; the game has stand-ins if they are late).
+  './assets/items/bandage.glb', './assets/items/medkit.glb', './assets/items/mini.glb', './assets/items/big.glb', './assets/items/chest.glb', './assets/items/hands.glb',
   // The default map: without these an offline boot has nothing to play on.
   './assets/maps/port.glb', './assets/maps/port.json',
   './assets/maps/thumbs/port.jpg', './assets/maps/thumbs/desert.jpg', './assets/maps/thumbs/snow.jpg', './assets/maps/thumbs/warzone.jpg', './assets/maps/thumbs/depot.jpg', './assets/maps/thumbs/bastion.jpg', './assets/maps/thumbs/arena.jpg', './assets/maps/thumbs/metro.jpg',

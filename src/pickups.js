@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 import { RAY_OPTS, world } from './physics.js';
-import { matte } from './rendering.js';
+import { buildAmmoChest, buildItemMesh } from './itemModels.js';
 import { rand } from './utils.js';
-import { ITEM, ITEMS, TIERS, addItem, canCarry, lootFor, rollDrop } from './sim/items.js';
+import { ITEMS, TIERS, addItem, canCarry, lootFor, rollDrop } from './sim/items.js';
 import { WEAPON_IDS } from './sim/protocol.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
@@ -41,56 +41,11 @@ const pickups = [];
  * Rarity and item kind are read from colour and silhouette instead, plus a thin lit column that
  * shows from across the map.
  */
-const hex = (c) => new THREE.Color(c);
-const lit = (c, k = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.35, metalness: 0.15, emissive: c, emissiveIntensity: k });
-
 function ringOf(color, r, y) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.016, 6, 24), new THREE.MeshBasicMaterial({ color }));
   ring.rotation.x = Math.PI / 2;
   ring.position.y = y;
   return ring;
-}
-
-/** The four healing items, each with its own silhouette. */
-function buildItemMesh(kind) {
-  const it = ITEMS[kind];
-  const g = new THREE.Group();
-  if (kind === ITEM.BANDAGE) {
-    // A roll of gauze with a loose tail and a red stripe.
-    const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.16, 16), matte(0xf2eee6, 0.7, 0.05));
-    roll.rotation.z = Math.PI / 2;
-    const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.17, 10), matte(0x6b6358, 0.9, 0));
-    hole.rotation.z = Math.PI / 2;
-    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.153, 0.153, 0.04, 16), lit(0xe5484d, 0.5));
-    stripe.rotation.z = Math.PI / 2;
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.09), matte(0xf2eee6, 0.7, 0.05));
-    tail.position.set(0, -0.14, 0.12);
-    tail.rotation.x = 0.35;
-    g.add(roll, hole, stripe, tail);
-  } else if (kind === ITEM.MEDKIT) {
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.17), matte(0xeeeeee, 0.5, 0.1));
-    const lidLine = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.012, 0.18), matte(0x9aa0a6, 0.5, 0.3));
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.05), matte(0x4a4f55, 0.5, 0.4));
-    handle.position.y = 0.165;
-    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.19, 0.185), lit(it.color, 0.9));
-    const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.07, 0.185), lit(it.color, 0.9));
-    g.add(box, lidLine, handle, crossV, crossH);
-  } else {
-    // A flask: round body, glass neck, cork. The big one is a fat potion, the mini a slim vial.
-    const big = kind === ITEM.BIG;
-    const r = big ? 0.2 : 0.12;
-    const body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), lit(it.color, big ? 0.85 : 0.7));
-    body.scale.y = big ? 1.0 : 1.25;
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.38, r * 0.5, r * 0.9, 10), lit(it.color, 0.5));
-    neck.position.y = r * (big ? 1.05 : 1.3);
-    const cork = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.4, r * 0.34, r * 0.4, 8), matte(0x9a7a4a, 0.8, 0.05));
-    cork.position.y = neck.position.y + r * 0.62;
-    const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.5, 10, 8), new THREE.MeshBasicMaterial({ color: hex(it.color).lerp(new THREE.Color(0xffffff), 0.5) }));
-    g.add(body, neck, cork, core);
-    g.userData.ring = ringOf(it.color, r * 1.6, -r * 0.8);
-    g.add(g.userData.ring);
-  }
-  return g;
 }
 
 /** A dropped gun or a few items, with a lit column in its rarity colour. */
@@ -211,32 +166,6 @@ const ammoChests = [];
 const AMMO_CHEST_RESPAWN = 25;
 const AMMO_CHEST_RANGE = 1.5;
 const AMMO_CHEST_PROMPT = 2.5;
-
-function buildAmmoChest() {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, 0.42, 0.44),
-    matte(0x6a5326, 0.65, 0.45),
-  );
-  body.castShadow = true;
-  const lid = new THREE.Mesh(
-    new THREE.BoxGeometry(0.66, 0.12, 0.48),
-    matte(0x4a3a1c, 0.6, 0.55),
-  );
-  lid.position.y = 0.26;
-  // Glowing seam — the part that actually catches the eye across a room.
-  const seam = new THREE.Mesh(
-    new THREE.BoxGeometry(0.68, 0.035, 0.50),
-    new THREE.MeshBasicMaterial({ color: 0xffcf5a }),
-  );
-  seam.position.y = 0.17;
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.62, 12, 9),
-    new THREE.MeshBasicMaterial({ color: 0xffcf5a, transparent: true, opacity: 0.12, depthWrite: false }),
-  );
-  g.add(body, lid, seam, glow);
-  return g;
-}
 
 function spawnAmmoChests(positions, max = 6) {
   for (const [x, z] of positions) {

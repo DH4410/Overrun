@@ -49,16 +49,17 @@ export const DEPOT = {
   look: {
     background: 0x15181c,
     fog: { color: 0x1b1f24, near: 40, far: 140 },
-    // Never seen from inside the hall; the gradient only has to be dark.
+    // Never seen from inside the hall, but the PMREM environment comes from it: it is what lifts the
+    // steel, the corrugated roof and the container skins, which are all metallic.
     sky: {
-      top: 0x1a222c, horizon: 0x2a2f36, ground: 0x15181c, sunDir: [-0.3, 0.8, -0.5],
+      top: 0x7e8793, horizon: 0xa59f93, ground: 0x6a6258, sunDir: [-0.3, 0.8, -0.5],
       cover: 0, sunColor: 0xcfe0f5, haze: 0.2,
     },
-    env: 0.35,
+    env: 0.9,
     lighting: {
-      ambient: { color: 0xaab4c0, intensity: 0.32 },
-      hemi: { sky: 0xb4c4d8, ground: 0x6a6258, intensity: 0.55 },
-      sun: { color: 0xcfe0f5, intensity: 1.1, pos: [-14, 40, -18] },
+      ambient: { color: 0xc4ccd6, intensity: 0.5 },
+      hemi: { sky: 0xc4d2e4, ground: 0xa09484, intensity: 0.75 },
+      sun: { color: 0xdbe6f5, intensity: 1.3, pos: [-14, 40, -18] },
     },
   },
 

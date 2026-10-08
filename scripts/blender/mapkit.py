@@ -47,6 +47,13 @@ COLLECTION = MAP.upper()
 CACHE = globals().get('OVERRUN_CACHE') or os.path.join(os.path.expanduser('~'), '.cache', 'overrun-polyhaven')
 PROP_TEX = 512           # prop textures are resized to this before they are embedded
 SMOOTH = globals().get('SMOOTH', set())
+# Opt-in extras, all OFF unless the map script sets them before exec()ing this file, so a map that
+# does not ask (desert, snow) rebuilds exactly as before:
+#   BEVEL   = {'width': 0.035, 'angle': 55, 'segments': 2, 'skip': {keys}}   rounded edges on every
+#             bucket except SMOOTH, 'skip' and the decals (see round_edges())
+#   ROUND_N = 24      visual sides of an upright cyl(); its 12-gon collider vertices are a subset
+BEVEL = globals().get('BEVEL')
+ROUND_N = globals().get('ROUND_N', 12)
 
 WHITE = (1.0, 1.0, 1.0)
 
@@ -87,12 +94,15 @@ class Bucket:
         # game (x, y, z) -> Blender (x, -z, y)
         vs = [self.bm.verts.new((p[0], -p[2], p[1])) for p in pts]
         f = self.bm.faces.new(vs)
-        for loop, (u, v) in zip(f.loops, uvs):
+        # tint is one colour for the face, or one per vertex (a list of tuples) for a gradient
+        per_vertex = isinstance(tint[0], (tuple, list))
+        for k, (loop, (u, v)) in enumerate(zip(f.loops, uvs)):
             # glTF export flips V; pre-flipping keeps V pointing up the wall in three.js,
             # whose TextureLoader textures keep flipY = true.
             loop[self.uv].uv = (u / self.tile, -v / self.tile)
             if self.col is not None:
-                loop[self.col] = (tint[0], tint[1], tint[2], 1.0)
+                c = tint[k] if per_vertex else tint
+                loop[self.col] = (c[0], c[1], c[2], 1.0)
 
 
 BUCKETS = {}
@@ -244,12 +254,74 @@ def vcyl(key, frame, cx, cz, r, y0, y1, n=12, tint=WHITE, top=True, r1=None):
 
 def cyl(key, frame, cx, cz, r, h, y0=0.0, block=1, tint=WHITE, prop=0):
     """Upright cylinder with its collider, a 12-sided cannon Cylinder with the same vertices."""
-    vcyl(key, frame, cx, cz, r, y0, y0 + h, 12, tint)
+    vcyl(key, frame, cx, cz, r, y0, y0 + h, ROUND_N, tint)
     x, y, z = frame.world((cx, y0 + h / 2, cz))
     row = [round(x, 4), round(y, 4), round(z, 4), round(r, 4), round(h, 4), block]
     if prop:
         row.append(1)
     CYLINDERS.append(row)
+
+
+def lathe(key, frame, cx, cz, prof, n=16, tint=WHITE, y0=0.0):
+    """A solid of revolution about the upright axis through local (cx, cz), for columns with
+    capitals, barrels, braziers, lamps, domes. prof = [(r, y), ...] walked with the solid on its
+    left: up the outside, in across the top. r = 0 is the axis (a tip or a flat cap)."""
+    rings = [ring(r, n) if r > 1e-6 else None for r, _ in prof]
+
+    def P(rg, k, y):
+        return (cx + rg[k][0], y0 + y, cz + rg[k][1]) if rg else (cx, y0 + y, cz)
+    for a in range(len(prof) - 1):
+        ya, yb = prof[a][1], prof[a + 1][1]
+        ra, rb = rings[a], rings[a + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            q = []
+            for p in (P(ra, j, ya), P(ra, i, ya), P(rb, i, yb), P(rb, j, yb)):
+                if not q or max(abs(p[k] - q[-1][k]) for k in range(3)) > 1e-7:
+                    q.append(p)
+            if len(q) > 2 and max(abs(q[0][k] - q[-1][k]) for k in range(3)) < 1e-7:
+                q.pop()
+            if len(q) >= 3:
+                poly(key, frame, q, tint)
+
+
+def pipe(key, p0, p1, r, n=8, tint=WHITE, caps=False):
+    """A round member between two points (world coordinates): pipes, cables, conduit, rails."""
+    u = [p1[k] - p0[k] for k in range(3)]
+    L = math.sqrt(sum(c * c for c in u))
+    if L < 1e-6:
+        return
+    u = [c / L for c in u]
+    a = (0, 1, 0) if abs(u[1]) < 0.9 else (1, 0, 0)
+    e1 = (a[1] * u[2] - a[2] * u[1], a[2] * u[0] - a[0] * u[2], a[0] * u[1] - a[1] * u[0])
+    m = math.sqrt(sum(c * c for c in e1))
+    e1 = tuple(c / m for c in e1)
+    e2 = (u[1] * e1[2] - u[2] * e1[1], u[2] * e1[0] - u[0] * e1[2], u[0] * e1[1] - u[1] * e1[0])
+    dirs = [tuple(e1[k] * math.cos(2 * math.pi * i / n) + e2[k] * math.sin(2 * math.pi * i / n) for k in range(3)) for i in range(n)]
+    f = Frame()
+
+    def at(p, d):
+        return (p[0] + d[0] * r, p[1] + d[1] * r, p[2] + d[2] * r)
+    for i in range(n):
+        j = (i + 1) % n
+        q = [at(p0, dirs[i]), at(p0, dirs[j]), at(p1, dirs[j]), at(p1, dirs[i])]
+        nx, ny, nz = newell(q)
+        mid = [(dirs[i][k] + dirs[j][k]) for k in range(3)]
+        if nx * mid[0] + ny * mid[1] + nz * mid[2] < 0:
+            q.reverse()
+        poly(key, f, q, tint)
+    if caps:
+        for p, sgn in ((p0, -1), (p1, 1)):
+            q = [at(p, d) for d in dirs]
+            nx, ny, nz = newell(q)
+            if nx * u[0] * sgn + ny * u[1] * sgn + nz * u[2] * sgn < 0:
+                q.reverse()
+            poly(key, f, q, tint)
+
+
+def arc(cx, cy, r, a0, a1, n):
+    """n + 1 points along a circle in (x, y), from angle a0 to a1 (radians, 0 = +x, pi / 2 = up)."""
+    return [(cx + r * math.cos(a0 + (a1 - a0) * k / n), cy + r * math.sin(a0 + (a1 - a0) * k / n)) for k in range(n + 1)]
 
 
 def wall(x0, z0, x1, z1, h, t, key, block=1, y=0.0, top_key=None):
@@ -515,6 +587,7 @@ def build(layout):
         return None, [], 0
     coll = reset_collection()
     objs = []
+    rounded = set()
     for key, b in BUCKETS.items():
         mesh = bpy.data.meshes.new(MAP + '_' + key)
         if key in SMOOTH:
@@ -523,6 +596,19 @@ def build(layout):
             bmesh.ops.remove_doubles(b.bm, verts=b.bm.verts[:], dist=1e-4)
             for f in b.bm.faces:
                 f.smooth = True
+        elif BEVEL and key not in BEVEL.get('skip', ()):
+            # Rounded edges, visual only. Weld, mark the real corners sharp, smooth the rest (so
+            # cylinders and cones are round), and let a Bevel modifier round every corner steeper
+            # than BEVEL['angle'] degrees; harden_normals keeps the big flat faces flat. The
+            # glTF export applies modifiers.
+            bmesh.ops.remove_doubles(b.bm, verts=b.bm.verts[:], dist=1e-4)
+            sharp = math.radians(BEVEL.get('sharp', 40))
+            for e in b.bm.edges:
+                if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > sharp:
+                    e.smooth = False
+            for f in b.bm.faces:
+                f.smooth = True
+            rounded.add(key)
         b.bm.to_mesh(mesh)
         b.bm.free()
         if b.col is not None and mesh.color_attributes.get('Col'):
@@ -530,6 +616,14 @@ def build(layout):
             mesh.color_attributes.render_color_index = mesh.color_attributes.active_color_index
         mesh.materials.append(material(key))
         ob = bpy.data.objects.new(MAP + '_' + key, mesh)
+        if key in rounded:
+            mod = ob.modifiers.new('round', 'BEVEL')
+            mod.width = BEVEL.get('width', 0.035)
+            mod.segments = BEVEL.get('segments', 2)
+            mod.limit_method = 'ANGLE'
+            mod.angle_limit = math.radians(BEVEL.get('angle', 55))
+            mod.harden_normals = True
+            mod.use_clamp_overlap = True
         coll.objects.link(ob)
         objs.append(ob)
     # Props: one imported source per model, placed as linked duplicates, so the GLB stores each
@@ -551,7 +645,14 @@ def build(layout):
         src.hide_set(True)
         src.hide_render = True
     prop_colliders(bounds)
-    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs)
+    if rounded:
+        bpy.context.view_layer.update()
+    deps = bpy.context.evaluated_depsgraph_get()
+    tris = 0
+    for o in objs:
+        m = o.evaluated_get(deps).to_mesh()
+        tris += sum(len(p.vertices) - 2 for p in m.polygons)
+        o.evaluated_get(deps).to_mesh_clear()
     return coll, objs, tris
 
 

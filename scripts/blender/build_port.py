@@ -228,6 +228,20 @@ def F(s, x, z, yaw=0.0, y=0.0):
     return Frame(s * x, y, s * z, yaw + (0.0 if s > 0 else math.pi))
 
 
+# Rounded edges, smooth normals and wear on the kit above (see roundkit_dh.py). Nothing in it
+# emits a collider, so port.json is the same as without it.
+RK_ROUND = {'wall': 0.1, 'cladding': 0.07, 'apron': 0.08, 'barrier': 0.08, 'roof': 0.08,
+            'paint': 0.05, 'steel': 0.06, 'yellow': 0.1, 'wood': 0.035}
+RK_PLAIN = {'far', 'lamp', 'lines', 'linesW', 'water', 'slab', 'asphalt'}
+RK_WEAR = {'wall': (0.35, 0.12, True), 'cladding': (0.3, 0.1, True), 'apron': (0.25, 0.1, True), 'barrier': (0.3, 0.12),
+           'paint': (0.28, 0.1), 'yellow': (0.25, 0.1), 'wood': (0.2, 0.1), 'steel': (0.2, 0.08),
+           'roof': (0.0, 0.1)}
+if globals().get('NOWEAR'):
+    RK_WEAR = {}
+TINTED = TINTED | set(RK_WEAR)
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'roundkit_dh.py')).read())
+
+
 # ------------------------------------------------------------------ pieces
 
 C_L, C_W, C_H = 6.06, 2.44, 2.59
@@ -274,9 +288,11 @@ def container(s, x, z, along_x, stacked=False, colour=None):
                            (xd, H - 0.2, W / 2 - R)], tint)
         vbox('steel', fr, xd, H / 2, 0, 0.012, H - 0.4, 0.02, skip=('-y', '+y'))
         for zb in (-0.86, -0.34, 0.34, 0.86):
-            vbox('steel', fr, L / 2 - 0.02, H / 2, zb, 0.035, H - 0.3, 0.035, skip=('-y',))
+            # round locking bars with a cam handle and a bracket top and bottom
+            lathe('steel', fr, L / 2 - 0.022, zb, [(0.018, 0.12), (0.018, H - 0.16), (0.012, H - 0.12)], 8, caps=(False, True))
             for yb in (0.55, H - 0.55):
                 vbox('steel', fr, L / 2 - 0.03, yb, zb, 0.05, 0.08, 0.09, skip=())
+            vbox('steel', fr, L / 2 - 0.006, H / 2 - 0.15, zb, 0.01, 0.025, 0.2, skip=())
         # roof panel, meeting the rails on all four sides so the top has no gaps
         rx, rz = L / 2 - 0.1, W / 2 - 0.1
         poly('paint', fr, [(-rx, H - 0.02, rz), (rx, H - 0.02, rz), (rx, H - 0.02, -rz), (-rx, H - 0.02, -rz)], tint)
@@ -290,7 +306,7 @@ def crate(s, x, z, size=1.4, h=1.0, base=0.0):
     frame_tint = WHITE
     hs = size / 2
     # core, inset so the frame stands proud of it
-    vbox('wood', fr, 0, h / 2, 0, size - 0.03, h - 0.03, size - 0.03)
+    rbox('wood', fr, 0, h / 2, 0, size - 0.03, h - 0.03, size - 0.03, 0.06, skip=('-y',))
     # vertical corner boards
     for sx in (-1, 1):
         for sz in (-1, 1):
@@ -318,14 +334,22 @@ def crate(s, x, z, size=1.4, h=1.0, base=0.0):
 
 
 JERSEY = [(-0.3, 0.0), (0.3, 0.0), (0.3, 0.08), (0.12, 0.3), (0.09, 0.85), (-0.09, 0.85), (-0.12, 0.3), (-0.3, 0.08)]
+# The same barrier with its corners rounded off (always inside JERSEY), for the smooth-shaded mesh
+_JR = [(0.3, 0.0), (0.3, 0.05), (0.285, 0.085), (0.22, 0.17), (0.145, 0.265), (0.122, 0.31), (0.108, 0.5), (0.097, 0.78),
+       (0.085, 0.835), (0.06, 0.85)]
+JERSEY_R = _JR + [(-x, y) for x, y in reversed(_JR)]
 
 
 def barrier(s, x, z, along_x, length=3.0):
     """Concrete jersey barrier, 0.85 m: stand to shoot over it, crouch to hide."""
     fr = F(s, x, z, math.pi / 2 if along_x else 0.0)
-    prism('barrier', fr, JERSEY, -length / 2, length / 2)
+    rprism('barrier', fr, JERSEY_R, -length / 2, length / 2)
     collider(fr, 0, 0.15, 0, 0.5, 0.3, length)
     collider(fr, 0, 0.575, 0, 0.22, 0.55, length)
+    # a yellow reflective band along both faces
+    for sx in (-1, 1):
+        poly('lines', fr, [(sx * 0.103, 0.62, -length / 2 + 0.15), (sx * 0.103, 0.62, length / 2 - 0.15),
+                           (sx * 0.103, 0.7, length / 2 - 0.15), (sx * 0.103, 0.7, -length / 2 + 0.15)][::-sx])
 
 
 def wall(x0, z0, x1, z1, h, t, key, block=1, y=0.0):
@@ -405,9 +429,13 @@ def ramp(s, x0, y0, z0, x1, y1, z1, width):
 def lamp_post(s, x, z, yaw=0.0, h=11.0):
     """Floodlight mast. The mast collides; the head is out of reach."""
     fr = F(s, x, z, yaw)
-    solid('steel', fr, 0, h / 2, 0, 0.3, h, 0.3)
-    vbox('steel', fr, 0, 0.35, 0, 0.6, 0.7, 0.6)          # base plinth (inside the mast's
-    collider(fr, 0, 0.35, 0, 0.6, 0.7, 0.6)               # own footprint, plus its collider)
+    collider(fr, 0, h / 2, 0, 0.3, h, 0.3)
+    # a round tapering mast with a base flange and a collar, on a rounded concrete plinth
+    lathe('steel', fr, 0, 0, [(0.15, 0.55), (0.15, 0.9), (0.115, 1.2), (0.1, 2.0), (0.085, h - 0.3), (0.095, h - 0.25),
+                              (0.095, h - 0.1), (0.0, h - 0.1)], 14, caps=(False, False))
+    lathe('steel', fr, 0, 0, [(0.2, 0.7), (0.2, 0.78), (0.14, 0.86)], 14)
+    rbox('steel', fr, 0, 0.35, 0, 0.6, 0.7, 0.6, 0.12)
+    collider(fr, 0, 0.35, 0, 0.6, 0.7, 0.6)
     vbox('steel', fr, 0, h + 0.1, 0.5, 0.2, 0.2, 1.2, skip=())
     for sx in (-0.45, 0.45):
         vbox('steel', fr, sx, h - 0.05, 1.0, 0.7, 0.45, 0.25, skip=())
@@ -416,7 +444,11 @@ def lamp_post(s, x, z, yaw=0.0, h=11.0):
 
 def bollard(s, x, z):
     fr = F(s, x, z)
-    solid('yellow', fr, 0, 0.5, 0, 0.22, 1.0, 0.22)
+    collider(fr, 0, 0.5, 0, 0.22, 1.0, 0.22)
+    # a round steel post with a domed cap, a collar at the foot and a dark reflective band
+    lathe('yellow', fr, 0, 0, [(0.108, 0.0), (0.108, 0.9), (0.1, 0.965), (0.065, 0.995), (0.0, 1.0)], 14)
+    lathe('yellow', fr, 0, 0, [(0.12, 0.0), (0.12, 0.05), (0.108, 0.1)], 14)
+    lathe('steel', fr, 0, 0, [(0.111, 0.62), (0.111, 0.72)], 14)
 
 
 def rack(s, x, z, length, along_z=True, h=3.0, depth=1.1):
@@ -454,6 +486,37 @@ def shed_light(x, y, z):
     poly('lamp', fr, [(-0.65, 0.035, 0.15), (0.65, 0.035, 0.15), (0.65, 0.035, -0.15), (-0.65, 0.035, -0.15)][::-1])
 
 
+def ibeam(x0, z0, x1, z1, top, depth=0.34, fl=0.2, key='steel', tint=WHITE):
+    """A steel I-beam under a roof, axis aligned between two points, its top flange at `top`."""
+    along_x = abs(x1 - x0) > abs(z1 - z0)
+    length = max(abs(x1 - x0), abs(z1 - z0))
+    cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+    fr = Frame()
+    for yc, h, wid in ((top - 0.0175, 0.035, fl), (top - depth + 0.0175, 0.035, fl), (top - depth / 2, depth - 0.07, 0.04)):
+        if along_x:
+            vbox(key, fr, cx, yc, cz, length, h, wid, tint, skip=())
+        else:
+            vbox(key, fr, cx, yc, cz, wid, h, length, tint, skip=())
+
+
+def pipe(path, r, tint, flange_every=0.0):
+    """A pipe run through world points, round, with a flange ring at every joint. In 'far'."""
+    tube('far', Frame(), path, r, 8, tint=tint)
+    if not flange_every:
+        return
+    for (xa, ya, za), (xb, yb, zb) in zip(path, path[1:]):
+        k = max(1, int(math.dist((xa, ya, za), (xb, yb, zb)) / flange_every))
+        for i in range(1, k):
+            t = i / k
+            x, y, z = xa + (xb - xa) * t, ya + (yb - ya) * t, za + (zb - za) * t
+            if abs(xb - xa) > max(abs(yb - ya), abs(zb - za)):
+                lathe('far', Frame(), y, z, [(r + 0.02, x - 0.02), (r + 0.02, x + 0.02)], 8, tint=tint, ax='x', caps=(True, True))
+            elif abs(zb - za) > abs(yb - ya):
+                lathe('far', Frame(), x, y, [(r + 0.02, z - 0.02), (r + 0.02, z + 0.02)], 8, tint=tint, ax='z', caps=(True, True))
+            else:
+                lathe('far', Frame(), x, z, [(r + 0.02, y - 0.02), (r + 0.02, y + 0.02)], 8, tint=tint, caps=(True, True))
+
+
 # ------------------------------------------------------------------ layout
 
 def ground():
@@ -478,6 +541,27 @@ def perimeter():
         vbox('steel', Frame(), sx * (HX + t / 2), WALL_H + 0.1, 0, t + 0.1, 0.2, 2 * HZ + 2 * t, skip=())
     for sz in (-1, 1):
         vbox('steel', Frame(), 0, WALL_H + 0.1, sz * (HZ + t / 2), 2 * HX + 2 * t, 0.2, t + 0.1, skip=())
+    # steel columns and a fascia band on the wall faces, like the sheds
+    for sx in (-1, 1):
+        frame_trim(sx * (HX + t / 2), 0, 2 * HZ + 2 * t, WALL_H, t, False)
+    for sz in (-1, 1):
+        frame_trim(0, sz * (HZ + t / 2), 2 * HX + 2 * t, WALL_H, t, True)
+    # floodlights on short poles along the top, facing in
+    for i in range(9):
+        x = -50 + i * 12.5
+        for sz in (-1, 1):
+            floodlight(x, sz * (HZ + 0.5), 0.0 if sz < 0 else math.pi)
+    for i in range(7):
+        z = -36 + i * 12.0
+        for sx in (-1, 1):
+            floodlight(sx * (HX + 0.5), z, math.pi / 2 if sx < 0 else -math.pi / 2)
+
+
+def floodlight(x, z, yaw):
+    fr = Frame(x, WALL_H + 0.2, z, yaw)
+    lathe('steel', fr, 0, 0, [(0.07, 0.0), (0.05, 0.12), (0.05, 1.0)], 8, caps=(False, True))
+    vbox('steel', fr, 0, 1.15, 0.15, 0.7, 0.32, 0.36, skip=())
+    poly('lamp', fr, [(-0.3, 1.03, 0.331), (0.3, 1.03, 0.331), (0.3, 1.27, 0.331), (-0.3, 1.27, 0.331)])
 
 
 def dock():
@@ -498,6 +582,21 @@ def dock():
             p0 = (ax + (bx - ax) * t0 + nx * 0.005, az + (bz - az) * t0 + nz * 0.005)
             p1 = (ax + (bx - ax) * t1 + nx * 0.005, az + (bz - az) * t1 + nz * 0.005)
             poly(key, fr, [(p0[0], DH - 0.22, p0[1]), (p1[0], DH - 0.22, p1[1]), (p1[0], DH, p1[1]), (p0[0], DH, p0[1])])
+    # tyre fenders hung along every face, and a mooring cleat at each corner (no collider, so
+    # they are all in 'far' and under 0.3 m on the top)
+    rubber = srgb(0x181818)
+    for i in range(8):
+        for sz in (-1, 1):
+            if 2.1 < sz * (-7.0 + i * 2.0) < 6.9:         # the ramp lands here
+                continue
+            torus('far', fr, -7.0 + i * 2.0, 0.72, sz * 5.105, 0.3, 0.1, ax='z', n=14, m=6, tint=rubber)
+    for i in range(5):
+        for sx in (-1, 1):
+            torus('far', fr, sx * 8.105, 0.72, -4.0 + i * 2.0, 0.3, 0.1, ax='x', n=14, m=6, tint=rubber)
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            lathe('far', fr, sx * 7.6, sz * 4.6, [(0.13, DH), (0.13, DH + 0.04), (0.07, DH + 0.08), (0.07, DH + 0.16), (0.12, DH + 0.2),
+                                                  (0.12, DH + 0.24), (0.0, DH + 0.25)], 12, tint=srgb(0x2f3438))
 
     def per_side(s):
         ramp(s, 4.5, 0, 11.5, 4.5, DH, 5.0, 4.4)
@@ -530,6 +629,13 @@ def spawn_sheds():
             solid('steel', fr, 0, SH - 1.85, 0.55, 5.0, 0.5, 0.5, skip=(), block=0)
         za, zb = sorted((s * (z0 - 0.3), s * z1))
         roof(-15.3, za, 15.3, zb, SH)
+        # the roof's steel: portal beams, purlins under them, a pipe run (all under the roof)
+        for zc in (28.6, 31.4, 34.2, 37.0):
+            ibeam(-14.7, s * zc, 14.7, s * zc, SH - 0.02)
+        for xc in (-10.0, -3.3, 3.3, 10.0):
+            ibeam(xc, s * 27.3, xc, s * 37.7, SH - 0.38, depth=0.2, fl=0.14)
+        pipe([(-14.6, 5.2, s * 30.0), (14.6, 5.2, s * 30.0)], 0.07, srgb(0x9fb3c4), 3.0)
+        pipe([(-14.6, 5.0, s * 35.6), (-3.0, 5.0, s * 35.6), (-3.0, 5.0, s * 28.0)], 0.05, srgb(0xb0443a), 2.5)
         crate(s, -9, 33, 1.6, 1.0)
         crate(s, 9.5, 31.5, 1.6, 1.0)
         stripe(0, s * 29.2, 26, 0.18)
@@ -594,11 +700,17 @@ def gantry(s):
     for lz in (1.0, 28.5):
         for lx in (32.5, 47.0):
             fr = F(s, lx, lz)
-            solid('yellow', fr, 0, TOP / 2, 0, 1.0, TOP, 1.0)
+            rsolid('yellow', fr, 0, TOP / 2, 0, 1.0, TOP, 1.0, 0.2)
             # bogie: a wheeled sill along Z at the foot of each leg
-            solid('yellow', fr, 0, 0.55, 0, 1.3, 0.5, 3.6)
+            rsolid('yellow', fr, 0, 0.55, 0, 1.3, 0.5, 3.6, 0.15)
             for wz in (-1.2, 1.2):
-                solid('steel', fr, 0, 0.3, wz, 0.9, 0.6, 0.6, skip=())
+                collider(fr, 0, 0.3, wz, 0.9, 0.6, 0.6)
+                for wx in (-0.3, 0.3):
+                    wheel('steel', fr, wx, 0.3, wz, 0.3, 0.26, ax='x', n=18, tint=WHITE)
+                wheel('steel', fr, 0, 0.3, wz, 0.07, 0.9, ax='x', n=8)
+            # hydraulic ram up the leg, a ladder and a hazard collar
+            lathe('far', fr, 0.3, -0.54, [(0.045, 1.0), (0.045, 5.5)], 8, tint=srgb(0xb8bcc0), caps=(True, True))
+            lathe('far', fr, 0.3, -0.54, [(0.07, 5.4), (0.07, 5.7)], 8, tint=srgb(0x2e3236), caps=(True, True))
         # portal beam across the top of each pair of legs (out of reach: visual only)
         vbox('yellow', F(s, 39.75, lz), 0, TOP + 0.6, 0, 15.5, 1.2, 1.2, skip=())
         # diagonal braces up the legs, visual
@@ -632,6 +744,12 @@ def warehouse():
         xa, xb = sorted((s * (x0 - 0.25), s * (x1 + 0.25)))
         za, zb = sorted((s * (z0 - 0.25), s * (z1 + 0.25)))
         roof(xa, za, xb, zb, H)
+        for xc in (-43.8, -39.0, -34.2, -29.4, -24.6, -21.0):
+            ibeam(xc * s, s * (z0 + 0.3), xc * s, s * (z1 - 0.3), H - 0.02)
+        for zc in (9.0, 12.0, 15.0, 18.0, 21.0):
+            ibeam(s * (x0 + 0.3), s * zc, s * (x1 - 0.3), s * zc, H - 0.38, depth=0.2, fl=0.14)
+        pipe([(s * -45.6, 5.1, s * 7.0), (s * -22.0, 5.1, s * 7.0), (s * -22.0, 5.1, s * 22.5)], 0.08, srgb(0x9fb3c4), 3.0)
+        pipe([(s * -45.6, 5.3, s * 23.2), (s * -21.0, 5.3, s * 23.2)], 0.05, srgb(0xb0443a), 2.5)
         rack(s, -38, 15, 8.0)
         rack(s, -28, 11.5, 6.0)
         crate(s, -24.5, 20.5, 1.6, 1.0)
@@ -764,6 +882,7 @@ def build():
     _container_n[0] = 0
     STATS['faces'] = 0
     build_layout()
+    rk_finalize()
 
     coll = reset_collection()
     objs = []
@@ -778,6 +897,7 @@ def build():
         ob = bpy.data.objects.new('port_' + key, mesh)
         coll.objects.link(ob)
         objs.append(ob)
+    rk_apply(objs)
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs)
     return coll, objs, tris
 
@@ -799,6 +919,7 @@ def export(objs):
         export_tangents=False, export_cameras=False, export_lights=False,
         export_animations=False, export_skins=False, export_morph=False,
     )
+    rk_quantize(OUT_GLB)
     with open(OUT_JSON, 'w') as f:
         json.dump({
             'version': 1,

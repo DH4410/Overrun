@@ -53,16 +53,17 @@ export const METRO = {
   look: {
     background: 0x14161a,
     fog: { color: 0x1a1d22, near: 40, far: 140 },
-    // Never seen from inside the hall; the gradient only has to be dark.
+    // Never seen from inside the hall, but the PMREM environment comes from it: it lifts the train
+    // skin, the steel and everything else metallic, which reads black against a dark one.
     sky: {
-      top: 0x1a222c, horizon: 0x2a2f36, ground: 0x15181c, sunDir: [-0.3, 0.8, -0.5],
+      top: 0x808996, horizon: 0xa8a49a, ground: 0x6a645c, sunDir: [-0.3, 0.8, -0.5],
       cover: 0, sunColor: 0xcfe0f5, haze: 0.2,
     },
-    env: 0.4,
+    env: 0.75,
     lighting: {
-      ambient: { color: 0xb4bcc8, intensity: 0.4 },
-      hemi: { sky: 0xc8d4e4, ground: 0x6a6258, intensity: 0.6 },
-      sun: { color: 0xdfe8f5, intensity: 0.9, pos: [-14, 40, -18] },
+      ambient: { color: 0xc0c8d4, intensity: 0.4 },
+      hemi: { sky: 0xccd8e8, ground: 0x8a8074, intensity: 0.62 },
+      sun: { color: 0xdfe8f5, intensity: 0.85, pos: [-14, 40, -18] },
     },
   },
 

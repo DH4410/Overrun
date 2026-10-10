@@ -43,6 +43,24 @@ there are other checkouts of this repo on this machine — without `CI=1` a stal
 
 ---
 
+## Map detail pass (2026-10-10, after session 9): "too dark, too blocky"
+
+User complaint: maps too dark (metro, arena), too blocky, castle undetailed, heal animation bad.
+Visuals only: collider JSONs and the map hash are untouched (`git status` must never show
+`assets/maps/*.json` changed by a visual pass).
+
+- Done and committed: metro/port/depot lighting and detail, item art, first-person heal animation.
+- **Castle (bastion)**: `build_bastion.py` now uses `roundkit_dh.py` (rounded boxes, lathe towers with
+  corbels and conical roofs, tori, tubes, wear vertex colours) and new keys `cut`, `timber`, `plaster`,
+  `shingle`, `thatch`, `flame` (materials in `src/mapBastion.js`). GLB 1.9 -> 4.7 MB (150k tris); trim
+  `cut` and `pine` first if it must shrink. Ghost-probe lesson: a tapering collider-backed shape that
+  widens downward (the pine trunk) makes a sliver a vertical ray can graze above 0.3 m; keep it
+  straight from 0.3 m to the 4.2 m cast height. Far ranges are now thin multi-peak ridges.
+- Still blocky / not yet rounded: depot (partly), desert, snow, warzone; arena brightness unconfirmed.
+- Preview shots with real GPU and textures: `spike/shot-map.mjs` (untracked; mode `tdm` for bastion,
+  CTF is multiplayer only). The e2e harness stubs textures so those screenshots look black.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v44.
+
 ## Session 9 (2026-10-07): playtest fixes, new modes, more maps (in progress)
 
 Source: the user's playtest list. `npx wrangler deploy` is blocked for me; the user deploys. Work

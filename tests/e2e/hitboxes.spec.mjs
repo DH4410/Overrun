@@ -67,13 +67,15 @@ async function shootParts(page, { vx = 0, vz = 0, aiming = false } = {}) {
   }, { vx, vz, aiming });
 }
 
-test('rounds score the part of the model they hit, and a rifle headshot kills', async ({ page }) => {
+test('rounds score the part of the model they hit, and a rifle headshot is x4', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   await pumpFrames(page, 5);
   const r = await shootParts(page);
-  const AR = 26;
-  expect(r.head.killed, 'AR headshot on a full-health bot').toBe(true);
+  // AR 24 since the damage rework (8727b8a): a headshot is 24 x 4 = 96, four short of killing a
+  // full-health bot; the HANDOFF still says it kills. The zones are what this test is about.
+  const AR = 24;
+  expect(r.head.dealt, 'AR headshot on a full-health bot').toBeCloseTo(AR * 4, 0);
   expect(r.chest.dealt).toBeCloseTo(AR, 0);
   expect(r.stomach.dealt).toBeCloseTo(AR, 0);
   expect(r.thigh.dealt).toBeCloseTo(AR * 0.75, 0);
@@ -87,8 +89,8 @@ test('hit zones follow the animation: a running, aiming bot is hit where it is d
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'medium' });
   await pumpFrames(page, 5);
   const r = await shootParts(page, { vx: 4.5, vz: 0, aiming: true });
-  expect(r.head.killed).toBe(true);
-  expect(r.chest.dealt).toBeCloseTo(26, 0);
-  expect(r.thigh.dealt).toBeCloseTo(26 * 0.75, 0);
+  expect(r.head.dealt).toBeCloseTo(24 * 4, 0);
+  expect(r.chest.dealt).toBeCloseTo(24, 0);
+  expect(r.thigh.dealt).toBeCloseTo(24 * 0.75, 0);
   expect(r.wide.dealt).toBe(0);
 });

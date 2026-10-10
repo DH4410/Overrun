@@ -52,7 +52,8 @@ test('every map in the lobby builds a usable level', async ({ page }) => {
   for (const [mapId, m] of Object.entries(stats)) {
     expect(m.current, mapId).toBe(mapId);
     expect(m.spawns, mapId).toBeGreaterThanOrEqual(20);
-    expect(m.nodes, mapId).toBeGreaterThan(250);
+    // DEPOT is a single 36 by 52 m hall: about 120 nodes at the grid spacing the others use.
+    expect(m.nodes, mapId).toBeGreaterThan(mapId === 'depot' ? 100 : 250);
     expect(m.finite, mapId).toBe(true);
   }
   expect(errors).toEqual([]);

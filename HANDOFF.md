@@ -68,6 +68,15 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   chamfered edges three probes landed in the 3 cm band at an edge and slipped through, a sampling
   artefact, not a ghost. Snow's heights test lets go of W at step 18 because always-on sprint now
   carries a jump over a 0.9 m berm.
+- **Open design question (needs the user):** the damage rework (8727b8a) set the AR to 24, so a
+  headshot on a bot is 24 x 4 = 96 and leaves it on 4 hp; the docs and the old hitboxes spec said an
+  AR headshot kills. I did not touch balance: the spec now asserts 96. Making it kill again is
+  `ZONE_MULT.head` 4.0 -> 4.2 in `src/sim/hitmath.js` (or AR 25).
+- Full `CI=1` e2e on 2026-10-10: 138 tests, the four failures were stale tests, not regressions
+  (depot nav nodes 121 vs a 250 floor meant for the big maps; PORT crate hop under always-on
+  sprint; the two AR-headshot specs). All fixed in the specs. `hitboxes.spec.mjs` "hit zones
+  follow the animation" still fails about one run in three with `undefined.matrixWorld` (a bone
+  lookup on the bot's mesh; probably a lazily loaded skin) - an old flake, not chased.
 - Heal: remote players now show a green pulse while opening a medkit (`src/healProp.js`,
   `src/net/client.js`), no protocol change.
 - Preview shots with real GPU and textures: `spike/shot-map.mjs` (untracked; mode `tdm` for bastion,

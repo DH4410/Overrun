@@ -188,6 +188,9 @@ test('PORT heights: crates are a hop, the dock needs a crate, containers are wal
         const foot = player.body.position.y - 0.5;
         peakFoot = Math.max(peakFoot, foot);
         if (i > 10 && player.grounded && foot > releaseAt) keys.KeyW = false;   // landed on top
+        // Always-on sprint carries a standing jump clean over a 1.4 m crate: let go early, as one
+        // who means to land on it does. (The dock case runs up on purpose and keeps going.)
+        if (i === 18 && !runUp) keys.KeyW = false;
       }
       keys.KeyW = false;
       step(60);

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { bootGame, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
+import { bootGame, pumpFrames, setGamepadButton, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
 
 /**
  * Rebindable keys, end to end: pick a key in the settings panel, the menu help follows, and in a
@@ -59,5 +59,29 @@ test('a rebound key drives the game, the old key goes quiet, and the choice is r
   await expect(page.locator('.kb-row button[data-action="forward"]')).toHaveText('E');
   await page.click('#settings-reset');
   await expect(page.locator('.kb-row button[data-action="forward"]')).toHaveText('W');
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Aim is held, not latched: a connected pad that is sitting idle must not cancel the aim the mouse
+ * holds, and the pad's own trigger aims while it is down and lets go when it is released.
+ */
+test('an idle pad leaves a held aim alone, and its trigger aims only while it is held', async ({ page }) => {
+  const errors = watchRuntimeErrors(page);
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
+  const aiming = () => page.evaluate(() => globalThis.__game.isAiming());
+
+  await page.evaluate(() => globalThis.__game.setAiming(true));
+  await pumpFrames(page, 6);
+  expect(await aiming()).toBe(true);
+
+  await page.evaluate(() => globalThis.__game.setAiming(false));
+  await setGamepadButton(page, 6, true);
+  await pumpFrames(page, 3);
+  expect(await aiming()).toBe(true);
+  await setGamepadButton(page, 6, false);
+  await pumpFrames(page, 3);
+  expect(await aiming()).toBe(false);
   expect(errors).toEqual([]);
 });

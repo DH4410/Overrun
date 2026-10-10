@@ -484,7 +484,19 @@ function updateThrowPreview(dt) {
 function bindInput() {
   const canvas = renderer.domElement;
 
+  // The buttons (MouseEvent.buttons bits 1 and 2) as of the last mouse event. A release the page
+  // never hears about (the window lost focus, the lock dropped with the button down) used to
+  // leave the aim or the trigger held until the next click; the next mouse event now says so.
+  let mouseHeld = 0;
+  const syncMouse = (buttons) => {
+    const lost = mouseHeld & ~buttons;
+    mouseHeld = buttons & 3;
+    if (lost & 1) { firing = false; if (player.cookSource === 'mouse') releaseCook(); }
+    if ((lost & 2) && !aimToggles()) aiming = false;
+  };
+
   canvas.addEventListener('mousedown', (e) => {
+    mouseHeld |= e.buttons & 3;
     if (!pointerLocked) { requestLock(); return; }
     // With the frag selected, LMB cooks and releases exactly like G does.
     if (e.button === 0) {
@@ -499,11 +511,19 @@ function bindInput() {
       if (player.cookSource === 'mouse') releaseCook();
     }
     if (e.button === 2 && !aimToggles()) aiming = false;
+    mouseHeld = e.buttons & 3;
+  });
+  // Releasing outside the window or after alt-tab sends no mouseup here.
+  addEventListener('blur', () => {
+    mouseHeld = 0;
+    firing = false;
+    if (!aimToggles()) aiming = false;
   });
   // Without this the browser context menu eats every right-click ADS.
   addEventListener('contextmenu', (e) => e.preventDefault());
 
   addEventListener('mousemove', (e) => {
+    if (mouseHeld & ~e.buttons) syncMouse(e.buttons);
     if (!pointerLocked) return;
     mouseDX += e.movementX;
     mouseDY += e.movementY;
@@ -585,6 +605,7 @@ function requestLock() {
  */
 const GP_DEADZONE = 0.18;
 const gpPrev = [];
+const gpArmed = [];
 let gamepadActive = false;
 
 function gpAxis(v) {
@@ -599,7 +620,7 @@ function pollGamepad(dt) {
   if (!pads) return;
   let pad = null;
   for (const p of pads) if (p && p.connected) { pad = p; break; }
-  if (!pad) { gamepadActive = false; return; }
+  if (!pad) { gamepadActive = false; gpArmed.length = 0; return; }
 
   const ax = pad.axes, btn = pad.buttons;
   const moveX = gpAxis(ax[0] ?? 0), moveY = gpAxis(ax[1] ?? 0);
@@ -611,7 +632,14 @@ function pollGamepad(dt) {
   keys.GpForward = moveY < -0.1; keys.GpBack = moveY > 0.1;
   keys.GpLeft = moveX < -0.1; keys.GpRight = moveX > 0.1;
 
-  const down = (i) => !!(btn[i] && btn[i].pressed);
+  // A button counts once it has been seen up. A mouse or keyboard receiver that exposes a pad
+  // interface can report a button as held for good, and that used to hold the aim (or the trigger,
+  // or a jump) on for as long as it stayed plugged in.
+  const down = (i) => {
+    const d = !!(btn[i] && btn[i].pressed);
+    if (!d) gpArmed[i] = true;
+    return d && !!gpArmed[i];
+  };
   const pressed = (i) => { const d = down(i); const was = gpPrev[i]; gpPrev[i] = d; return d && !was; };
 
   // Look. Cubed for fine control, scaled by dt and by the same ADS multiplier as the mouse.
@@ -623,13 +651,25 @@ function pollGamepad(dt) {
   player.pitch -= (lookY ** 3) * lookRate * (settings.invertY ? -1 : 1);
   player.pitch = clamp(player.pitch, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
-  // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off.
+  // LT: toggle-ADS uses edge-triggered latch so pressing again actually toggles off. Held, it
+  // aims; released, it only lets go if it was the one holding, so a connected pad cannot cancel
+  // an aim the mouse is holding.
+  const ltWas = !!gpPrev[6];
+  const lt = down(6);
   if (aimToggles()) { if (pressed(6)) aiming = !aiming; }
-  else { aiming = down(6); }
+  else {
+    gpPrev[6] = lt;
+    if (lt) aiming = true;
+    else if (ltWas) aiming = false;
+  }
 
   // RT: semi fires on press; auto fires via the frame() loop (firing flag, no double-call).
-  if (down(7)) { if (!firing) { firing = true; fireLatch = true; tryFire(); } }
-  else firing = false;
+  // Same rule as LT: let go of the trigger only when the trigger was what was firing.
+  const rtWas = !!gpPrev[7];
+  const rt = down(7);
+  gpPrev[7] = rt;
+  if (rt) { if (!firing) { firing = true; fireLatch = true; tryFire(); } }
+  else if (rtWas) firing = false;
 
   // Buttons get their own flags, like the stick does. Writing the keyboard's (keys.Space,
   // KeyC, ShiftLeft) meant any connected pad reset them every frame before the player stepped,

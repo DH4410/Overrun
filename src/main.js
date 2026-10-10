@@ -1522,7 +1522,7 @@ async function boot() {
     ammoChests, particlesAdd, particlesNorm,
     mapBodies, mapLights, mapGroup, blockers, MAPS, switchMap,
     lightSlots, lightEmitters, spawnExplosion, scene,
-    settings, applySettings, QUALITY, vmCamera, vmScene, vmRig, vmModels, setAiming,
+    settings, applySettings, QUALITY, vmCamera, vmScene, vmRig, vmModels, setAiming, isAiming,
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,

@@ -88,13 +88,21 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   New keys: `fit` (fittings, standard material, no shadow) and `mark` (decals and text, Lambert, no
   shadow, polygonOffset); both are in the spec's SKIP set, so they may stick out past colliders.
   All `mark` decals share one polygonOffset, so overlapping decals need >= 5 mm of separation.
-  GLB 4.1 -> 6.4 MB (117k -> 168k tris). **Cost rule from the battery request:** measured with
-  `spike/perf-map.mjs` (real GPU, render + readPixels, 6 viewpoints) the first build was ~27 ms
-  against 20 ms before; `fit` out of the shadow pass and `mark` on Lambert brought it back to ~20 ms.
-  Do the same on every further detail pass: new fittings and decals must not cast, decals use
-  Lambert, and re-measure old vs new before committing. (Each map is one mesh per material, so there
-  is no frustum culling; chunking `fit`/`mark` spatially would be the next lever.)
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v48. The live
+  GLB 4.1 -> 6.4 MB (117k -> 168k tris). `fit` is out of the shadow pass and `mark` is Lambert;
+  do the same on every further detail pass (new fittings and decals must not cast).
+- **Performance findings (user asked for no lag, no battery cost):** measured on the dev laptop (AMD
+  Radeon iGPU, medium, 720p) with GPU timer queries (`EXT_disjoint_timer_query_webgl2`; do not time
+  with readPixels, it measures sync latency, not the GPU). The whole frame is ~6-8 ms GPU and ~13 ms
+  main thread, and **hiding half of PORT's triangles changed nothing**, so geometry is not the cost:
+  fragment work is. Do not chunk meshes for frustum culling or chase triangle counts. What did show:
+  the 12 pooled point lights were compiled into every lit shader even on tiers that lease 4 or 8
+  (about 1 ms of 7); `applySettings` now hides the slots past `QUALITY[..].lights`. The CPU profile
+  (CDP `Profiler`) is flat: 33% idle, `updateMatrixWorld` ~5%, one-time `fflate` inflate at load. The
+  frame cap, idle/lobby fps, adaptive resolution and half-rate shadows in battery saver already exist
+  (see "What was built - session 2"). Measurement scripts live in untracked `spike/perf-*.mjs`.
+  Not done, would need a decision: auto battery-saver from `navigator.getBattery()`; caching the
+  static-map shadow map (only worth it at the QUALITY tier, shadows cost ~1 ms at 1024).
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v49. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

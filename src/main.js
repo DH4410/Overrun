@@ -551,6 +551,10 @@ function applySettings() {
   applyRenderScale();
 
   activeLightBudget = q.lights;
+  // A slot that can never be leased is still a loop iteration in every fragment of every lit
+  // material (three bakes the light count into the program), so hide the ones past the budget.
+  // The count changes only here, in the settings panel, where the one recompile is free.
+  lightSlots.forEach((l, i) => { l.visible = i < q.lights; });
   CONFIG.MAX_DECALS = q.decals;
 
   camera.fov = hipFov();         // updateCamera() overrides this every frame; set for first render

@@ -65,8 +65,15 @@ MATERIALS = {
     'shingle': ((0.40, 0.27, 0.20), 2.0),     # low roofs, under the ghost probe's reach
     'thatch':  ((0.70, 0.58, 0.32), 1.5),
     'flame':   ((1.00, 0.55, 0.12), 1.0),     # torches and braziers: unlit
+    # The detail pass (bastiondetail.py): per-piece colour, no collider, none in the ghost probe's list.
+    'fit':     ((0.35, 0.37, 0.40), 1.0),     # hardware: studs, hinges, rings, plates
+    'mark':    ((1.00, 1.00, 1.00), 1.0),     # paint, stains, lichen: decals
+    'glyph':   ((1.00, 1.00, 1.00), 1.0),     # lamp glass: unlit
+    'tmark':   ((1.00, 1.00, 1.00), 1.0),     # sign text, a quad per character
+    'tglyph':  ((1.00, 1.00, 1.00), 1.0),
+    'tuft':    ((1.00, 1.00, 1.00), 1.0),     # grass tufts and wild flowers
 }
-TINTED = {'pine', 'banner', 'far'}
+TINTED = {'pine', 'banner', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph', 'tuft'}
 SMOOTH = {'hill'}
 
 PROPS = {
@@ -78,7 +85,8 @@ RK_ROUND = {'castle': 0.09, 'rock': 0.11, 'cut': 0.06, 'wood': 0.05, 'timber': 0
             'slates': 0.05, 'shingle': 0.04, 'trunk': 0.05, 'metal': 0.025, 'thatch': 0.1}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 8.0            # wear patches: metres between cuts
-RK_PLAIN = {'far', 'dark', 'banner', 'pine', 'grass', 'hill', 'dirt', 'paving', 'flame'}
+RK_PLAIN = {'far', 'dark', 'banner', 'pine', 'grass', 'hill', 'dirt', 'paving', 'flame',
+            'fit', 'mark', 'glyph', 'tmark', 'tglyph', 'tuft'}
 RK_WEAR = {'castle': (0.30, 0.14, True), 'rock': (0.30, 0.14, True), 'cut': (0.22, 0.10),
            'plaster': (0.22, 0.12), 'timber': (0.18, 0.10), 'wood': (0.22, 0.10), 'slates': (0.0, 0.12),
            'shingle': (0.0, 0.12), 'trunk': (0.2, 0.10), 'thatch': (0.0, 0.16)}
@@ -820,7 +828,11 @@ def build_layout():
         courtyard(s)
         field(s)
     backdrop()
+    bastion_detail()
     rk_finalize()
+
+
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'bastiondetail.py')).read())
 
 
 def run_round(layout):

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
+import { typeAtlas } from './typeAtlas.js';
 
 /**
  * BASTION: two stone keeps and the grass between them, for capture the flag. Modelled in Blender
@@ -57,10 +58,21 @@ export const BASTION = {
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true }),
       dark: new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.95, ...decal(1) }),
       metal: new THREE.MeshStandardMaterial({ color: 0x35363a, roughness: 0.5, metalness: 0.6 }),
+      // The detail pass, coloured per piece by the GLB: hardware, matte paint and stains (Lambert
+      // is the cheaper shader and looks the same on it), lamp lenses and sign text (unlit), and
+      // tufts of grass and wild flowers on the meadow.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
+      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
+      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
+      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
+      tmark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
+      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
+      tuft: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, and everything past the wall. */
-  noCast: ['grass', 'hill', 'dirt', 'paving', 'dark', 'far', 'flame'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, the small fittings and the
+   * paint, the tufts, and everything past the wall. */
+  noCast: ['grass', 'hill', 'dirt', 'paving', 'dark', 'far', 'flame', 'fit', 'mark', 'glyph', 'tmark', 'tglyph', 'tuft'],
 
   look: {
     background: 0xbcd0e0,

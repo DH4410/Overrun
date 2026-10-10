@@ -154,7 +154,23 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   lamps/mirrors; container names, IDs, data plates; crate stencils; lamp-post stripes; woodpile tarp;
   road ruts and STOP/SLOW, pond cracks, THIN ICE posts, wind ripples. Same five keys and atlas as
   METRO/DEPOT. Wraps `cabin`, `window`, `container`, `crate`, `tank`, `snowcat`, `lamp_post`,
-  `woodpile` after the layout defines them. Tests: snow-map 7/7, units 144, lint 0 errors.- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v54. The live
+  `woodpile` after the layout defines them. Tests: snow-map 7/7, units 144, lint 0 errors.
+- **BASTION deep detail pass** (`scripts/blender/bastiondetail.py`, exec'd before `run_round` in
+  `build_bastion.py`, called from `build_layout()` just before `rk_finalize()`; visual only, `bastion.json`
+  unchanged, GLB 4.8 -> 7.1 MB / 98k faces): shield, keep name and year on both faces of the gate
+  lintel, studs/rings/plank seams on the doors, spiked portcullis, doors in the gate towers, POSTERN
+  plates; flag hall dado, team frieze, shield and name on the back wall, trophies, weapon rack, lanterns,
+  bunting, purlins, roof courses, team ring and name inlaid in the floor; barracks door leaf, name plate,
+  window boxes, gutters/downpipes, gable round windows, chimney pots; crate stencils/nails/seams, well
+  sign and courses; banner borders and charges (tower for blue, saltire for red); torch plates and soot;
+  tower course ridges, roof ribs and vines; flank and back wall rain stains, repairs, slits, vines,
+  banners, copings; ruin windows; causeway joints and team ring; cart ruts; grass tufts and flowers.
+  Six new keys (`fit`, `mark`, `glyph`, `tmark`, `tglyph`, plus `tuft`, which is Lambert vertex-coloured
+  and out of the shadow pass). Wraps `slit`, `torch`, `hang_banner`, `window`, `brazier`, `crate`,
+  `well`, `stone`, `pine`, `tower_viz`, `house_far`, `windmill`. Lesson: rain streaks and ground moss
+  as light/opaque `mark` decals read as bars and hexagons; keep them dark, thin and small, and leave
+  grass bare. Tests: blender-maps 21/21 (bastion 5), units 144, lint 0 errors.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v55. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

@@ -25,13 +25,19 @@ export const ARENA = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
+    // Concrete, steel and timber carry vertex colours: dirt gathered at the foot and soft patches
+    // (the wear pass in roundkit_dh.py), multiplied over the texture.
+    const worn = { vertexColors: true };
     return {
       asphalt: pbrMat('asphalt_02', { repeat: 1, ao: true, fallback: 0x2c2c30, rough: 0.9 }),
-      dais: pbrMat('concrete_floor_damaged_01', { repeat: 1, ao: true, fallback: 0x8a8a88, rough: 0.9, detail: true }),
-      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x9a9a98, rough: 0.95, detail: true }),
-      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x84847f, rough: 0.92, detail: true }),
-      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x6a6e72, rough: 0.5, metal: 0.6, detail: true }),
-      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 }),
+      dais: pbrMat('concrete_floor_damaged_01', { repeat: 1, ao: true, fallback: 0x8a8a88, rough: 0.9, detail: true, extra: worn }),
+      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x9a9a98, rough: 0.95, detail: true, extra: worn }),
+      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x84847f, rough: 0.92, detail: true, extra: worn }),
+      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x6a6e72, rough: 0.5, metal: 0.6, detail: true, extra: worn }),
+      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn }),
+      // precast trim (kerbs, pilasters, bands) and the dark iron of rails, lattice and housings
+      trim: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0xb4b4ae, rough: 0.9, detail: true, extra: worn }),
+      metal: new THREE.MeshStandardMaterial({ color: 0x4a4e54, roughness: 0.55, metalness: 0.6, vertexColors: true }),
       lines: new THREE.MeshStandardMaterial({ color: 0xd2b02a, roughness: 0.8, ...decal(2) }),
       dark: new THREE.MeshStandardMaterial({ color: 0x08090b, roughness: 0.9, ...decal(3) }),
       beacon: new THREE.MeshBasicMaterial({ color: 0xff7a30 }),
@@ -53,9 +59,9 @@ export const ARENA = {
     },
     env: 0.3,
     lighting: {
-      ambient: { color: 0x8890ac, intensity: 0.42 },
-      hemi: { sky: 0x5a6a94, ground: 0x2c2a30, intensity: 0.5 },
-      sun: { color: 0xffb27c, intensity: 1.25, pos: [-70, 18, 40] },
+      ambient: { color: 0x98a0bc, intensity: 0.52 },
+      hemi: { sky: 0x6a7aa4, ground: 0x3c3a40, intensity: 0.6 },
+      sun: { color: 0xffb27c, intensity: 1.4, pos: [-70, 18, 40] },
     },
   },
 

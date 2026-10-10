@@ -56,8 +56,10 @@ MATERIALS = {
     'lamp':     ((1.00, 0.95, 0.82), 1.0),    # emissive
     'far':      ((1.00, 1.00, 1.00), 8.0),    # backdrop beyond the wall, tinted per piece
     'water':    ((0.16, 0.24, 0.28), 8.0),
+    'fit':      ((0.35, 0.37, 0.40), 1.0),    # fittings with no collider: ladders, frames, castings, straps
+    'mark':     ((1.00, 1.00, 1.00), 1.0),    # stencils, text and stains: decal, tinted per piece
 }
-TINTED = {'paint', 'far'}
+TINTED = {'paint', 'far', 'fit', 'mark'}
 
 WHITE = (1.0, 1.0, 1.0)
 
@@ -232,7 +234,7 @@ def F(s, x, z, yaw=0.0, y=0.0):
 # emits a collider, so port.json is the same as without it.
 RK_ROUND = {'wall': 0.1, 'cladding': 0.07, 'apron': 0.08, 'barrier': 0.08, 'roof': 0.08,
             'paint': 0.05, 'steel': 0.06, 'yellow': 0.1, 'wood': 0.035}
-RK_PLAIN = {'far', 'lamp', 'lines', 'linesW', 'water', 'slab', 'asphalt'}
+RK_PLAIN = {'far', 'lamp', 'lines', 'linesW', 'water', 'slab', 'asphalt', 'mark'}
 RK_WEAR = {'wall': (0.35, 0.12, True), 'cladding': (0.3, 0.1, True), 'apron': (0.25, 0.1, True), 'barrier': (0.3, 0.12),
            'paint': (0.28, 0.1), 'yellow': (0.25, 0.1), 'wood': (0.2, 0.1), 'steel': (0.2, 0.08),
            'roof': (0.0, 0.1)}
@@ -241,11 +243,13 @@ if globals().get('NOWEAR'):
 TINTED = TINTED | set(RK_WEAR)
 exec(open(os.path.join(REPO, 'scripts', 'blender', 'roundkit_dh.py')).read())
 
-
 # ------------------------------------------------------------------ pieces
 
 C_L, C_W, C_H = 6.06, 2.44, 2.59
 _container_n = [0]
+
+# Stencils, windows, ladders, floor marks: portdetail.py adds them with no collider of its own.
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'portdetail.py')).read())
 
 
 def container(s, x, z, along_x, stacked=False, colour=None):
@@ -296,6 +300,7 @@ def container(s, x, z, along_x, stacked=False, colour=None):
         # roof panel, meeting the rails on all four sides so the top has no gaps
         rx, rz = L / 2 - 0.1, W / 2 - 0.1
         poly('paint', fr, [(-rx, H - 0.02, rz), (rx, H - 0.02, rz), (rx, H - 0.02, -rz), (-rx, H - 0.02, -rz)], tint)
+        container_detail(fr, tint)
 
 
 def crate(s, x, z, size=1.4, h=1.0, base=0.0):
@@ -331,6 +336,7 @@ def crate(s, x, z, size=1.4, h=1.0, base=0.0):
         a1 = (run / 2, h - b)
         quad = [(a0[0] - ox, a0[1] - oy), (a1[0] - ox, a1[1] - oy), (a1[0] + ox, a1[1] + oy), (a0[0] + ox, a0[1] + oy)]
         poly('wood', sf, [(u, v, zf) for u, v in quad])
+    crate_detail(fr, size, h)
 
 
 JERSEY = [(-0.3, 0.0), (0.3, 0.0), (0.3, 0.08), (0.12, 0.3), (0.09, 0.85), (-0.09, 0.85), (-0.12, 0.3), (-0.3, 0.08)]
@@ -350,6 +356,7 @@ def barrier(s, x, z, along_x, length=3.0):
     for sx in (-1, 1):
         poly('lines', fr, [(sx * 0.103, 0.62, -length / 2 + 0.15), (sx * 0.103, 0.62, length / 2 - 0.15),
                            (sx * 0.103, 0.7, length / 2 - 0.15), (sx * 0.103, 0.7, -length / 2 + 0.15)][::-sx])
+    barrier_detail(fr, length)
 
 
 def wall(x0, z0, x1, z1, h, t, key, block=1, y=0.0):
@@ -424,6 +431,7 @@ def ramp(s, x0, y0, z0, x1, y1, z1, width):
     for sx in (-1, 1):
         xa, xb = sx * (hw - 0.05) - 0.05, sx * (hw - 0.05) + 0.05
         poly('lines', fr, [(xa, rise + ly, run), (xb, rise + ly, run), (xb, ly, 0), (xa, ly, 0)])
+    ramp_detail(fr, hw, run, rise)
 
 
 def lamp_post(s, x, z, yaw=0.0, h=11.0):
@@ -440,6 +448,7 @@ def lamp_post(s, x, z, yaw=0.0, h=11.0):
     for sx in (-0.45, 0.45):
         vbox('steel', fr, sx, h - 0.05, 1.0, 0.7, 0.45, 0.25, skip=())
         poly('lamp', fr, [(sx - 0.3, h - 0.28, 1.13), (sx + 0.3, h - 0.28, 1.13), (sx + 0.3, h + 0.12, 1.13), (sx - 0.3, h + 0.12, 1.13)])
+    lamp_detail(fr, h)
 
 
 def bollard(s, x, z):
@@ -478,6 +487,7 @@ def rack(s, x, z, length, along_z=True, h=3.0, depth=1.1):
             vbox('wood', fr, 0, yb + 0.06, zc, depth - 0.14, 0.12, bay - 0.2)
             vbox('far', fr, 0, yb + 0.12 + lh / 2, zc, depth - 0.18, lh - 0.1, bay - 0.3,
                  tint=srgb(0xb58f5e) if (i + li) % 3 else srgb(0x9c7a4f))
+    rack_detail(fr, length, depth, bays, bay)
 
 
 def shed_light(x, y, z):
@@ -555,6 +565,7 @@ def perimeter():
         z = -36 + i * 12.0
         for sx in (-1, 1):
             floodlight(sx * (HX + 0.5), z, math.pi / 2 if sx < 0 else -math.pi / 2)
+    perimeter_detail()
 
 
 def floodlight(x, z, yaw):
@@ -562,6 +573,7 @@ def floodlight(x, z, yaw):
     lathe('steel', fr, 0, 0, [(0.07, 0.0), (0.05, 0.12), (0.05, 1.0)], 8, caps=(False, True))
     vbox('steel', fr, 0, 1.15, 0.15, 0.7, 0.32, 0.36, skip=())
     poly('lamp', fr, [(-0.3, 1.03, 0.331), (0.3, 1.03, 0.331), (0.3, 1.27, 0.331), (-0.3, 1.27, 0.331)])
+    floodlight_detail(fr)
 
 
 def dock():
@@ -605,9 +617,11 @@ def dock():
         fr2 = F(s, -3.6, 4.5, 0.0, DH)
         solid('yellow', fr2, 0, 0.5, 0, 8.5, 1.0, 0.5)
         vbox('steel', fr2, 0, 1.0 + 0.01, 0, 8.5, 0.02, 0.5, skip=('-y',))
+        parapet_detail(fr2)
         crate(s, 5.2, -1.8, 1.4, 1.0, DH)
         crate(s, -1.0, -2.6, 1.2, 1.0, DH)
     both(per_side)
+    dock_detail()
 
 
 def spawn_sheds():
@@ -644,6 +658,7 @@ def spawn_sheds():
         # steel columns on the outside corners
         for cx in (-15.35, 15.35):
             solid('steel', Frame(), s * cx, SH / 2, s * (z0 - 0.05), 0.3, SH, 0.3)
+        shed_detail(s)
     both(per_side)
 
 
@@ -691,6 +706,7 @@ def container_yard():
         stripe(s * 26, s * 0.2, 0.18, 30)
         stripe(s * 33, s * 21.5, 0.18, 12)
         gantry(s)
+        gantry_detail(s)
     both(per_side)
 
 
@@ -757,6 +773,7 @@ def warehouse():
         crate(s, -42.5, 16.5, 1.6, 1.0)
         for lx, lz in ((-39, 11), (-27, 18), (-33, 21.5), (-43, 21)):
             shed_light(s * lx, H - 0.25, s * lz)
+        warehouse_detail(s)
     both(per_side)
 
 
@@ -833,6 +850,8 @@ def build_layout():
     warehouse()
     back_lot()
     backdrop()
+    backdrop_detail()
+    floor_marks()
 
 
 # ------------------------------------------------------------------ Blender plumbing

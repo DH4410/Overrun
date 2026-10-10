@@ -48,12 +48,21 @@ export const PORT = {
       lines: new THREE.MeshStandardMaterial({ color: 0xd9b23a, roughness: 0.85, ...decal(2) }),
       linesW: new THREE.MeshStandardMaterial({ color: 0xd6d8d4, roughness: 0.85, ...decal(2) }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xfff1d6 }),
+      // Fittings with no collider (ladders, window frames, castings, straps) and the stencils,
+      // text and stains painted on the walls and floor; both are coloured per piece by the GLB.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
+      // Matte paint: Lambert is the cheaper shader and looks the same on it. There are 20k
+      // decal triangles on screen, so the per-pixel cost shows up on battery.
+      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.1, vertexColors: true }),
       water: new THREE.MeshStandardMaterial({ color: 0x27414b, roughness: 0.25, metalness: 0.1 }),
     };
   },
-  /** Meshes that stay out of the shadow pass: decals, emitters, and everything past the wall. */
-  noCast: ['asphalt', 'slab', 'lines', 'linesW', 'lamp', 'far', 'water'],
+  /**
+   * Meshes that stay out of the shadow pass: decals, emitters, everything past the wall, and the
+   * small fittings (ladder rungs, frames, castings), whose shadows no one can see.
+   */
+  noCast: ['asphalt', 'slab', 'lines', 'linesW', 'lamp', 'far', 'water', 'mark', 'fit'],
 
   look: {
     background: 0xc9dcea,

@@ -81,7 +81,20 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   `src/net/client.js`), no protocol change.
 - Preview shots with real GPU and textures: `spike/shot-map.mjs` (untracked; mode `tdm` for bastion,
   CTF is multiplayer only). The e2e harness stubs textures so those screenshots look black.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v47. The live
+- **PORT deep detail pass** (`scripts/blender/portdetail.py`, exec'd by `build_port.py`; visual only,
+  `port.json` unchanged): windows with frames and sills, hazard jambs, bay and dock labels, container
+  names and codes, castings, forklift pockets, ladders, X-bracing and a hung container on the
+  gantries, floor cracks, joints, drains, lane arrows, razor wire, cameras, backdrop crane lattice.
+  New keys: `fit` (fittings, standard material, no shadow) and `mark` (decals and text, Lambert, no
+  shadow, polygonOffset); both are in the spec's SKIP set, so they may stick out past colliders.
+  All `mark` decals share one polygonOffset, so overlapping decals need >= 5 mm of separation.
+  GLB 4.1 -> 6.4 MB (117k -> 168k tris). **Cost rule from the battery request:** measured with
+  `spike/perf-map.mjs` (real GPU, render + readPixels, 6 viewpoints) the first build was ~27 ms
+  against 20 ms before; `fit` out of the shadow pass and `mark` on Lambert brought it back to ~20 ms.
+  Do the same on every further detail pass: new fittings and decals must not cast, decals use
+  Lambert, and re-measure old vs new before committing. (Each map is one mesh per material, so there
+  is no frustum culling; chunking `fit`/`mark` spatially would be the next lever.)
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v48. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

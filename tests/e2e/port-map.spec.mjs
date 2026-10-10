@@ -41,7 +41,7 @@ test('PORT colliders sit exactly where their meshes are', async ({ page }) => {
     const T = g.THREE;
     const { boxes } = await (await fetch('assets/maps/port.json')).json();
     // Only the meshes a player can touch; floor paint, lamps and the backdrop have no collider.
-    const SKIP = new Set(['port_far', 'port_water', 'port_lines', 'port_linesW', 'port_lamp', 'port_slab']);
+    const SKIP = new Set(['port_far', 'port_water', 'port_lines', 'port_linesW', 'port_lamp', 'port_slab', 'port_fit', 'port_mark']);
     const meshes = [];
     g.mapGroup.traverse((o) => { if (o.isMesh && o.name.startsWith('port_') && !SKIP.has(o.name)) meshes.push(o); });
     const ray = new T.Raycaster();

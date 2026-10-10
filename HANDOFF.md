@@ -56,10 +56,25 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   `cut` and `pine` first if it must shrink. Ghost-probe lesson: a tapering collider-backed shape that
   widens downward (the pine trunk) makes a sliver a vertical ray can graze above 0.3 m; keep it
   straight from 0.3 m to the 4.2 m cast height. Far ranges are now thin multi-peak ridges.
-- Still blocky / not yet rounded: depot (partly), desert, snow, warzone; arena brightness unconfirmed.
+- **Arena, warzone, desert, snow, depot**: all rebuilt on `roundkit_dh.py` the same way (rounded boxes,
+  lathes, tubes, wear vertex colours; one commit each). New non-touch keys carry the detail: `trim`
+  (copings, cornices, plinths, hoods) and `metal` (pipes, frames, hangers) on depot/snow/warzone,
+  `trim` and `clay` on desert. GLB sizes: warzone 3.0 -> 5.2 MB, desert 2.4 -> 5.4 MB, snow 2.4 -> 3.9 MB,
+  depot 0.8 -> 2.1 MB. If load time matters, `trim` and the lathe-heavy props are where to cut.
+  Wear keys must be in `TINTED`, and the JS material needs `extra: { vertexColors: true }` for every
+  key that has them, or those meshes draw black (keys sharing one JS material must all carry them).
+- Depot: the loading-door leaves in the side walls had been wound backwards and were culled, so
+  they never showed; they now face into the hall. Its ghost probe step is 0.517 (was 0.513): with
+  chamfered edges three probes landed in the 3 cm band at an edge and slipped through, a sampling
+  artefact, not a ghost. Snow's heights test lets go of W at step 18 because always-on sprint now
+  carries a jump over a 0.9 m berm.
+- Heal: remote players now show a green pulse while opening a medkit (`src/healProp.js`,
+  `src/net/client.js`), no protocol change.
 - Preview shots with real GPU and textures: `spike/shot-map.mjs` (untracked; mode `tdm` for bastion,
   CTF is multiplayer only). The e2e harness stubs textures so those screenshots look black.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v44.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v47. The live
+  site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
+  the unit tests (144) and lint (0 errors) were green per commit.
 
 ## Session 9 (2026-10-07): playtest fixes, new modes, more maps (in progress)
 

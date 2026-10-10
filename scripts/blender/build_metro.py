@@ -47,13 +47,19 @@ MATERIALS = {
     'signgreen': ((0.10, 0.85, 0.35), 1.0),
     'signred':  ((0.95, 0.15, 0.10), 1.0),
     'foliage':  ((0.12, 0.30, 0.10), 1.0),
+    # the detail pass (metrodetail.py): hardware, paint and sign text, each tinted per piece
+    'fit':      ((0.35, 0.37, 0.40), 1.0),
+    'mark':     ((1.00, 1.00, 1.00), 1.0),
+    'glyph':    ((1.00, 1.00, 1.00), 1.0),
+    'tmark':    ((1.00, 1.00, 1.00), 1.0),     # sign text drawn from the glyph atlas: painted
+    'tglyph':   ((1.00, 1.00, 1.00), 1.0),     # and lit
 }
-TINTED = {'tile', 'train'}
+TINTED = {'tile', 'train', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 PROPS = {}
 SMOOTH = set()
 ROUND_N = 24
 BEVEL = {'width': 0.035, 'angle': 55, 'segments': 1,
-         'skip': {'lines', 'dark', 'glass', 'glow', 'signblue', 'signgreen', 'signred', 'rail'}}
+         'skip': {'lines', 'dark', 'glass', 'glow', 'signblue', 'signgreen', 'signred', 'rail', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'}}
 
 exec(open(os.path.join(globals()['OVERRUN_REPO'], 'scripts', 'blender', 'mapkit.py')).read())
 exec(open(os.path.join(globals()['OVERRUN_REPO'], 'scripts', 'blender', 'urbankit.py')).read())
@@ -534,6 +540,10 @@ def build_layout():
     both(island)
     both(outer)
     both(stairhead)
+    metro_detail()
+
+
+exec(open(os.path.join(globals()['OVERRUN_REPO'], 'scripts', 'blender', 'metrodetail.py')).read())
 
 
 result = run(build_layout)

@@ -113,7 +113,26 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   (see "What was built - session 2"). Measurement scripts live in untracked `spike/perf-*.mjs`.
   Not done, would need a decision: auto battery-saver from `navigator.getBattery()`; caching the
   static-map shadow map (only worth it at the QUALITY tier, shadows cost ~1 ms at 1024).
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v50. The live
+- **Sticky aim fix** (`src/player.js`, committed 710b276): the pad poll used to write `aiming` and
+  `firing` every frame from an idle pad and a lost `mouseup` (alt-tab, release outside the window) left
+  the mouse latched. A pad button now only counts once it has been seen up (`gpArmed`), LT/RT are
+  edge-driven, and the mouse held-state is resynced from `e.buttons` on mousemove and cleared on window
+  blur. Test: `controls.spec.mjs` "an idle pad leaves a held aim alone". `__game.isAiming()` is the
+  debug hook.
+- **METRO deep detail pass** (`scripts/blender/metrodetail.py`, exec'd by `build_metro.py`; visual
+  only, `metro.json` unchanged): wall friezes, posters, clocks, line maps, timetables, fire and first-aid
+  points, phones, louvres, speakers, cameras, cable trays, tunnel rings, floor joints and stains,
+  tactile studs, rail clips and sleepers, train interiors (seats, passengers, door gear, destination
+  boards, roundels), ceiling sprinklers, vents and conduit, column bases and capitals, bench/vending/
+  planter/barrier/kiosk details, hanging signs. **Sign text is now an atlas, not pixel rectangles**:
+  `markkit.py` `type_label` / `type_floor` emit one quad per character with UVs into
+  `src/typeAtlas.js` (canvas texture, `TYPE_CHARS` on an 8 x 8 grid; both sides share that contract,
+  keep the order). Keys `tmark` (Lambert, painted) and `tglyph` (Basic, lamp) carry it with
+  `alphaTest 0.4`; `fit`, `mark`, `glyph`, `tmark`, `tglyph` are tinted per vertex, bevel-skipped and
+  in `noCast`. Doing text as pixel rects was 79k faces / 13.6 MB; as atlas quads 41k faces / 5.4 MB
+  after `node scripts/glbquant.mjs` (run it by hand after every Blender build). ARENA and PORT could be
+  moved to the atlas too to shrink them. Tests: blender-maps metro 6/6, units 144, lint 0 errors.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v52. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

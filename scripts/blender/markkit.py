@@ -106,3 +106,46 @@ def floor_label(fr, text, ph, tint):
     """Text painted on a floor: reads along the frame's x, its top toward the frame's -z."""
     for u0, v0, u1, v1 in _runs(text, ph):
         poly('mark', fr, [(u0, 0.0, -v0), (u1, 0.0, -v0), (u1, 0.0, -v1), (u0, 0.0, -v1)], tint)
+
+
+# ------------------------------------------------------------------ atlas text
+# One quad per character, sampled from the glyph atlas src/typeAtlas.js draws at load, instead of
+# a run of pixel rectangles per row: a word is a handful of faces, not a hundred. The layout
+# (advance, height, centring) is the pixel face's, so a label fits wherever the old one did.
+# Keys 'tmark' (Lambert, paint) and 'tglyph' (unlit, lamps) must exist in the map's MATERIALS.
+TYPE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-!.:/><+'
+TYPE_COLS = TYPE_ROWS = 8
+
+
+def _type_cells(text, ph):
+    """(x centre, u0, u1, v0, v1) for each drawable character, centred on x = 0."""
+    px = ph / 7.0
+    text = text.upper()
+    left = -(len(text) * 6 - 1) * px / 2
+    for i, ch in enumerate(text):
+        k = TYPE_CHARS.find(ch)
+        if k >= 0:
+            col, row = k % TYPE_COLS, k // TYPE_COLS
+            yield (left + (i * 6 + 2.5) * px, col / TYPE_COLS, (col + 1) / TYPE_COLS, row / TYPE_ROWS, (row + 1) / TYPE_ROWS)
+
+
+def _type_face(key, pts, c, tint):
+    # Bucket stores (u, -v) and glTF flips v again, so v - 1 lands on the atlas row counted from the top.
+    _, a0, a1, v0, v1 = c
+    bucket(key).face(pts, [(a0, v1 - 1), (a1, v1 - 1), (a1, v0 - 1), (a0, v0 - 1)], tint)
+
+
+def type_label(fr, u, y, z, text, ph, tint, key='tmark'):
+    """Text on a vertical face: centred on local x = u, baseline at y, z off the surface."""
+    h = ph / 2
+    for c in _type_cells(text, ph):
+        x = u + c[0]
+        _type_face(key, [fr.world(p) for p in ((x - h, y, z), (x + h, y, z), (x + h, y + ph, z), (x - h, y + ph, z))], c, tint)
+
+
+def type_floor(fr, text, ph, tint, key='tmark'):
+    """Text on a floor: reads along the frame's x, its top toward the frame's -z."""
+    h = ph / 2
+    for c in _type_cells(text, ph):
+        x = c[0]
+        _type_face(key, [fr.world(p) for p in ((x - h, 0.0, 0.0), (x + h, 0.0, 0.0), (x + h, 0.0, -ph), (x - h, 0.0, -ph))], c, tint)

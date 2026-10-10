@@ -61,9 +61,26 @@ MATERIALS = {
     'dark':     ((0.04, 0.05, 0.06), 1.0),     # window and doorway shadow, flush
     'glow':     ((1.00, 0.82, 0.55), 1.0),     # lit windows and lamps
     'far':      ((1.00, 1.00, 1.00), 12.0),    # backdrop, tinted
+    # Detail with no collider: none of these is in the ghost probe's touch list.
+    'trim':     ((0.62, 0.62, 0.60), 3.0),     # precast footings, copings, door canopies, steps, sills
+    'metal':    ((0.26, 0.28, 0.30), 2.0),     # pipes, housings, ladders, hinges, handles, vents
+    'mound':    ((0.90, 0.92, 0.95), 4.0),     # snow heaped against walls and along the fence
 }
 TINTED = {'container', 'fir', 'paint', 'far'}
 SMOOTH = {'drift'}
+
+# Rounded edges, smooth normals and wear (roundkit_dh.py). Nothing in it emits a collider.
+RK_ROUND = {'red': 0.05, 'ochre': 0.05, 'grey': 0.05, 'concrete': 0.07, 'lining': 0.03, 'steel': 0.04, 'rail': 0.03,
+            'wood': 0.05, 'berm': 0.14, 'snowcap': 0.06, 'tank': 0.05, 'container': 0.05, 'trim': 0.04,
+            'metal': 0.025, 'paint': 0.04, 'black': 0.08, 'mound': 0.2}
+RK_ROUND_DEFAULT = 0.04
+RK_CELL = 8.0
+RK_PLAIN = {'snow', 'drift', 'track', 'ice', 'floor', 'dark', 'glow', 'far', 'fir', 'trunk'}
+RK_WEAR = {'red': (0.28, 0.12, True), 'ochre': (0.28, 0.12, True), 'grey': (0.22, 0.10, True),
+           'concrete': (0.14, 0.10), 'lining': (0.12, 0.08), 'steel': (0.14, 0.08), 'rail': (0.14, 0.08),
+           'wood': (0.22, 0.10), 'berm': (0.20, 0.10), 'tank': (0.20, 0.10, True), 'trim': (0.22, 0.10),
+           'metal': (0.0, 0.08)}
+TINTED = TINTED | set(RK_WEAR)
 
 # Poly Haven models: (slug, max triangles, collider, approximate w/h/d for plan mode). Named
 # apart from DESERT's props, which share the Blender file.
@@ -77,7 +94,17 @@ PROPS = {
 }
 
 exec(open(os.path.join(globals()['OVERRUN_REPO'], 'scripts', 'blender', 'mapkit.py')).read())
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'roundkit_dh.py')).read())
 crate_kit = crate
+
+_vbox_round = vbox
+
+
+def vbox(key, frame, cx, cy, cz, w, h, d, tint=WHITE, skip=('-y',)):
+    """The rounding kit's box, except where the box is too slim for a bevel to show."""
+    if min(w, h, d) < 0.2:
+        return _vbox0(key, frame, cx, cy, cz, w, h, d, tint, skip)
+    return _vbox_round(key, frame, cx, cy, cz, w, h, d, tint, skip)
 
 TRIM = 0.003             # decoration stands this proud of a wall, so it adds nothing to walk into
 
@@ -128,15 +155,37 @@ def box_xz(key, xa, xb, za, zb, y0, y1, skip=('-y',), block=1, top_key=None):
     collider(Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, block)
 
 
+FACE_YAW = {'+z': 0.0, '-z': math.pi, '+x': math.pi / 2, '-x': -math.pi / 2}
+
+
+def onface(face, P, t, y=0.0):
+    """A frame standing on a wall face, t along it and y up, its local +z pointing out of the wall."""
+    x, _, z = P(t, 0.0)
+    return Frame(x, y, z, FACE_YAW[face])
+
+
+def rb(key, fr, cx, cy, cz, w, h, d, r=0.03, tint=WHITE):
+    """A small rounded block (the kit's vbox leaves anything under 0.2 m sharp)."""
+    rbox(key, fr, cx, cy, cz, w, h, d, r, tint, ())
+
+
+def loaf(x, z, w, d, h, yaw=0.0, y=0.0):
+    """A soft heap of snow. No collider: it is scenery, and low enough to walk through unseen."""
+    rbox('mound', Frame(x, y, z, yaw), 0, h / 2 - 0.05, 0, w, h + 0.1, d, min(h * 0.5, 0.3), WHITE, ())
+
+
 def window(face, P, t, y, w=1.1, hgt=0.9, lit=False):
-    """A window on a cabin wall: the pane flush (dark, or lit), a steel frame round it and a sill."""
+    """A window on a cabin wall: the pane flush (dark, or lit), a steel frame round it with a
+    mullion, a projecting sill and a head."""
     face_quad('glow' if lit else 'dark', P, t - w / 2, t + w / 2, y, y + hgt)
-    Q = lambda tt, yy: tuple(a + b for a, b in zip(P(tt, yy), off(face, TRIM)))
+    fr = onface(face, P, t)
     f = 0.07
-    face_quad('rail', Q, t - w / 2 - f, t + w / 2 + f, y - f, y)
-    face_quad('rail', Q, t - w / 2 - f, t + w / 2 + f, y + hgt, y + hgt + f)
-    face_quad('rail', Q, t - w / 2 - f, t - w / 2, y, y + hgt)
-    face_quad('rail', Q, t + w / 2, t + w / 2 + f, y, y + hgt)
+    rb('trim', fr, 0, y - 0.07, 0.1, w + 0.3, 0.1, 0.22, 0.03)                      # sill
+    rb('metal', fr, 0, y + hgt + f / 2, 0.04, w + 2 * f, f, 0.08, 0.02)             # head
+    for sx in (-1, 1):
+        rb('metal', fr, sx * (w / 2 + f / 2), y + hgt / 2, 0.04, f, hgt, 0.08, 0.02)
+    rb('metal', fr, 0, y + hgt / 2, 0.03, 0.05, hgt, 0.06, 0.015)                   # mullion
+    rb('metal', fr, 0, y + hgt * 0.5, 0.03, w, 0.04, 0.05, 0.012)                   # transom
 
 
 def off(face, d):
@@ -164,9 +213,21 @@ def cabin(x0, z0, x1, z1, h, key='red', faces='+x-x+z-z', seed=1, door=None, air
     rnd = rnd_gen(seed)
     for face in ('+x', '-x', '+z', '-z'):
         L, P = face_fn(face, xa, xb, za, zb)
-        face_quad('concrete', P, 0, L, 0, 0.45)
-        face_quad('rail', P, 0, L, h - 0.35, h - 0.12)          # fascia
+        fr = onface(face, P, L / 2)
+        rb('trim', fr, 0, 0.22, 0.06, L + 0.1, 0.45, 0.14, 0.05)          # concrete footing
+        rb('trim', fr, 0, h - 0.2, 0.07, L + 0.1, 0.3, 0.16, 0.05)         # cornice
         face_quad('snowcap', P, 0, L, h - 0.12, h)               # the snow on the roof edge
+        if face in ('+z', '-z'):
+            # a snow bank along the foot of the long sides
+            k = int(L // 3.4)
+            for i in range(k):
+                t = (i + 0.5) * L / k + (rnd() - 0.5) * 0.8
+                if door and door[0] == face and abs(t - door[1]) < 1.8:
+                    continue
+                c = onface(face, P, t)
+                wv = 1.6 + rnd() * 1.4
+                loaf(c.world((0, 0, 0.55))[0], c.world((0, 0, 0.55))[2], wv, 0.7 + rnd() * 0.3, 0.22 + rnd() * 0.25,
+                     FACE_YAW[face])
         if face not in faces:
             continue
         n = int(L // 2.6)
@@ -177,10 +238,25 @@ def cabin(x0, z0, x1, z1, h, key='red', faces='+x-x+z-z', seed=1, door=None, air
             if rnd() < 0.25:
                 continue
             window(face, P, t, 1.45, lit=rnd() < 0.35)
+    # corner posts in steel, and a vent stack and a snow lump on the roof
+    for cx in (xa, xb):
+        for cz in (za, zb):
+            rb('metal', Frame(), cx, h / 2, cz, 0.2, h, 0.2, 0.05)
+    cxm, czm = xa + (xb - xa) * (0.3 + 0.4 * rnd()), za + (zb - za) * (0.3 + 0.4 * rnd())
+    lathe('metal', Frame(cxm, h, czm), 0, 0, [(0.09, 0), (0.09, 0.55), (0.15, 0.55), (0.15, 0.68), (0.0, 0.68)], n=10)
+    loaf(xa + (xb - xa) * 0.72, za + (zb - za) * 0.35, 2.2, 1.4, 0.3, 0.2, y=h)
+    loaf(xa + (xb - xa) * 0.25, za + (zb - za) * 0.7, 1.6, 1.1, 0.24, -0.3, y=h)
     if door:
         face, t = door
         L, P = face_fn(face, xa, xb, za, zb)
         face_quad('steel', P, t - 0.6, t + 0.6, 0.12, 2.3)
+        fr = onface(face, P, t)
+        for sx in (-1, 1):
+            rb('metal', fr, sx * 0.68, 1.2, 0.05, 0.1, 2.4, 0.1, 0.03)       # jambs
+        rb('metal', fr, 0, 2.38, 0.05, 1.46, 0.12, 0.1, 0.03)                 # head
+        rb('trim', fr, 0, 2.95, 0.34, 1.9, 0.1, 0.8, 0.04)                     # canopy
+        rb('trim', fr, 0, 0.09, 0.3, 1.5, 0.18, 0.62, 0.05)                    # step
+        rb('metal', fr, 0.42, 1.1, 0.07, 0.06, 0.32, 0.08, 0.02)               # handle
         Q = lambda tt, yy: tuple(a + b for a, b in zip(P(tt, yy), off(face, TRIM)))
         face_quad('glow', Q, t - 0.15, t + 0.15, 2.55, 2.7)      # the lamp over the door
     if aircon:
@@ -219,6 +295,21 @@ def wall_holes(x0, z0, x1, z1, h, t, key, holes, inner):
         piece(u0, u1, y1, h)
         u = u1
     piece(u, L, 0, h)
+    if key == 'lining':
+        return
+    # a steel surround on every opening, a sill under the windows, a canopy and a step at the doors
+    ox, oz = {'+x': (1, 0), '-x': (-1, 0), '+z': (0, 1), '-z': (0, -1)}[outer]
+    for (u0, u1, y0, y1) in holes:
+        uc, w = sgn * (u0 + u1) / 2, u1 - u0
+        fr = Frame(x0 + (uc if along_x else 0) + ox * t / 2, 0, z0 + (0 if along_x else uc) + oz * t / 2, FACE_YAW[outer])
+        for sx in (-1, 1):
+            rb('metal', fr, sx * (w / 2 + 0.06), (y0 + y1) / 2, 0.04, 0.12, y1 - y0 + 0.12, 0.1, 0.03)
+        rb('metal', fr, 0, y1 + 0.06, 0.04, w + 0.24, 0.12, 0.1, 0.03)
+        if y0 > 0:
+            rb('trim', fr, 0, y0 - 0.06, 0.09, w + 0.34, 0.1, 0.2, 0.03)
+        else:
+            rb('trim', fr, 0, y1 + 0.5, 0.33, w + 0.6, 0.1, 0.76, 0.04)
+            rb('trim', fr, 0, 0.09, 0.3, w + 0.1, 0.18, 0.6, 0.05)
 
 
 def roof(xa, xb, za, zb, y, t=0.35):
@@ -233,25 +324,30 @@ def fir(s, x, z, h=7.0, seed=1):
     wx, _, wz = fr.world((0, 0, 0))
     CYLINDERS.append([round(wx, 4), round(h / 2, 4), round(wz, 4), 0.7, round(h, 4), 1, 1])
     rnd = rnd_gen(seed)
-    vcyl('trunk', fr, 0, 0, 0.2, 0, 1.2, n=6, r1=0.16, top=False)
-    tiers = 4
-    y = 0.75
-    R = h * 0.29
+    lathe('trunk', fr, 0, 0, [(0.2, 0), (0.17, 0.5), (0.12, 1.6), (0.07, h * 0.7)], n=8)
+    tiers = 6
+    y = 0.7
+    R = h * 0.27
     for k in range(tiers):
-        th = (h - 0.75) / tiers * 1.45
-        r0 = R * (1 - 0.2 * k) * (0.92 + 0.16 * rnd())
+        th = (h - 0.7) / tiers * 1.5
+        r0 = R * (1 - 0.15 * k) * (0.92 + 0.16 * rnd())
         ph = rnd() * 1.0
-        n = 8
-        lo, mid, hi = ring(r0, n, ph), ring(r0 * 0.55, n, ph), ring(0.08, n, ph)
+        n = 10
+        # ragged tips: every other point of the skirt is pulled in, and a few hang lower
+        fs = [1.0 if i % 2 else 0.72 + 0.1 * rnd() for i in range(n)]
+        lo = [(c * f, s_ * f) for (c, s_), f in zip(ring(r0, n, ph), fs)]
+        mid, hi = ring(r0 * 0.55, n, ph), ring(0.07, n, ph)
         ym, yt = y + th * 0.42, y + th
+        ys = [y - 0.18 if i % 2 else y for i in range(n)]
         for i in range(n):
             j = (i + 1) % n
-            poly('fir', fr, [(lo[j][0], y, lo[j][1]), (lo[i][0], y, lo[i][1]),
+            poly('fir', fr, [(lo[j][0], ys[j], lo[j][1]), (lo[i][0], ys[i], lo[i][1]),
                              (mid[i][0], ym, mid[i][1]), (mid[j][0], ym, mid[j][1])],
                  NEEDLES if i % 2 else NEEDLES_LIT)
             poly('fir', fr, [(mid[j][0], ym, mid[j][1]), (mid[i][0], ym, mid[i][1]),
-                             (hi[i][0], yt, hi[i][1]), (hi[j][0], yt, hi[j][1])], SNOWY)
-        y += (h - 0.75) / tiers * 0.8
+                             (hi[i][0], yt, hi[i][1]), (hi[j][0], yt, hi[j][1])],
+                 SNOWY if (i + k) % 3 else NEEDLES_LIT)
+        y += (h - 0.7) / tiers * 0.8
 
 
 def tank(s, x, z, r=1.6, h=4.8, seed=1):
@@ -261,17 +357,24 @@ def tank(s, x, z, r=1.6, h=4.8, seed=1):
     cyl('tank', fr, 0, 0, r, h)
     vcyl('concrete', fr, 0, 0, r + 0.25, 0, 0.25, 12)
     CYLINDERS.append(list(map(lambda v: round(v, 4), fr.world((0, 0.125, 0)))) + [round(r + 0.25, 4), 0.25, 1])
+    # welded seams round the shell, and a rounded cap with a snow crown
     for yy in (1.4, 2.8, 4.2):
         if yy < h - 0.2:
-            vcyl('rail', fr, 0, 0, r + TRIM * 2, yy, yy + 0.08, 12, top=False)
-    vcyl('snowcap', fr, 0, 0, r - 0.02, h, h + 0.35, 12, r1=0.35)
-    # ladder up the side facing the bund's opening, visual only
+            torus('metal', fr, 0, yy, 0, r + 0.01, 0.045, n=12, m=6)
+    lathe('snowcap', fr, 0, 0, [(r - 0.02, h), (r * 0.93, h + 0.1), (r * 0.72, h + 0.2), (r * 0.42, h + 0.28), (0.0, h + 0.31)], n=12)
+    lathe('metal', fr, r * 0.35, 0, [(0.14, h + 0.25), (0.14, h + 0.55), (0.2, h + 0.55), (0.2, h + 0.64), (0.0, h + 0.64)], n=10)
+    # ladder up the side facing the bund's opening, with a cage, and a pipe down to a valve
     for sx in (-0.22, 0.22):
-        vbox('rail', fr, sx, h / 2 + 0.2, r + 0.12, 0.05, h + 0.4, 0.05)
+        tube('metal', fr, [(sx, 0.1, r + 0.14), (sx, h + 0.4, r + 0.14)], 0.025, n=6, caps=True)
     k = 0.4
     while k < h:
-        vbox('rail', fr, 0, k, r + 0.12, 0.44, 0.03, 0.03, skip=())
+        _vbox0('metal', fr, 0, k, r + 0.14, 0.44, 0.03, 0.03, WHITE, ())
         k += 0.35
+    for yy in range(2, int(h), 1):
+        torus('metal', fr, 0, yy, r + 0.14, 0.34, 0.015, n=10, m=4)
+    px = -0.75
+    tube('metal', fr, [(px, 0.15, r + 0.25), (px, 0.5, r + 0.25), (px, 0.5, r + 0.02)], 0.06, n=8, caps=True)
+    wheel('metal', fr, px, 0.5, r + 0.3, 0.17, 0.035, ax='z', n=10)
     poly('paint', fr, [(-0.5, 2.0, r + 0.02), (0.5, 2.0, r + 0.02), (0.5, 2.5, r + 0.02), (-0.5, 2.5, r + 0.02)], RED_PAINT)
 
 
@@ -282,16 +385,38 @@ def container(s, x, z, along_x, tint, h=2.59):
     vbox('container', fr, 0, h / 2, 0, L, h, W, tint=tint, skip=('-y', '+y'))
     poly('snowcap', fr, [(-L / 2, h, W / 2), (L / 2, h, W / 2), (L / 2, h, -W / 2), (-L / 2, h, -W / 2)])
     collider(fr, 0, h / 2, 0, L, h, W)
-    # door end: two leaves, lock bars
+    # door end: two leaves, lock bars with cam handles and hinges
     q = [(L / 2 + TRIM, 0.1, W / 2 - 0.08), (L / 2 + TRIM, 0.1, -W / 2 + 0.08),
          (L / 2 + TRIM, h - 0.1, -W / 2 + 0.08), (L / 2 + TRIM, h - 0.1, W / 2 - 0.08)]
     poly('container', fr, q, tuple(c * 0.8 for c in tint))
     for zz in (-0.75, -0.35, 0.35, 0.75):
-        vbox('rail', fr, L / 2 + 0.03, h / 2, zz, 0.04, h - 0.3, 0.04)
-    # corner posts
+        tube('metal', fr, [(L / 2 + 0.04, 0.2, zz), (L / 2 + 0.04, h - 0.2, zz)], 0.022, n=6, caps=True)
+        for yy in (0.55, h - 0.55):
+            rb('metal', fr, L / 2 + 0.05, yy, zz, 0.07, 0.3, 0.05, 0.02)       # cam handles
+    for zz in (-1.1, 1.1):
+        for yy in (0.35, h / 2, h - 0.35):
+            rb('metal', fr, L / 2 + 0.03, yy, zz, 0.06, 0.16, 0.14, 0.02)      # hinges
+    rb('metal', fr, L / 2 + 0.03, h / 2, 0.0, 0.05, h - 0.2, 0.04, 0.015)      # the leaves' centre seam
+    # corrugations on both long sides: the roll-formed ribs the texture only suggests
+    k = int((L - 0.3) // 0.24)
+    for i in range(k):
+        xx = -L / 2 + 0.15 + (i + 0.5) * (L - 0.3) / k
+        for sz in (-1, 1):
+            _vbox0('container', fr, xx, h / 2, sz * (W / 2 + 0.02), 0.11, h - 0.34, 0.04, tint, ())
+    # corner castings, a base rail and a top rail
     for sx in (-1, 1):
         for sz in (-1, 1):
-            vbox('rail', fr, sx * (L / 2 - 0.06), h / 2, sz * (W / 2 - 0.06), 0.12 + 2 * TRIM, h, 0.12 + 2 * TRIM, skip=('-y', '+y'))
+            for yy in (0.1, h - 0.1):
+                rb('metal', fr, sx * (L / 2 - 0.1), yy, sz * (W / 2 - 0.1), 0.2, 0.2, 0.2, 0.04)
+            rb('metal', fr, sx * (L / 2 - 0.06), h / 2, sz * (W / 2 - 0.06), 0.12 + 2 * TRIM, h - 0.3, 0.12 + 2 * TRIM, 0.03)
+    for sz in (-1, 1):
+        rb('metal', fr, 0, 0.06, sz * (W / 2 + 0.01), L - 0.2, 0.12, 0.08, 0.025)
+    # snow banked against the ends, and a lump on the roof
+    for sx in (-1, 1):
+        wx, _, wz = fr.world((sx * (L / 2 + 0.55), 0, 0))
+        loaf(wx, wz, 1.1, W + 0.4, 0.26, fr.yaw)
+    rx, ry, rz = fr.world((0.4, h, 0.1))
+    loaf(rx, rz, 2.2, 1.3, 0.2, fr.yaw + 0.2, y=ry)
 
 
 def berm(s, x, z, along_x, length, h=1.0, t=0.9):
@@ -313,7 +438,7 @@ def woodpile(s, x, z, along_x=True, length=2.6):
     fr = F(s, x, z, 0.0 if along_x else math.pi / 2)
     collider(fr, 0, 0.5, 0, length, 1.0, 1.0, prop=1)
     r = 0.12
-    hexa = [(r * math.cos(a), r * math.sin(a)) for a in [k * math.pi / 3 for k in range(6)]]
+    hexa = [(r * math.cos(a), r * math.sin(a)) for a in [k * math.pi / 4 + 0.2 for k in range(8)]]
     rnd = rnd_gen(7)
     for row in range(4):
         yy = 0.13 + row * 0.235
@@ -324,8 +449,8 @@ def woodpile(s, x, z, along_x=True, length=2.6):
             prof = [(-length / 2 + 0.1 + rnd() * 0.05, 0), (length / 2 - 0.1 - rnd() * 0.05, 0)]
             # a log along local x: extrude the hexagon along x by building its faces directly
             x0, x1 = prof[0][0], prof[1][0]
-            for i in range(6):
-                (ya, za), (yb, zb) = hexa[i], hexa[(i + 1) % 6]
+            for i in range(8):
+                (ya, za), (yb, zb) = hexa[i], hexa[(i + 1) % 8]
                 poly('trunk', fr, [(x0, yy + ya, zz + za), (x0, yy + yb, zz + zb), (x1, yy + yb, zz + zb), (x1, yy + ya, zz + za)][::-1])
             poly('wood', fr, [(x1, yy + ya, zz + za) for ya, za in hexa][::-1])
             poly('wood', fr, [(x0, yy + ya, zz + za) for ya, za in hexa])
@@ -347,29 +472,18 @@ def lamp_post(s, x, z, yaw=0.0, h=4.4):
     lamp in mapSnow.js."""
     fr = F(s, x, z, yaw)
     solid('steel', fr, 0, h / 2, 0, 0.14, h, 0.14)
-    vbox('rail', fr, 0, h - 0.1, -0.55, 0.08, 0.08, 1.1, skip=())
-    vbox('rail', fr, 0, h - 0.2, -1.1, 0.34, 0.14, 0.5, skip=())
-    vbox('glow', fr, 0, h - 0.28, -1.1, 0.26, 0.02, 0.4, skip=())
+    # a concrete foot, a collar, and an arm that curves out and over the light
+    lathe('trim', fr, 0, 0, [(0.3, 0), (0.28, 0.35), (0.2, 0.45), (0.12, 0.5)], n=10)
+    torus('metal', fr, 0, 1.3, 0, 0.1, 0.03, n=8, m=5)
+    arm = [(0.0, h - 0.4, 0.0), (0.0, h - 0.1, -0.05), (0.0, h + 0.05, -0.3), (0.0, h + 0.02, -0.7), (0.0, h - 0.12, -1.0)]
+    tube('metal', fr, arm, 0.045, n=6, caps=True)
+    rb('metal', fr, 0, h - 0.2, -1.1, 0.3, 0.12, 0.5, 0.05)
+    vbox('glow', fr, 0, h - 0.28, -1.1, 0.24, 0.02, 0.4, skip=())
 
 
 def member(p0, p1, w, key, tint=WHITE):
-    """A thin square beam between two world points, for the lattice mast."""
-    dx, dy, dz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
-    L = math.sqrt(dx * dx + dy * dy + dz * dz)
-    ux, uy, uz = dx / L, dy / L, dz / L
-    # any vector not parallel to the beam, then two perpendiculars
-    ax, ay, az = (0, 1, 0) if abs(uy) < 0.9 else (1, 0, 0)
-    px, py, pz = uy * az - uz * ay, uz * ax - ux * az, ux * ay - uy * ax
-    n = math.sqrt(px * px + py * py + pz * pz)
-    px, py, pz = px / n * w / 2, py / n * w / 2, pz / n * w / 2
-    qx, qy, qz = uy * pz - uz * py, uz * px - ux * pz, ux * py - uy * px
-    corners = [(px + qx, py + qy, pz + qz), (-px + qx, -py + qy, -pz + qz),
-               (-px - qx, -py - qy, -pz - qz), (px - qx, py - qy, pz - qz)]
-    for i in range(4):
-        a, b = corners[i], corners[(i + 1) % 4]
-        pts = [(p0[0] + a[0], p0[1] + a[1], p0[2] + a[2]), (p0[0] + b[0], p0[1] + b[1], p0[2] + b[2]),
-               (p1[0] + b[0], p1[1] + b[1], p1[2] + b[2]), (p1[0] + a[0], p1[1] + a[1], p1[2] + a[2])]
-        poly(key, Frame(), pts[::-1], tint)
+    """A thin round strut between two world points, for the lattice mast and the watchtowers."""
+    tube(key, Frame(), [p0, p1], w / 2, n=6 if w >= 0.1 else 4, tint=tint, caps=True)
 
 
 def mast(h=24.0):
@@ -427,7 +541,11 @@ def dish(s, x, z, yaw=0.0):
         y = v * st + w * ct
         zz = -(- v * ct + w * st) + 0.3
         return (u, cy + y, zz)
-    rings, seg = 3, 14
+    # an azimuth ring and a pair of braces under the bowl's rim, then the bowl in 5 rings of 20
+    torus('metal', fr, 0, 1.0, 0, 0.45, 0.07, n=14, m=6)
+    for sx in (-0.7, 0.7):
+        tube('metal', fr, [(0.0, 2.7, 0.0), (sx, 3.3, 0.35)], 0.05, n=6, caps=True)
+    rings, seg = 5, 20
     for i in range(rings):
         r0, r1 = R * i / rings, R * (i + 1) / rings
         for k in range(seg):
@@ -449,18 +567,35 @@ def snowcat(s, x, z, yaw=0.0):
     """A tracked snowcat: tracks, hull, cab and a plough blade. One box collider, as a prop."""
     fr = F(s, x, z, yaw)
     collider(fr, 0, 1.3, -0.15, 3.2, 2.6, 5.3, prop=1)
+    # tracks: a rounded belt round a drive sprocket and an idler, with cleats and road wheels
     for sx in (-1, 1):
-        vbox('black', fr, sx * 1.2, 0.45, 0.2, 0.8, 0.9, 4.2)
-    vbox('paint', fr, 0, 1.2, 0.35, 1.7, 0.6, 3.7, tint=ORANGE)
-    vbox('paint', fr, 0, 1.95, -0.2, 2.0, 0.9, 2.0, tint=ORANGE)
-    vbox('paint', fr, 0, 2.47, -0.2, 2.1, 0.14, 2.1, tint=srgb(0x222222), skip=())
+        rbox('black', fr, sx * 1.2, 0.45, 0.2, 0.8, 0.9, 4.2, 0.34, WHITE, ())
+        for k in range(14):
+            zc = -1.75 + k * 0.3
+            _vbox0('black', fr, sx * 1.2, 0.04, zc + 0.2, 0.84, 0.08, 0.1, WHITE, ())
+        for zc in (-1.55, -0.55, 0.45, 1.45):
+            wheel('metal', fr, sx * 1.62, 0.42, zc + 0.2, 0.3, 0.06, ax='x', n=12)
+    rbox('paint', fr, 0, 1.2, 0.35, 1.7, 0.6, 3.7, 0.2, ORANGE, ())
+    rbox('paint', fr, 0, 1.95, -0.2, 2.0, 0.9, 2.0, 0.22, ORANGE, ())
+    rbox('paint', fr, 0, 2.47, -0.2, 2.1, 0.14, 2.1, 0.05, srgb(0x222222), ())
     for face in ('+x', '-x', '-z'):
         L, P = face_fn(face, -1.0, 1.0, -1.2, 0.8)
         Pl = lambda t, y, P=P: fr.world(P(t, y))
         poly('dark', Frame(), [Pl(0.15, 1.7), Pl(L - 0.15, 1.7), Pl(L - 0.15, 2.3), Pl(0.15, 2.3)])
-    # plough blade in front (local -z)
-    vbox('paint', fr, 0, 0.55, -2.35, 3.1, 0.9, 0.12, tint=srgb(0xd8b21c), skip=())
-    vbox('rail', fr, 0, 0.7, -1.95, 0.2, 0.2, 0.8, skip=())
+    # roof rack, a beacon, an exhaust stack, grab handles
+    for sx in (-0.85, 0.85):
+        tube('metal', fr, [(sx, 2.54, 0.7), (sx, 2.54, -1.1)], 0.025, n=6, caps=True)
+    for zc in (-1.0, 0.6):
+        tube('metal', fr, [(-0.85, 2.54, zc), (0.85, 2.54, zc)], 0.025, n=6, caps=True)
+    lathe('metal', fr, 0.75, 0.5, [(0.07, 1.4), (0.07, 2.6), (0.1, 2.6), (0.1, 2.7), (0.0, 2.7)], n=8)
+    lathe('glow', fr, -0.7, -0.2, [(0.0, 2.54), (0.1, 2.54), (0.09, 2.66), (0.0, 2.7)], n=8)
+    # plough blade in front (local -z): a curved moulding on two arms
+    rbox('paint', fr, 0, 0.55, -2.35, 3.1, 0.9, 0.16, 0.07, srgb(0xd8b21c), ())
+    rbox('paint', fr, 0, 1.06, -2.28, 3.14, 0.14, 0.3, 0.06, srgb(0xd8b21c), ())
+    for sx in (-0.9, 0.9):
+        tube('metal', fr, [(sx, 0.7, -1.95), (sx * 0.9, 0.75, -2.25)], 0.07, n=6, caps=True)
+        rb('metal', fr, sx * 0.9, 1.1, -1.7, 0.12, 0.12, 0.7, 0.04)
+    rbox('rail', fr, 0, 0.7, -1.95, 0.2, 0.2, 0.8, 0.05, WHITE, ())
     vbox('glow', fr, 0.7, 2.3, -1.215, 0.25, 0.12, 0.02, skip=())
     vbox('glow', fr, -0.7, 2.3, -1.215, 0.25, 0.12, 0.02, skip=())
 
@@ -519,8 +654,17 @@ def perimeter():
         for k in range(6):
             c = WHITE_PAINT if k % 2 else RED_PAINT
             face_quad('paint', Q, mid - 3.0 + k, mid - 2.0 + k, 1.9, 2.3, c)
-        vbox('red', Frame(), s * 7.0, 1.6, s * (HZ + 3.5), 3.0, 3.2, 3.0)
-        vbox('snowcap', Frame(), s * 7.0, 3.26, s * (HZ + 3.5), 3.1, 0.12, 3.1, skip=('-y',))
+        hx, hz = s * 7.0, s * (HZ + 3.5)
+        vbox('red', Frame(), hx, 1.6, hz, 3.0, 3.2, 3.0)
+        vbox('snowcap', Frame(), hx, 3.26, hz, 3.1, 0.12, 3.1, skip=('-y',))
+        rb('trim', Frame(), hx, 0.22, hz, 3.2, 0.45, 3.2, 0.05)                 # footing
+        rb('trim', Frame(), hx, 3.0, hz, 3.2, 0.3, 3.2, 0.05)                   # cornice
+        # the face toward the yard: a door under a canopy, a window with a sill
+        fz = hz - s * 1.5
+        rb('metal', Frame(hx - 0.7, 1.1, fz - s * 0.04, 0.0), 0, 0, 0, 1.0, 2.2, 0.1, 0.04)
+        rb('trim', Frame(hx - 0.7, 2.4, fz - s * 0.4, 0.0), 0, 0, 0, 1.6, 0.1, 0.8, 0.04)
+        rb('trim', Frame(hx + 0.8, 1.25, fz - s * 0.06, 0.0), 0, 0, 0, 1.1, 0.1, 0.2, 0.03)
+        vbox('glow', Frame(hx + 0.8, 1.6, fz - s * 0.01), 0, 0, 0, 0.9, 0.7, 0.02, skip=())
     # corner watchtowers, outside the fence
     for sx in (-1, 1):
         for sz in (-1, 1):
@@ -528,9 +672,26 @@ def perimeter():
             for lx in (-1.3, 1.3):
                 for lz in (-1.3, 1.3):
                     member((cx + lx * 1.3, 0, cz + lz * 1.3), (cx + lx, 6.0, cz + lz), 0.18, 'rail')
-            vbox('grey', Frame(cx, 6.0, cz), 0, 1.2, 0, 3.0, 2.4, 3.0)
-            vbox('dark', Frame(cx, 6.0, cz), 0, 1.4, 0, 3.0 + 2 * TRIM, 0.8, 3.0 + 2 * TRIM, skip=('-y', '+y'))
-            vbox('snowcap', Frame(cx, 6.0, cz), 0, 2.5, 0, 3.6, 0.2, 3.6, skip=())
+            for yy in (2.0, 4.0):                                              # horizontal ties between the legs
+                h2 = 1.69 - 0.39 * yy / 6.0
+                sq = [(-h2, -h2), (h2, -h2), (h2, h2), (-h2, h2)]
+                for i in range(4):
+                    (ax_, az_), (bx_, bz_) = sq[i], sq[(i + 1) % 4]
+                    member((cx + ax_, yy, cz + az_), (cx + bx_, yy, cz + bz_), 0.07, 'rail')
+            fr = Frame(cx, 6.0, cz)
+            rb('rail', fr, 0, -0.1, 0, 3.8, 0.2, 3.8, 0.04)                    # deck
+            vbox('grey', fr, 0, 1.2, 0, 3.0, 2.4, 3.0)
+            vbox('dark', fr, 0, 1.4, 0, 3.0 + 2 * TRIM, 0.8, 3.0 + 2 * TRIM, skip=('-y', '+y'))
+            rb('trim', fr, 0, 2.5, 0, 3.7, 0.22, 3.7, 0.06)                    # roof overhang
+            vbox('snowcap', fr, 0, 2.66, 0, 3.6, 0.16, 3.6, skip=())
+            for a in (-1.8, 1.8):                                              # railing posts and rails
+                for b in (-1.8, 1.8):
+                    tube('metal', fr, [(a, 0.0, b), (a, 1.0, b)], 0.03, n=5, caps=True)
+            for yy in (0.55, 1.0):
+                tube('metal', fr, [(-1.8, yy, -1.8), (1.8, yy, -1.8), (1.8, yy, 1.8), (-1.8, yy, 1.8), (-1.8, yy, -1.8)],
+                     0.022, n=5, caps=False)
+            lathe('metal', fr, 1.1, 1.1, [(0.18, 2.72), (0.14, 3.0), (0.0, 3.1)], n=10)
+            lathe('glow', fr, 1.1, 1.1, [(0.0, 2.7), (0.17, 2.7), (0.16, 2.8), (0.0, 2.8)], n=10)
 
 
 def spawn_yard():
@@ -612,6 +773,17 @@ def station():
         xa, xb = sorted((sx(X0 - t / 2), sx(X1 + t / 2)))
         za, zb = sorted((sx(Z0 - t / 2), sx(Z1 + t / 2)))
         roof(xa, xb, za, zb, H)
+        # on the roof: a parapet coping all round, vent stacks, a skylight, an aerial, drifted snow
+        yr = H + 0.35
+        cw = 0.5
+        for (a, b, c, d) in ((xa, xb, za, za + cw), (xa, xb, zb - cw, zb), (xa, xa + cw, za, zb), (xb - cw, xb, za, zb)):
+            rb('trim', Frame(), (a + b) / 2, yr + 0.03, (c + d) / 2, b - a, 0.1, d - c, 0.04)
+        for vx, vz in ((22.0, 12.0), (34.0, 11.0), (30.5, 14.0)):
+            lathe('metal', Frame(sx(vx), yr, sx(vz)), 0, 0, [(0.12, 0), (0.12, 0.6), (0.19, 0.6), (0.19, 0.74), (0.0, 0.74)], n=10)
+        rb('metal', Frame(sx(25.0), yr, sx(13.5)), 0, 0.18, 0, 1.8, 0.36, 1.1, 0.08)
+        tube('metal', Frame(sx(36.0), yr, sx(14.0)), [(0, 0, 0), (0, 3.6, 0)], 0.03, n=6, caps=True)
+        for ax_, az_, w_, d_, h_, yw in ((20.5, 14.5, 2.6, 1.4, 0.3, 0.2), (28.0, 11.0, 3.0, 1.6, 0.34, -0.1), (33.0, 14.2, 2.4, 1.2, 0.26, 0.3)):
+            loaf(sx(ax_), sx(az_), w_, d_, h_, yw, y=yr)
         xa, xb = sorted((sx(X0), sx(X1)))
         za, zb = sorted((sx(Z0), sx(Z1)))
         flat('floor', xa, za, xb, zb, 0.004)
@@ -679,6 +851,19 @@ def motor_pool():
         xa, xb = sorted((sx(X0 - t / 2), sx(X1 + t / 2)))
         za, zb = sorted((sx(Z0), sx(Z1 + t / 2)))
         roof(xa, xb, za, zb, H)
+        yr = H + 0.35
+        cw = 0.5
+        for (a, b, c, d) in ((xa, xb, za, za + cw), (xa, xb, zb - cw, zb), (xa, xa + cw, za, zb), (xb - cw, xb, za, zb)):
+            rb('trim', Frame(), (a + b) / 2, yr + 0.03, (c + d) / 2, b - a, 0.1, d - c, 0.04)
+        for vx, vz in ((-33.0, 20.0), (-27.0, 17.0)):
+            lathe('metal', Frame(sx(vx), yr, sx(vz)), 0, 0, [(0.14, 0), (0.14, 0.7), (0.22, 0.7), (0.22, 0.86), (0.0, 0.86)], n=10)
+        for ax_, az_, w_, d_, h_, yw in ((-31.0, 21.0, 3.4, 1.8, 0.34, 0.1), (-25.5, 16.5, 2.6, 1.5, 0.28, -0.2)):
+            loaf(sx(ax_), sx(az_), w_, d_, h_, yw, y=yr)
+        # strip lights and a pipe run under the roof, out of reach
+        for lx in (-33.0, -29.0, -25.0):
+            rb('metal', Frame(sx(lx), H - 0.12, sx(19.0)), 0, 0, 0, 1.3, 0.1, 0.22, 0.03)
+            vbox('glow', Frame(sx(lx), H - 0.18, sx(19.0)), 0, 0, 0, 1.1, 0.02, 0.12, skip=())
+        tube('metal', Frame(), [(sx(-35.6), H - 0.55, sx(Z1 - 0.6)), (sx(-22.4), H - 0.55, sx(Z1 - 0.6))], 0.07, n=8, caps=True)
         # the rolled-up shutter boxes under the roof edge, out of reach
         for a, b in ((-36.0, -31.45), (-31.15, -26.85), (-26.55, -22.0)):
             vbox('rail', F(s, (a + b) / 2, Z0 + 0.35, 0.0, H - 0.25), 0, 0, 0, b - a - 0.1, 0.4, 0.45, skip=())
@@ -721,6 +906,33 @@ def flank_middle():
         fir(s, 21.5, -1.0, 6.2, seed=61 + s)
         lamp_post(s, 16.0, 12.0, math.pi / 2)
     both(per_side)
+
+
+def drifts():
+    """Snow heaped along the inside of the fence and round the pond's edge. Scenery only: no
+    collider, and low enough that walking through one is not noticed."""
+    rnd = rnd_gen(77)
+    for s in (1, -1):
+        x = -HX + 3.0
+        while x < HX - 3.0:
+            w = 2.2 + rnd() * 2.4
+            if abs(x + w / 2) > 4.5 or abs(x - w / 2) > 4.5:
+                loaf(s * (x + w / 2), s * (HZ - 0.6), w, 0.9 + rnd() * 0.3, 0.28 + rnd() * 0.25, (rnd() - 0.5) * 0.2)
+            x += w + 1.2 + rnd() * 3.5
+        z = -HZ + 3.0
+        while z < HZ - 3.0:
+            w = 2.2 + rnd() * 2.4
+            loaf(s * (HX - 0.6), s * (z + w / 2), w, 0.9 + rnd() * 0.3, 0.28 + rnd() * 0.25, math.pi / 2 + (rnd() - 0.5) * 0.2)
+            z += w + 1.2 + rnd() * 3.5
+    # the pond's shore: low soft lips where the ice meets the ground, except where the road crosses
+    n = 30
+    for k in range(n):
+        a = 2 * math.pi * (k + 0.5) / n
+        x, z = 12.5 * math.cos(a), -8.5 * math.sin(a)
+        if abs(x) < 3.2:
+            continue
+        tx, tz = -12.5 * math.sin(a), -8.5 * math.cos(a)
+        loaf(x, z, 2.0 + rnd() * 0.7, 0.8, 0.1 + rnd() * 0.08, math.atan2(-tz, tx))
 
 
 def backdrop():
@@ -799,7 +1011,24 @@ def build_layout():
     tank_farm()
     motor_pool()
     flank_middle()
+    drifts()
     backdrop()
+    rk_finalize()
 
 
-result = run(build_layout)
+def run_round(layout):
+    _coll, objs, tris = build(layout)
+    rounded = 0
+    if IN_BLENDER:
+        rounded = rk_apply(objs)
+        if globals().get('OVERRUN_EXPORT', True):
+            export(objs)
+            rk_quantize(OUT_GLB)
+    return {
+        'objects': len(objs), 'tris': tris, 'faces': STATS['faces'], 'rounded': rounded, 'rboxes': RK_COUNT['rbox'],
+        'boxes': len(BOXES), 'ramps': len(RAMPS), 'cylinders': len(CYLINDERS), 'props': len(PLACED),
+        'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
+    }
+
+
+result = run_round(build_layout)

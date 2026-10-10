@@ -189,6 +189,9 @@ test('SNOW heights: berms and crates are a hop, cabins and containers are walls'
         const foot = player.body.position.y - 0.5;
         peakFoot = Math.max(peakFoot, foot);
         if (i > 10 && player.grounded && foot > releaseAt) keys.KeyW = false;   // landed on top
+        // A berm is 0.9 m deep and a sprinting jump carries a player over it: let go early,
+        // as one who means to land on it does.
+        if (i === 18) keys.KeyW = false;
       }
       keys.KeyW = false;
       step(60);

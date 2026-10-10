@@ -44,10 +44,15 @@ export const ARENA = {
       glow: new THREE.MeshBasicMaterial({ color: 0xfff1d8 }),
       // The tiers: the colour is per face (vertex colours).
       stands: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: true }),
+      // Fittings with no collider (brackets, cameras, cabinets) and the text, plates, stains and
+      // crowd painted on the walls, floor and stands; both are coloured per piece by the GLB.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
+      // Matte paint: Lambert is the cheaper shader and looks the same on it.
+      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
     };
   },
-  /** Ground, paint, emitters and the stands stay out of the shadow pass. */
-  noCast: ['asphalt', 'lines', 'dark', 'beacon', 'glow', 'stands'],
+  /** Ground, paint, emitters, the stands and the small fittings stay out of the shadow pass. */
+  noCast: ['asphalt', 'lines', 'dark', 'beacon', 'glow', 'stands', 'mark', 'fit'],
 
   look: {
     background: 0x2a2a3a,

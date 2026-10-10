@@ -90,6 +90,17 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   All `mark` decals share one polygonOffset, so overlapping decals need >= 5 mm of separation.
   GLB 4.1 -> 6.4 MB (117k -> 168k tris). `fit` is out of the shadow pass and `mark` is Lambert;
   do the same on every further detail pass (new fittings and decals must not cast).
+- **ARENA deep detail pass** (`scripts/blender/arenadetail.py`, exec'd by `build_arena.py`; visual
+  only, `arena.json` unchanged): advertising hoardings and sector plates on the wall, gate signs and
+  shutter slats, hose cabinets, extinguishers, first aid, cameras, conduit, downpipes, water streaks,
+  a crowd of flat cut-outs and brand fascia on the stands, a scoreboard, lens cans and ladders on the
+  towers, painted text on the dais and floor, rails and bollards on the dais steps, straps and seams on
+  the crates, hazard ends and plates on the barriers, louvres and signs on the sub-station blocks,
+  manholes, stains and drag marks. Same `fit` / `mark` keys as PORT (`mapArena.js` adds the materials
+  and puts both in `noCast`). The scoreboard frame is in `stands` (no shadow) so a 24 m board does not
+  stripe the pit. GLB 1.3 -> 4.9 MB (the stands text and crowd are most of it). Shared text and decal
+  helpers moved to `scripts/blender/markkit.py` (PORT rebuilds byte-identical). Tests: blender-maps
+  arena 4/4, grenade-physics 8/8.
 - **Performance findings (user asked for no lag, no battery cost):** measured on the dev laptop (AMD
   Radeon iGPU, medium, 720p) with GPU timer queries (`EXT_disjoint_timer_query_webgl2`; do not time
   with readPixels, it measures sync latency, not the GPU). The whole frame is ~6-8 ms GPU and ~13 ms
@@ -102,7 +113,7 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   (see "What was built - session 2"). Measurement scripts live in untracked `spike/perf-*.mjs`.
   Not done, would need a decision: auto battery-saver from `navigator.getBattery()`; caching the
   static-map shadow map (only worth it at the QUALITY tier, shadows cost ~1 ms at 1024).
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v49. The live
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v50. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

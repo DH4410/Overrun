@@ -45,15 +45,18 @@ MATERIALS = {
     # Detail with no collider: none of these is in the ghost probe's touch list.
     'trim':     ((0.58, 0.58, 0.56), 3.0),     # precast kerbs, pilasters, bands, copings
     'metal':    ((0.22, 0.23, 0.25), 2.0),     # rails, housings, ladders, lattice
+    # arenadetail.py: more of the same, with no collider and no ghost probe on either.
+    'fit':      ((0.35, 0.37, 0.40), 1.0),     # brackets, cameras, cabinets, collars, tinted per piece
+    'mark':     ((1.00, 1.00, 1.00), 1.0),     # text, plates, stains, the crowd: a decal, tinted per piece
 }
-TINTED = {'stands'}
+TINTED = {'stands', 'fit', 'mark'}
 PROPS = {}
 
 # Rounded edges, smooth normals and wear (roundkit_dh.py). Nothing in it emits a collider.
 RK_ROUND = {'concrete': 0.08, 'cmu': 0.06, 'dais': 0.05, 'steel': 0.04, 'wood': 0.05, 'trim': 0.04, 'metal': 0.025}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 8.0
-RK_PLAIN = {'asphalt', 'lines', 'dark', 'beacon', 'glow', 'stands'}
+RK_PLAIN = {'asphalt', 'lines', 'dark', 'beacon', 'glow', 'stands', 'mark'}
 RK_WEAR = {'concrete': (0.30, 0.14), 'cmu': (0.30, 0.12, True), 'dais': (0.18, 0.10), 'steel': (0.12, 0.08),
            'wood': (0.22, 0.10), 'trim': (0.24, 0.10), 'metal': (0.0, 0.08)}
 TINTED = TINTED | set(RK_WEAR)
@@ -418,6 +421,9 @@ def quadrant(k):
         facing('lines' if j % 2 == 0 else 'dark', fb, [(-1.7, yb, 0.706), (-0.1, yb, 0.706), (-0.1, yb + 0.25, 0.706), (-1.7, yb + 0.25, 0.706)])
 
 
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'arenadetail.py')).read())   # signs, crowd, fittings, floor marks
+
+
 def build_layout():
     ground()
     dais()
@@ -427,6 +433,7 @@ def build_layout():
     for k in range(4):
         gate(k)
         quadrant(k)
+    arena_detail()
     rk_finalize()
 
 

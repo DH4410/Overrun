@@ -41,7 +41,8 @@ RK_ROUND = {'cmu': 0.06, 'concrete': 0.08, 'steel': 0.04, 'wood': 0.05, 'stucco'
             'container': 0.05, 'rail': 0.03, 'trim': 0.04, 'metal': 0.025}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 8.0
-RK_PLAIN = {'floor', 'lines', 'dark', 'glow', 'skylight', 'roof', 'sand', 'far', 'paint', 'ground', 'outer'}
+RK_PLAIN = {'floor', 'lines', 'dark', 'glow', 'skylight', 'roof', 'sand', 'far', 'paint', 'ground', 'outer',
+            'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 RK_WEAR = {'cmu': (0.30, 0.14), 'concrete': (0.30, 0.14), 'steel': (0.14, 0.08), 'rail': (0.14, 0.08),
            'wood': (0.22, 0.10), 'stucco': (0.22, 0.10, True), 'plaster': (0.20, 0.10, True),
            'trim': (0.22, 0.10), 'metal': (0.0, 0.08)}
@@ -54,7 +55,12 @@ MATERIALS['skylight'] = ((0.80, 0.90, 1.00), 1.0)
 # Detail with no collider: none of these is in the ghost probe's touch list.
 MATERIALS['trim'] = ((0.60, 0.59, 0.56), 3.0)      # precast bases, capitals, cornices, hoods
 MATERIALS['metal'] = ((0.26, 0.28, 0.30), 2.0)     # frames, pipes, ducts, hangers, housings
-TINTED |= URBAN_TINTED | set(RK_WEAR)
+# The detail pass (depotdetail.py): hardware, matte paint, lit lamps and sign text from the glyph
+# atlas (src/typeAtlas.js), each tinted per piece. None of them is a collider or a ghost-probe key.
+MATERIALS['fit'] = ((0.35, 0.37, 0.40), 1.0)
+for _k in ('mark', 'glyph', 'tmark', 'tglyph'):
+    MATERIALS[_k] = ((1.00, 1.00, 1.00), 1.0)
+TINTED |= URBAN_TINTED | set(RK_WEAR) | {'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 PROPS.update(URBAN_PROPS)
 
 _vbox_round = vbox
@@ -434,6 +440,7 @@ def build_layout():
     both(per_side)
     for x, z in LAMP_AT:
         hanging_lamp(x, z)
+    depot_detail()
     rk_finalize()
 
 
@@ -451,5 +458,7 @@ def run_round(layout):
         'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
     }
 
+
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'depotdetail.py')).read())
 
 result = run_round(build_layout)

@@ -132,7 +132,16 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   in `noCast`. Doing text as pixel rects was 79k faces / 13.6 MB; as atlas quads 41k faces / 5.4 MB
   after `node scripts/glbquant.mjs` (run it by hand after every Blender build). ARENA and PORT could be
   moved to the atlas too to shrink them. Tests: blender-maps metro 6/6, units 144, lint 0 errors.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v52. The live
+- **DEPOT deep detail pass** (`scripts/blender/depotdetail.py`, exec'd at the end of `build_depot.py`;
+  visual only, `depot.json` unchanged, GLB 2.2 -> 3.4 MB / 41.7k faces): bay numbers, pilaster
+  plates and height ticks, safety signs, DB/fire plates, coloured pipe bands, roller-door ribs,
+  signals and hatched no-go zones, DOCK n text, floor paint (route arrows, pedestrian strip, lane
+  names, roundels, gratings, oil, tyre tracks, cracks, patches), container names/IDs/roof text/locks,
+  crate straps/labels, barrier names, column ID plates and hose cabinets, truss gussets, skylight
+  astragals, two gantry cranes, a safety banner, site-office frames and signs. Same five keys and
+  atlas as METRO (`fit`, `mark`, `glyph`, `tmark`, `tglyph`). Wraps the urbankit `crate` and
+  `container` after the layout is defined, so the layout's calls and colliders are untouched.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v53. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

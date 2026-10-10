@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
+import { typeAtlas } from './typeAtlas.js';
 
 /**
  * DEPOT: a warehouse hall for the one-on-one duel, modelled in Blender (scripts/blender/build_depot.py).
@@ -50,10 +51,18 @@ export const DEPOT = {
       paint: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, vertexColors: true, ...decal(1) }),
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),      skylight: new THREE.MeshBasicMaterial({ color: 0xcfe4ff }),
+      // The detail pass, coloured per piece by the GLB: hardware, matte paint (Lambert is the
+      // cheaper shader and looks the same on it) and lamp lenses and sign text, which are unlit.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
+      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
+      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
+      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
+      tmark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
+      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** The roof stays out of the shadow pass so the sun reaches the floor through it. */
-  noCast: ['floor', 'lines', 'dark', 'glow', 'skylight', 'roof'],
+  /** The roof stays out of the shadow pass so the sun reaches the floor through it; so do the small fittings and the paint. */
+  noCast: ['floor', 'lines', 'dark', 'glow', 'skylight', 'roof', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
 
   look: {
     background: 0x15181c,

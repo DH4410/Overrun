@@ -51,10 +51,67 @@ export const DEFAULT_SETTINGS = {
   touchpad: false,
   trackpadLook: false,
   aimAssist: 0.35,
+  // Battery: with powerAuto on, the saver engages by itself while the laptop is unplugged.
+  powerAuto: true,
+  // Optional detail and feel switches (the detail pass props, screen effects, cues, input).
+  sceneryDetail: true,
+  fxLowHealth: true,
+  fxSpeed: true,
+  fxBlast: true,
+  fxHitFlash: true,
+  lowAmmoCue: true,
+  rawInput: true,
   version: 2,
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
+
+/**
+ * Battery state from navigator.getBattery(), where the browser has it (Chromium does; Safari and
+ * Firefox do not, and then the saver is only ever the player's own switch). `null` until known.
+ */
+const power = { charging: true, level: 1, known: false };
+
+/** True while the battery saver should be in force: the player's switch, or unplugged with auto on. */
+export const saverActive = () => !!(settings.powerSaver || (settings.powerAuto && power.known && !power.charging));
+
+/** Below this charge the frame cap drops to 30 while the saver is active. */
+export const CRITICAL_BATTERY = 0.15;
+
+/**
+ * The effective knobs for the current mode. Presets stay the player's baseline; the saver only ever
+ * lowers them, so a Performance profile is never raised by it.
+ */
+export function tuning() {
+  const q = QUALITY[settings.quality] || QUALITY.medium;
+  if (!saverActive()) {
+    return { renderScale: q.renderScale, maxPixelRatio: q.maxPixelRatio, particles: q.particles, lights: q.lights,
+      decals: q.decals, frameCap: settings.frameCap, detail: settings.sceneryDetail, halfRateShadows: false, halfRateMinimap: false };
+  }
+  const critical = power.known && power.level <= CRITICAL_BATTERY;
+  const cap = settings.frameCap === 0 ? 60 : Math.min(settings.frameCap, 60);
+  return {
+    renderScale: Math.min(q.renderScale, 0.85), maxPixelRatio: 1, particles: q.particles * 0.5,
+    lights: Math.min(q.lights, 6), decals: Math.round(q.decals * 0.5), frameCap: critical ? 30 : cap,
+    detail: false, halfRateShadows: true, halfRateMinimap: true,
+  };
+}
+
+/** Subscribes to battery changes; `onChange` runs whenever the saver's inputs move. Safe where unsupported. */
+export function initPower(onChange) {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.getBattery) return;
+    navigator.getBattery().then((b) => {
+      const sync = () => { power.charging = b.charging; power.level = b.level; power.known = true; onChange?.(); };
+      b.addEventListener('chargingchange', sync);
+      b.addEventListener('levelchange', sync);
+      sync();
+    }).catch(() => {});
+  } catch { /* no battery API: the manual switch is all there is */ }
+}
+
+/** Test seam: set the battery state without the browser API. */
+export function _setPower(next) { Object.assign(power, next); }
 
 /** The hip-fire vertical field of view the player chose; aiming narrows it in the same proportion. */
 export const hipFov = () => settings.fov;

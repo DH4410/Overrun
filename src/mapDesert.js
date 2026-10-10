@@ -26,22 +26,30 @@ export const DESERT = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
-    const sand = pbrMat('dense_sand', { repeat: 1, ao: true, fallback: 0xc29d6c, rough: 0.95 });
-    const wood = pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 });
     // The plasters and the paving keep a chosen colour and take only their texture's detail, so
     // the town stays one warm palette whatever each scan's own tint.
-    const lime = pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xe8dfce, rough: 0.9, detail: true });
+    // Walls, timber and stone carry vertex colours: dirt gathered at the foot and soft patches
+    // (the wear pass in roundkit_dh.py), multiplied over the texture. Keys that share a material
+    // (lime and dome, wood and beam) all carry them, or a mesh without would draw black.
+    const worn = { vertexColors: true };
+    const sand = pbrMat('dense_sand', { repeat: 1, ao: true, fallback: 0xc29d6c, rough: 0.95 });
+    const wood = pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn });
+    const lime = pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xe8dfce, rough: 0.9, detail: true, extra: worn });
     return {
       sand,
       dune: sand,
       paving: pbrMat('red_sandstone_pavement', { repeat: 1, ao: true, fallback: 0xa88a6c, rough: 0.9, detail: true, extra: decal(1) }),
-      stone: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xb89e7a, rough: 0.9 }),
-      plaster: pbrMat('yellow_plaster', { repeat: 1, ao: true, fallback: 0xcaa479, rough: 0.92, detail: true }),
-      mud: pbrMat('clay_plaster', { repeat: 1, ao: true, fallback: 0x94694a, rough: 0.95 }),
+      stone: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xb89e7a, rough: 0.9, extra: worn }),
+      plaster: pbrMat('yellow_plaster', { repeat: 1, ao: true, fallback: 0xcaa479, rough: 0.92, detail: true, extra: worn }),
+      mud: pbrMat('clay_plaster', { repeat: 1, ao: true, fallback: 0x94694a, rough: 0.95, extra: worn }),
       lime,
       dome: lime,
       wood,
       beam: wood,
+      // precast and dressed detail (copings, cornices, sills, voussoirs): tinted per piece, no collider
+      trim: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xc4a982, rough: 0.9, detail: true, extra: worn }),
+      // jars, baskets, produce and sacks: the colour is per piece
+      clay: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, vertexColors: true }),
       trunk: pbrMat('rough_wood', { repeat: 1, ao: true, fallback: 0x6b5641, rough: 0.95 }),
       // Awnings and palm leaves: the colour is per face (vertex colours).
       cloth: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true }),

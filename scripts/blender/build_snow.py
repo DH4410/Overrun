@@ -65,8 +65,15 @@ MATERIALS = {
     'trim':     ((0.62, 0.62, 0.60), 3.0),     # precast footings, copings, door canopies, steps, sills
     'metal':    ((0.26, 0.28, 0.30), 2.0),     # pipes, housings, ladders, hinges, handles, vents
     'mound':    ((0.90, 0.92, 0.95), 4.0),     # snow heaped against walls and along the fence
+    # The detail pass (snowdetail.py): hardware, matte paint, lit lamps and sign text from the glyph
+    # atlas (src/typeAtlas.js), each tinted per piece. None of them is a collider or a ghost-probe key.
+    'fit':      ((0.35, 0.37, 0.40), 1.0),
+    'mark':     ((1.00, 1.00, 1.00), 1.0),
+    'glyph':    ((1.00, 1.00, 1.00), 1.0),
+    'tmark':    ((1.00, 1.00, 1.00), 1.0),
+    'tglyph':   ((1.00, 1.00, 1.00), 1.0),
 }
-TINTED = {'container', 'fir', 'paint', 'far'}
+TINTED = {'container', 'fir', 'paint', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 SMOOTH = {'drift'}
 
 # Rounded edges, smooth normals and wear (roundkit_dh.py). Nothing in it emits a collider.
@@ -75,7 +82,8 @@ RK_ROUND = {'red': 0.05, 'ochre': 0.05, 'grey': 0.05, 'concrete': 0.07, 'lining'
             'metal': 0.025, 'paint': 0.04, 'black': 0.08, 'mound': 0.2}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 8.0
-RK_PLAIN = {'snow', 'drift', 'track', 'ice', 'floor', 'dark', 'glow', 'far', 'fir', 'trunk'}
+RK_PLAIN = {'snow', 'drift', 'track', 'ice', 'floor', 'dark', 'glow', 'far', 'fir', 'trunk',
+            'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 RK_WEAR = {'red': (0.28, 0.12, True), 'ochre': (0.28, 0.12, True), 'grey': (0.22, 0.10, True),
            'concrete': (0.14, 0.10), 'lining': (0.12, 0.08), 'steel': (0.14, 0.08), 'rail': (0.14, 0.08),
            'wood': (0.22, 0.10), 'berm': (0.20, 0.10), 'tank': (0.20, 0.10, True), 'trim': (0.22, 0.10),
@@ -1013,6 +1021,7 @@ def build_layout():
     flank_middle()
     drifts()
     backdrop()
+    snow_detail()
     rk_finalize()
 
 
@@ -1030,5 +1039,9 @@ def run_round(layout):
         'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
     }
 
+
+# The detail pass wraps the pieces above (cabin, container, crate, snowcat ...), so it is read after
+# them and before the layout runs; build_layout() calls snow_detail() just before rk_finalize().
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'snowdetail.py')).read())
 
 result = run_round(build_layout)

@@ -141,7 +141,20 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   astragals, two gantry cranes, a safety banner, site-office frames and signs. Same five keys and
   atlas as METRO (`fit`, `mark`, `glyph`, `tmark`, `tglyph`). Wraps the urbankit `crate` and
   `container` after the layout is defined, so the layout's calls and colliders are untouched.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v53. The live
+- **SNOW deep detail pass** (`scripts/blender/snowdetail.py`, exec'd at the end of `build_snow.py`, called
+  from `build_layout()` just before `rk_finalize()`; visual only, `snow.json` unchanged, GLB 4.0 -> 6.4 MB
+  / 73k faces): cabin names/numbers, downspouts, junction boxes, vent grilles, extinguishers, notice
+  boards, cage lamps, blinds and window glare, sill snow (key `mound`, not `snowcap`: the collider
+  probe treats `snowcap` as touchable), icicles, solar panel/hatch/flue/aerial on the roofs; fence
+  seams, kick rail, signs, post numbers, floodlights, insulators, gate bracing/lock/name, four
+  watchtowers; mast guy wires and plates; station facade/entrance names, meters, vents, interior
+  wainscot, posters, clock, exit signs, ceiling plant, desk and bench kit, floor paint; tank names,
+  gauges, hazard diamonds, rails, bolts, transfer lines, bund stencils and stripes; motor pool
+  name boards, tool wall, bay lines, oil, tread marks, bench; snowcat numbers/plough stripes/
+  lamps/mirrors; container names, IDs, data plates; crate stencils; lamp-post stripes; woodpile tarp;
+  road ruts and STOP/SLOW, pond cracks, THIN ICE posts, wind ripples. Same five keys and atlas as
+  METRO/DEPOT. Wraps `cabin`, `window`, `container`, `crate`, `tank`, `snowcat`, `lamp_post`,
+  `woodpile` after the layout defines them. Tests: snow-map 7/7, units 144, lint 0 errors.- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v54. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

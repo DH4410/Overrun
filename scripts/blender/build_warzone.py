@@ -23,6 +23,11 @@ so every end of the map has the same mix, and a team starting at either base get
 Heights, for movement: sandbags, planters, crates, rubble and low walls are 1.0 m or under (a
 hop); everything a player should not climb is 2.5 m or more. Every roof you can stand under is at
 4.0 m, which is CEIL_Y; roofless ruins are walled to 4.0 m at most.
+
+Detail pass: rounded edges, smooth normals and wear (roundkit_dh.py), and a detail layer that has
+no collider: plinths, cornices, quoins, lintels and sills, parapets and roof clutter on the
+buildings; stacked bags, turned lamp posts, limbed trees, tyred and filleted vehicles. Every
+collider is emitted exactly as before, so warzone.json (and the map hash) does not change.
 """
 import math
 import os
@@ -57,6 +62,9 @@ MATERIALS = {
     'dark':     ((0.04, 0.05, 0.06), 1.0),
     'glow':     ((1.00, 0.82, 0.55), 1.0),
     'far':      ((1.00, 1.00, 1.00), 12.0),    # skyline and mountains, tinted
+    # Detail with no collider: neither is in the ghost probe's touch list.
+    'trim':     ((0.66, 0.64, 0.59), 3.0),     # plinths, cornices, lintels, sills, copings
+    'tyre':     ((0.03, 0.03, 0.035), 1.0),    # rubber
 }
 TINTED = {'container', 'paint', 'sand', 'far'}
 SMOOTH = {'outer'}
@@ -70,10 +78,35 @@ PROPS = {
     'tyre':      ('old_tyre', 300, None, (0.60, 0.17, 0.60)),
 }
 
+# Rounded edges, smooth normals and wear (roundkit_dh.py). Nothing in it emits a collider.
+RK_ROUND = {'brick': 0.05, 'stucco': 0.05, 'cmu': 0.06, 'plaster': 0.03, 'concrete': 0.07, 'roof': 0.05,
+            'rubble': 0.07, 'steel': 0.05, 'wood': 0.05, 'trim': 0.04, 'container': 0.05, 'paint': 0.05,
+            'rail': 0.02, 'trunk': 0.03}
+RK_ROUND_DEFAULT = 0.04
+RK_CELL = 6.0
+RK_PLAIN = {'ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far'}
+RK_WEAR = {'brick': (0.34, 0.18, True), 'stucco': (0.30, 0.16, True), 'cmu': (0.30, 0.14, True),
+           'plaster': (0.20, 0.10), 'concrete': (0.30, 0.14), 'roof': (0.14, 0.20), 'rubble': (0.10, 0.16),
+           'steel': (0.14, 0.10), 'wood': (0.22, 0.10), 'trim': (0.22, 0.10),
+           'container': (0.24, 0.14), 'paint': (0.30, 0.18), 'sand': (0.18, 0.12)}
+TINTED = TINTED | set(RK_WEAR)
+
 exec(open(os.path.join(globals()['OVERRUN_REPO'], 'scripts', 'blender', 'mapkit.py')).read())
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'roundkit_dh.py')).read())
 crate_kit = crate
 
+_vbox_round = vbox
+
+
+def vbox(key, frame, cx, cy, cz, w, h, d, tint=WHITE, skip=('-y',)):
+    """The rounding kit's box, except where the box is too slim for a bevel to show."""
+    if min(w, h, d) < 0.2:
+        return _vbox0(key, frame, cx, cy, cz, w, h, d, tint, skip)
+    return _vbox_round(key, frame, cx, cy, cz, w, h, d, tint, skip)
+
+
 TRIM = 0.003
+OUT_YAW = {'+z': 0.0, '-z': math.pi, '+x': math.pi / 2, '-x': -math.pi / 2}
 
 CONTAINERS = [srgb(h) for h in (0x2f5d8a, 0x3f6b3a, 0x9a3a2a, 0xb07a2a, 0x6b6b66)]
 SANDBAG = srgb(0xb59f72)
@@ -95,6 +128,46 @@ def rnd_gen(seed):
 
 # ------------------------------------------------------------------ pieces
 
+def tbox(key, fr, cx, cy, cz, w, h, d, r=0.03, tint=WHITE, skip=()):
+    """A small rounded detail box (trim, caps, bars) that the slim-box rule would leave sharp."""
+    rbox(key, fr, cx, cy, cz, w, h, d, r, tint, skip)
+
+
+def fillet(pts, radii, seg=4):
+    """Round the corners of a closed 2D outline: radii[i] is the radius at pts[i] (0 = sharp)."""
+    out = []
+    m = len(pts)
+    for i, p in enumerate(pts):
+        r = radii[i]
+        a, b = pts[i - 1], pts[(i + 1) % m]
+        ux, uy = a[0] - p[0], a[1] - p[1]
+        vx, vy = b[0] - p[0], b[1] - p[1]
+        lu, lv = math.hypot(ux, uy), math.hypot(vx, vy)
+        if r <= 0 or lu < 1e-9 or lv < 1e-9:
+            out.append(p)
+            continue
+        ux, uy, vx, vy = ux / lu, uy / lu, vx / lv, vy / lv
+        ang = math.acos(max(-1.0, min(1.0, ux * vx + uy * vy)))
+        if ang < 1e-3 or ang > math.pi - 1e-3:
+            out.append(p)
+            continue
+        tn = min(r / math.tan(ang / 2), 0.45 * min(lu, lv))
+        re = tn * math.tan(ang / 2)
+        t1 = (p[0] + ux * tn, p[1] + uy * tn)
+        t2 = (p[0] + vx * tn, p[1] + vy * tn)
+        bx, by = ux + vx, uy + vy
+        lb = math.hypot(bx, by)
+        d = re / math.sin(ang / 2)
+        c = (p[0] + bx / lb * d, p[1] + by / lb * d)
+        a1 = math.atan2(t1[1] - c[1], t1[0] - c[0])
+        a2 = math.atan2(t2[1] - c[1], t2[0] - c[0])
+        da = (a2 - a1 + math.pi) % (2 * math.pi) - math.pi
+        for k in range(seg + 1):
+            ak = a1 + da * k / seg
+            out.append((c[0] + re * math.cos(ak), c[1] + re * math.sin(ak)))
+    return out
+
+
 def face_fn(face, xa, xb, za, zb, e=TRIM):
     if face == '+z':
         return xb - xa, lambda t, y: (xa + t, y, zb + e)
@@ -109,19 +182,51 @@ def face_quad(key, P, t0, t1, y0, y1, tint=WHITE):
     poly(key, Frame(), [P(t0, y0), P(t1, y0), P(t1, y1), P(t0, y1)], tint)
 
 
-def box_xz(key, xa, xb, za, zb, y0, y1, skip=('-y',), block=1, top_key=None):
+def box_xz(key, xa, xb, za, zb, y0, y1, skip=('-y',), block=1, top_key=None, plain=False):
     cx, cz, w, d = (xa + xb) / 2, (za + zb) / 2, xb - xa, zb - za
+    vb = _vbox0 if plain else vbox
     if top_key:
-        vbox(key, Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, skip=tuple(skip) + ('+y',))
+        vb(key, Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, skip=tuple(skip) + ('+y',))
         poly(top_key, Frame(), [(xa, y1, zb), (xb, y1, zb), (xb, y1, za), (xa, y1, za)])
     else:
-        vbox(key, Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, skip=skip)
+        vb(key, Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, skip=skip)
     collider(Frame(), cx, (y0 + y1) / 2, cz, w, y1 - y0, d, block)
 
 
-def wall_holes(x0, z0, x1, z1, h, t, key, holes, inner):
+def wall(x0, z0, x1, z1, h, t, key, block=1, y=0.0, top_key=None):
+    """mapkit's wall, with a cap laid on the rounded top instead of a second box over it."""
+    along_x = abs(x1 - x0) > abs(z1 - z0)
+    length = abs(x1 - x0) if along_x else abs(z1 - z0)
+    if length < 0.05:
+        return
+    w, d = (length, t) if along_x else (t, length)
+    cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+    if top_key:
+        # the cap is the flat middle of the rounded top, in its own material
+        vbox(key, Frame(), cx, y + h / 2, cz, w, h, d, skip=('-y', '+y'))
+        inset = min(RK_ROUND.get(key, RK_ROUND_DEFAULT), min(w, h, d) * 0.3)
+        poly(top_key, Frame(), [(cx - w / 2 + inset, y + h, cz + d / 2 - inset),
+                                (cx + w / 2 - inset, y + h, cz + d / 2 - inset),
+                                (cx + w / 2 - inset, y + h, cz - d / 2 + inset),
+                                (cx - w / 2 + inset, y + h, cz - d / 2 + inset)])
+        # a pilaster on each face, in the middle of a long run (trim: no collider under it)
+        if length >= 5.0:
+            n = int(length // 3.5)
+            for k in range(n):
+                u = -length / 2 + length * (k + 0.5) / n
+                px, pz = (cx + u, cz) if along_x else (cx, cz + u)
+                pw, pd = (0.5, t + 0.2) if along_x else (t + 0.2, 0.5)
+                tbox('trim', Frame(), px, y + (h - 0.1) / 2, pz, pw, h - 0.1, pd, 0.05)
+                tbox('trim', Frame(), px, y + h, pz, pw + 0.12, 0.14, pd + 0.12, 0.04)
+    else:
+        vbox(key, Frame(), cx, y + h / 2, cz, w, h, d, skip=('-y',))
+    collider(Frame(), cx, y + h / 2, cz, w, h, d, block)
+
+
+def wall_holes(x0, z0, x1, z1, h, t, key, holes, inner, detail=False):
     """An axis-aligned wall with openings, holes = [(u0, u1, y0, y1)] along it from its start.
-    Every piece collides. `inner` is the face that looks into the building and gets the lining."""
+    Every piece collides. `inner` is the face that looks into the building and gets the lining.
+    detail adds a plinth, a skirting and the lintels, sills and jambs of the openings."""
     along_x = abs(x1 - x0) > abs(z1 - z0)
     L = abs(x1 - x0) if along_x else abs(z1 - z0)
     sgn = 1 if (x1 - x0 if along_x else z1 - z0) > 0 else -1
@@ -135,7 +240,7 @@ def wall_holes(x0, z0, x1, z1, h, t, key, holes, inner):
             xa, xb, za, zb = x0 + a, x0 + b, z0 - t / 2, z0 + t / 2
         else:
             xa, xb, za, zb = x0 - t / 2, x0 + t / 2, z0 + a, z0 + b
-        box_xz(key, xa, xb, za, zb, y0, y1, skip=('-y',) if y0 == 0 else ())
+        box_xz(key, xa, xb, za, zb, y0, y1, skip=('-y',) if y0 == 0 else (), plain=True)
         Li, Pi = face_fn(inner, xa, xb, za, zb)
         face_quad('plaster', Pi, 0, Li, y0, y1)
         if y0 == 0:
@@ -148,12 +253,73 @@ def wall_holes(x0, z0, x1, z1, h, t, key, holes, inner):
         piece(u0, u1, y1, h)
         u = u1
     piece(u, L, 0, h)
+    if detail:
+        # one plinth along the outside, broken only by the doorways
+        gaps = sorted((u0, u1) for (u0, u1, y0, y1) in holes if y0 == 0)
+        a = 0.0
+        for g0, g1 in gaps + [(L, L)]:
+            if g0 - a > 0.3:
+                c = (a + g0) / 2
+                wx, wz = (x0 + sgn * c, z0) if along_x else (x0, z0 + sgn * c)
+                tbox('trim', Frame(wx, 0, wz, OUT_YAW[outer]), 0, 0.2, t / 2 + 0.01, g0 - a, 0.4, 0.22, 0.04)
+            a = g1
+        for (u0, u1, y0, y1) in holes:
+            c = (u0 + u1) / 2
+            wx, wz = (x0 + sgn * c, z0) if along_x else (x0, z0 + sgn * c)
+            fr = Frame(wx, 0, wz, OUT_YAW[outer])
+            wd = u1 - u0
+            zf = t / 2 + 0.02
+            if y1 + 0.2 <= h:
+                tbox('trim', fr, 0, y1 + 0.1, zf, wd + 0.3, 0.2, 0.26, 0.04)
+            if y0 > 0.3:
+                tbox('trim', fr, 0, y0 - 0.05, zf + 0.02, wd + 0.26, 0.1, 0.3, 0.03)
+            if y0 == 0:
+                for sg in (-1, 1):
+                    tbox('trim', fr, sg * (wd / 2 + 0.07), y1 / 2, zf, 0.14, y1, 0.22, 0.03)
 
 
 def rect(s, xa, xb, za, zb):
     a, b = sorted((s * xa, s * xb))
     c, d = sorted((s * za, s * zb))
     return a, b, c, d
+
+
+def roof_detail(s, xa, xb, za, zb, H, seed, t=0.35):
+    """What a flat roof carries: a parapet and its coping, a chimney, a unit, a tank, vents."""
+    rnd = rnd_gen(seed * 31 + 7)
+    fr = F(s, (xa + xb) / 2, (za + zb) / 2)
+    hx, hz = (xb - xa) / 2, (zb - za) / 2
+    top = H + 0.3
+    # the parapet starts at the roof's underside, so it hides the slab's edge
+    for sz in (-1, 1):
+        tbox('trim', fr, 0, H + 0.35, sz * hz, (xb - xa) + t + 0.02, 0.7, t + 0.02, 0.05)
+        tbox('trim', fr, 0, H + 0.74, sz * hz, (xb - xa) + t + 0.16, 0.08, t + 0.16, 0.03)
+    for sx in (-1, 1):
+        tbox('trim', fr, sx * hx, H + 0.35, 0, t + 0.02, 0.7, (zb - za) - t, 0.05)
+        tbox('trim', fr, sx * hx, H + 0.74, 0, t + 0.16, 0.08, (zb - za) - t, 0.03)
+    spanx, spanz = max(0.0, (xb - xa) - 2.6), max(0.0, (zb - za) - 2.6)
+    for _ in range(1 + int(rnd() * 3)):
+        x, z = (rnd() - 0.5) * spanx, (rnd() - 0.5) * spanz
+        kind = int(rnd() * 3)
+        if kind == 0:
+            tbox('trim', fr, x, top + 0.7, z, 0.7, 1.4, 0.7, 0.06)
+            tbox('trim', fr, x, top + 1.46, z, 0.92, 0.14, 0.92, 0.04)
+            lathe('dark', fr, x, z, [(0.26, top + 1.535), (0.0, top + 1.535)], n=8)
+        elif kind == 1:
+            tbox('rail', fr, x, top + 0.35, z, 1.3, 0.7, 0.9, 0.05)
+            tbox('rail', fr, x, top + 0.74, z, 1.0, 0.08, 0.7, 0.03)
+            lathe('dark', fr, x - 0.3, z, [(0.3, top + 0.785), (0.0, top + 0.785)], n=10)
+        else:
+            y0 = top + 1.1
+            for sx in (-1, 1):
+                for sz in (-1, 1):
+                    _vbox0('rail', fr, x + sx * 0.5, y0 / 2 + top / 2 - 0.0, z + sz * 0.5, 0.08, y0 - top, 0.08, skip=())
+            lathe('rail', fr, x, z, [(0.0, y0), (0.72, y0), (0.8, y0 + 0.12), (0.8, y0 + 1.2), (0.72, y0 + 1.32),
+                                     (0.0, y0 + 1.32)], n=12)
+            lathe('rail', fr, x, z, [(0.82, y0 + 1.32), (0.0, y0 + 1.85)], n=12)
+    # a vent stack
+    lathe('rail', fr, (rnd() - 0.5) * spanx, (rnd() - 0.5) * spanz,
+          [(0.0, top), (0.11, top), (0.11, top + 0.9), (0.2, top + 0.98), (0.2, top + 1.05), (0.0, top + 1.05)], n=8)
 
 
 def bldg(s, xa, xb, za, zb, doors, key='brick', roofed=True, h=CEIL_Y, seed=1, wins=True, notches=0.15, pitch=3.6):
@@ -183,16 +349,45 @@ def bldg(s, xa, xb, za, zb, doors, key='brick', roofed=True, h=CEIL_Y, seed=1, w
 
     for side, zc, inner in (('N', za, '+z'), ('S', zb, '-z')):
         inn = inner if s > 0 else FLIP[inner]
-        wall_holes(s * xa, s * zc, s * xb, s * zc, H, t, key, holes_for(xb - xa, doors.get(side, [])), inn)
+        wall_holes(s * xa, s * zc, s * xb, s * zc, H, t, key, holes_for(xb - xa, doors.get(side, [])), inn, True)
     for side, xc, inner in (('W', xa, '+x'), ('E', xb, '-x')):
         inn = inner if s > 0 else FLIP[inner]
         wall_holes(s * xc, s * (za + t / 2), s * xc, s * (zb - t / 2), H, t, key,
-                   holes_for(zb - za - t, doors.get(side, [])), inn)
+                   holes_for(zb - za - t, doors.get(side, [])), inn, True)
     if roofed:
         a, b, c, d = rect(s, xa - t / 2, xb + t / 2, za - t / 2, zb + t / 2)
         box_xz('roof', a, b, c, d, H, H + 0.3, skip=(), block=0)
     a, b, c, d = rect(s, xa, xb, za, zb)
     flat('floor', a, c, b, d, 0.004)
+    # detail, none of it with a collider
+    fr = F(s, (xa + xb) / 2, (za + zb) / 2)
+    hx, hz = (xb - xa) / 2, (zb - za) / 2
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            tbox('trim', fr, sx * hx, H / 2, sz * hz, t + 0.12, H, t + 0.12, 0.05)
+    if roofed:
+        for sz in (-1, 1):
+            tbox('trim', fr, 0, H - 0.1, sz * hz, (xb - xa) + 0.3, 0.2, t + 0.24, 0.04)
+        for sx in (-1, 1):
+            tbox('trim', fr, sx * hx, H - 0.1, 0, t + 0.24, 0.2, (zb - za) - t, 0.04)
+        span = min(xb - xa, zb - za)
+        if xb - xa >= zb - za:
+            k = xa + 3.0
+            while k < xb - 1.5:
+                tbox('trim', fr, k - (xa + xb) / 2, H - 0.15, 0, 0.26, 0.3, span - t, 0.04)
+                k += 6.0
+        else:
+            k = za + 3.0
+            while k < zb - 1.5:
+                tbox('trim', fr, 0, H - 0.15, k - (za + zb) / 2, span - t, 0.3, 0.26, 0.04)
+                k += 6.0
+        roof_detail(s, xa, xb, za, zb, H, seed, t)
+    else:
+        # a broken coping along the top of the roofless walls
+        for sz in (-1, 1):
+            tbox('trim', fr, 0, H + 0.04, sz * hz, (xb - xa) + 0.2, 0.1, t + 0.1, 0.03)
+        for sx in (-1, 1):
+            tbox('trim', fr, sx * hx, H + 0.04, 0, t + 0.1, 0.1, (zb - za) - t, 0.03)
 
 
 def partition(s, x0, z0, x1, z1, doors=(), h=CEIL_Y):
@@ -203,14 +398,29 @@ def partition(s, x0, z0, x1, z1, doors=(), h=CEIL_Y):
 
 
 def sandbag(s, x, z, along_x=True, length=3.0, h=1.0, t=0.7):
-    """Stacked sandbags, a hop high and cover from a crouch."""
+    """Stacked sandbags, a hop high and cover from a crouch: three courses of fat rounded bags,
+    each course shifted half a bag, over the one box that collides."""
     fr = F(s, x, z, 0.0 if along_x else math.pi / 2)
-    vbox('sand', fr, 0, h / 2, 0, length, h, t, tint=SANDBAG, skip=('-y',))
     collider(fr, 0, h / 2, 0, length, h, t)
-    for k in range(1, 4):
-        y = k * h / 4
-        for sz in (-1, 1):
-            vbox('dark', fr, 0, y, sz * (t / 2 + TRIM), length - 0.1, 0.03, 0.01, skip=())
+    rnd = rnd_gen(int(abs(x * 7 + z * 13 + length * 100)) + 5)
+    rows = 3
+    nb = max(1, round(length / 0.8))
+    bl = length / nb
+    ch = h / rows
+
+    def cuts_for(off):
+        return [-length / 2] + [-length / 2 + off + i * bl for i in range(nb)
+                                if 0.05 < off + i * bl < length - 0.05] + [length / 2]
+    # the top course takes the shift that leaves the middle of the run on a bag, not a seam
+    offs = [0.0, bl / 2]
+    top = max(offs, key=lambda o: min(abs(c) for c in cuts_for(o)))
+    other = bl / 2 if top == 0.0 else 0.0
+    for k in range(rows):
+        cuts = cuts_for(top if (rows - 1 - k) % 2 == 0 else other)
+        for a, b in zip(cuts, cuts[1:]):
+            shade = 1.0 - 0.14 * rnd()
+            rbox('sand', fr, (a + b) / 2, k * ch + ch / 2, 0, b - a, ch, t, 0.07,
+                 tuple(c * shade for c in SANDBAG), skip=('-y',) if k == 0 else ())
 
 
 def crate(s, x, z, size=1.2, h=1.0, base=0.0, yaw=0.0):
@@ -230,18 +440,29 @@ def container(s, x, z, along_x, tint, h=2.59, stack=False):
     for sx in (-1, 1):
         for sz in (-1, 1):
             vbox('rail', fr, sx * (L / 2 - 0.06), h / 2, sz * (W / 2 - 0.06), 0.12 + 2 * TRIM, h, 0.12 + 2 * TRIM, skip=('-y', '+y'))
-    for k in range(1, 12):
+            # the cast corner fittings
+            for yy in (0.1, h - 0.1):
+                _vbox0('rail', fr, sx * (L / 2 - 0.09), yy, sz * (W / 2 - 0.09), 0.2, 0.2, 0.2, skip=())
+    for k in range(2, 12, 2):
         x_ = -L / 2 + k * L / 12
         for sz in (-1, 1):
             vbox('rail', fr, x_, h / 2, sz * (W / 2 + 0.01), 0.05, h - 0.2, 0.02, skip=())
+    for yy in (0.06, h - 0.06):
+        for sz in (-1, 1):
+            vbox('rail', fr, 0, yy, sz * (W / 2 - 0.03), L - 0.3, 0.1, 0.07, skip=())
 
 
 def lamp_post(s, x, z, yaw=0.0, h=4.4):
     fr = F(s, x, z, yaw)
-    solid('steel', fr, 0, h / 2, 0, 0.14, h, 0.14)
-    vbox('rail', fr, 0, h - 0.1, -0.55, 0.08, 0.08, 1.1, skip=())
-    vbox('rail', fr, 0, h - 0.2, -1.1, 0.34, 0.14, 0.5, skip=())
-    vbox('glow', fr, 0, h - 0.28, -1.1, 0.26, 0.02, 0.4, skip=())
+    # the collider is the same slim box as ever; the post turned inside it, a collar at its foot
+    collider(fr, 0, h / 2, 0, 0.14, h, 0.14)
+    # straight, and wide enough to cover the corners of the collider's footprint: the ghost probe
+    # looks for steel wherever the box is
+    lathe('steel', fr, 0, 0, [(0.085, 0.0), (0.085, h)], n=8, phase=math.pi / 8, caps=(False, True))
+    lathe('trim', fr, 0, 0, [(0.17, 0.0), (0.17, 0.1), (0.1, 0.3), (0.075, 0.42)], n=10)
+    tube('rail', fr, [(0, h - 0.15, 0), (0, h + 0.02, -0.12), (0, h + 0.1, -0.55), (0, h + 0.04, -1.0)], 0.04, n=6, caps=False)
+    tbox('rail', fr, 0, h - 0.1, -1.12, 0.34, 0.14, 0.5, 0.04)
+    _vbox0('glow', fr, 0, h - 0.18, -1.12, 0.26, 0.02, 0.4, skip=())
 
 
 def member(p0, p1, w, key, tint=WHITE):
@@ -277,29 +498,57 @@ def rubble(s, x, z, yaw=0.0, size=1.0, seed=1):
         yy = min(h - ch / 2, 0.3 + rnd() * 0.5)
         vbox('rubble', Frame(fr.o[0], fr.o[1], fr.o[2], fr.yaw + rnd() * 1.2), cx, yy, cz, cw, ch, cd, skip=('-y',))
     vbox('rubble', fr, 0, h - 0.02, 0, w - 0.3, 0.04, d - 0.3, skip=('-y',))
+    # bent rebar out of the broken slab
+    for k in range(3):
+        bx, bz = (rnd() - 0.5) * (w - 0.8), (rnd() - 0.5) * (d - 0.6)
+        a = rnd() * 6.28
+        lean = 0.25 + rnd() * 0.35
+        tube('rail', fr, [(bx, h - 0.1, bz), (bx + math.cos(a) * lean * 0.5, h + 0.35, bz + math.sin(a) * lean * 0.5),
+                          (bx + math.cos(a) * lean, h + 0.55, bz + math.sin(a) * lean)], 0.014, n=4, caps=False)
 
 
-def wheel(fr, x, y, r, z0, z1, n=10):
-    prism('dark', fr, [(x + r * math.cos(2 * math.pi * k / n), y + r * math.sin(2 * math.pi * k / n)) for k in range(n)], z0, z1)
+def scorch(x, z, r, seed):
+    """A burn mark on the ground: a ragged dark decal."""
+    rnd = rnd_gen(seed)
+    pts = []
+    for k in range(10):
+        a = 2 * math.pi * k / 10
+        rr = r * (0.75 + 0.25 * rnd())
+        pts.append((x + rr * math.cos(a), 0.011, z - rr * math.sin(a)))
+    poly('dark', Frame(), pts)
+
+
+def wheel_pair(sf, wx, wy, R, hw, width=0.26, n=14):
+    """A tyre with a hub on each side of a vehicle whose body is hw to either side of centre."""
+    for sg in (-1, 1):
+        zc = sg * (hw - 0.02)
+        wheel('tyre', sf, wx, wy, zc, R, width, 'z', n, hub=0.5)
+        z0, z1 = sorted((zc + sg * width / 2 - 0.01, zc + sg * (width / 2 + 0.03)))
+        lathe('rail', sf, wx, wy, [(0.0, z0), (R * 0.55, z0), (R * 0.55, z1), (0.0, z1)], n=10, ax='z')
 
 
 def wreck(s, x, z, yaw, tint, L=4.4, W=1.9, H=1.45):
-    """A burnt-out car: a side profile extruded across the width, dark windows, four wheels. The
-    collider is the box round it: 1.45 m, cover from standing and a wall for a jump."""
+    """A burnt-out car: a filleted lower body and a narrower cabin, dark windows, four tyres.
+    The collider is the box round it: 1.45 m, cover from standing and a wall for a jump."""
     fr = F(s, x, z, yaw)
     collider(fr, 0, H / 2 + 0.15, 0, W, H - 0.3, L, prop=1)
     sf = Frame(fr.o[0], fr.o[1], fr.o[2], fr.yaw - math.pi / 2)
     k = L / 4.4
-    prof = [(-2.2 * k, 0.3), (2.2 * k, 0.3), (2.25 * k, 0.8), (1.5 * k, 0.95), (0.7 * k, 1.45),
-            (-0.9 * k, 1.45), (-1.6 * k, 1.0), (-2.2 * k, 0.95)]
     hw = W / 2 - 0.05
-    prism('paint', sf, prof, -hw, hw, tint)
-    win = [(-0.85 * k, 1.0), (0.75 * k, 1.0), (0.5 * k, 1.38), (-0.7 * k, 1.38)]
-    poly('dark', sf, [(x_, y_, hw + TRIM) for x_, y_ in win])
-    poly('dark', sf, [(x_, y_, -hw - TRIM) for x_, y_ in reversed(win)])
+    lower = fillet([(-2.2 * k, 0.3), (2.2 * k, 0.3), (2.26 * k, 0.7), (2.18 * k, 0.97), (-2.2 * k, 0.97)],
+                   [0.1, 0.12, 0.2, 0.14, 0.1])
+    rprism('paint', sf, lower, -hw, hw, tint)
+    cabin = fillet([(1.45 * k, 0.9), (0.75 * k, 1.45), (-0.85 * k, 1.45), (-1.6 * k, 0.9)], [0, 0.25, 0.3, 0])
+    ch = hw - 0.1
+    rprism('paint', sf, cabin, -ch, ch, tuple(c * 0.92 for c in tint))
+    win = fillet([(-1.0 * k, 0.98), (1.15 * k, 0.98), (0.62 * k, 1.38), (-0.68 * k, 1.38)], [0.05, 0.05, 0.08, 0.08], 2)
+    poly('dark', sf, [(x_, y_, ch + TRIM) for x_, y_ in win])
+    poly('dark', sf, [(x_, y_, -ch - TRIM) for x_, y_ in reversed(win)])
+    for sx in (-1, 1):
+        tbox('rail', sf, sx * 2.2 * k, 0.45, 0, 0.18, 0.2, W - 0.1, 0.05)
     for wx in (-1.4 * k, 1.35 * k):
-        wheel(sf, wx, 0.33, 0.33, hw - 0.02, hw + 0.12)
-        wheel(sf, wx, 0.33, 0.33, -hw - 0.12, -hw + 0.02)
+        wheel_pair(sf, wx, 0.33, 0.33, hw)
+    scorch(fr.o[0], fr.o[2], L * 0.6, int(abs(fr.o[0] * 3 + fr.o[2] * 5)) + 11)
 
 
 def bus(s, x, z, yaw, tint):
@@ -308,18 +557,24 @@ def bus(s, x, z, yaw, tint):
     collider(fr, 0, H / 2 + 0.2, 0, W, H - 0.4, L, prop=1)
     sf = Frame(fr.o[0], fr.o[1], fr.o[2], fr.yaw - math.pi / 2)
     hl = L / 2
-    prof = [(-hl, 0.45), (hl, 0.45), (hl, 2.2), (hl - 0.5, H), (-hl, H)]
+    prof = fillet([(-hl, 0.45), (hl, 0.45), (hl, 2.2), (hl - 0.5, H), (-hl, H)], [0.1, 0.15, 0.35, 0.5, 0.35])
     hw = W / 2 - 0.02
-    prism('paint', sf, prof, -hw, hw, tint)
+    rprism('paint', sf, prof, -hw, hw, tint)
     for side in (1, -1):
         z_ = side * (hw + TRIM)
         for k in range(8):
             x0 = -hl + 0.8 + k * 1.15
-            q = [(x0, 1.6), (x0 + 0.95, 1.6), (x0 + 0.95, 2.55), (x0, 2.55)]
+            q = fillet([(x0, 1.6), (x0 + 0.95, 1.6), (x0 + 0.95, 2.55), (x0, 2.55)], [0.08] * 4, 2)
             poly('dark', sf, [(x_, y_, z_) for x_, y_ in (q if side > 0 else q[::-1])])
+    # the windscreen, a bumper each end and the unit on the roof
+    poly('dark', sf, [(hl + TRIM, 1.0, hw - 0.2), (hl + TRIM, 1.0, -hw + 0.2), (hl + TRIM, 2.1, -hw + 0.2),
+                      (hl + TRIM, 2.1, hw - 0.2)])
+    for sx in (-1, 1):
+        tbox('rail', sf, sx * (hl + 0.03), 0.55, 0, 0.2, 0.24, W - 0.1, 0.06)
+    tbox('paint', sf, -1.2, H + 0.14, 0, 3.0, 0.3, 1.3, 0.1, tuple(c * 0.85 for c in tint))
     for wx in (-3.3, 3.2):
-        wheel(sf, wx, 0.5, 0.5, hw - 0.02, hw + 0.2, 12)
-        wheel(sf, wx, 0.5, 0.5, -hw - 0.2, -hw + 0.02, 12)
+        wheel_pair(sf, wx, 0.5, 0.5, hw, 0.34, 16)
+    scorch(fr.o[0], fr.o[2], 5.6, int(abs(fr.o[0] * 3 + fr.o[2] * 5)) + 13)
 
 
 def dead_tree(s, x, z, seed=1, h=5.0):
@@ -327,20 +582,42 @@ def dead_tree(s, x, z, seed=1, h=5.0):
     wx, _, wz = fr.world((0, 0, 0))
     CYLINDERS.append([round(wx, 4), round(h / 2, 4), round(wz, 4), 0.4, round(h, 4), 1, 1])
     rnd = rnd_gen(seed)
-    vcyl('trunk', fr, 0, 0, 0.24, 0, h, n=6, r1=0.1, top=False)
+    lathe('trunk', fr, 0, 0, [(0.38, 0.0), (0.28, 0.3), (0.21, 0.9), (0.17, h * 0.45), (0.11, h * 0.85), (0.06, h)],
+          n=7, caps=(False, True))
     for k in range(5):
         a = rnd() * 6.28
         y0 = h * (0.45 + 0.12 * k)
         L = 1.0 + rnd() * 0.9
-        p0 = fr.world((0, y0, 0))
-        p1 = fr.world((math.cos(a) * L, y0 + 0.6 + rnd() * 0.6, math.sin(a) * L))
-        member(p0, p1, 0.08, 'trunk')
+        rise = 0.6 + rnd() * 0.6
+        c, sn = math.cos(a), math.sin(a)
+        r0 = 0.075 * (1 - 0.12 * k)
+        path = [(c * 0.05, y0, sn * 0.05), (c * L * 0.5, y0 + rise * 0.55, sn * L * 0.5), (c * L, y0 + rise, sn * L)]
+        tube('trunk', fr, path, [r0, r0 * 0.7, 0.02], n=5)
+        f = a + 0.8
+        pm = path[1]
+        tube('trunk', fr, [pm, (pm[0] + math.cos(f) * 0.5, pm[1] + 0.4, pm[2] + math.sin(f) * 0.5),
+                           (pm[0] + math.cos(f) * 0.95, pm[1] + 0.85, pm[2] + math.sin(f) * 0.95)],
+             [r0 * 0.6, 0.03, 0.012], n=4)
 
 
 def barrel_cluster(s, x, z, seed=1):
     rnd = rnd_gen(seed)
     for k in range(3):
         prop('drum', s, x + (rnd() - 0.5) * 1.6, z + (rnd() - 0.5) * 1.6, rnd() * 6.28)
+
+
+def shrubs(s, px, pz, seed):
+    """A few dead stems standing in a planter, from the soil at 1.0 m."""
+    rnd = rnd_gen(seed)
+    fr = F(s, px, pz)
+    for k in range(5):
+        bx = (rnd() - 0.5) * 3.6
+        bz = (rnd() - 0.5) * 0.4
+        a = rnd() * 6.28
+        lean = 0.3 + rnd() * 0.4
+        tube('trunk', fr, [(bx, 1.0, bz), (bx + math.cos(a) * lean * 0.5, 1.45, bz + math.sin(a) * lean * 0.5),
+                           (bx + math.cos(a) * lean, 1.95 + rnd() * 0.4, bz + math.sin(a) * lean)],
+             [0.035, 0.025, 0.008], n=4)
 
 
 # ------------------------------------------------------------------ layout
@@ -355,6 +632,11 @@ def ground():
         # the boulevard from the base gate to the plaza, and the avenue to each district
         flat('road', s * -5, s * 11, s * 5, s * HZ, 0.005)
         flat('road', s * 16, s * -3.5, s * 66, s * 4.5, 0.005)
+        # kerbs along both: a low rounded edge, too low to climb and with no collider
+        for kx in (-5.1, 5.1):
+            tbox('trim', Frame(), s * kx, 0.03, s * 23.5, 0.2, 0.08, 25.0, 0.025)
+        for kz in (-3.6, 4.6):
+            tbox('trim', Frame(), s * 41.0, 0.03, s * kz, 50.0, 0.08, 0.2, 0.025)
         # centre line of the boulevard, dashed
         k = 12.0
         while k < 35.0:
@@ -376,17 +658,25 @@ def perimeter():
                                    ('+z', (-HX, HX, -HZ - t, -HZ)), ('-z', (-HX, HX, HZ, HZ + t))):
         L, P = face_fn(face, xa, xb, za, zb)
         face_quad('concrete', P, 0, L, 0, 0.6)
+        o = {'+z': (0, 0, 0.1), '-z': (0, 0, -0.1), '+x': (0.1, 0, 0), '-x': (-0.1, 0, 0)}[face]
         k = 0.0
         while k <= L + 0.01:
             c = P(min(k, L), 0)
-            o = {'+z': (0, 0, 0.1), '-z': (0, 0, -0.1), '+x': (0.1, 0, 0), '-x': (-0.1, 0, 0)}[face]
             vbox('concrete', Frame(c[0] + o[0], 0, c[2] + o[2]), 0, WALL_H / 2, 0, 0.5, WALL_H, 0.5)
+            tbox('trim', Frame(c[0] + o[0], 0, c[2] + o[2]), 0, WALL_H + 0.05, 0, 0.7, 0.14, 0.7, 0.04)
             k += 9.0
-        # razor wire on the top: three taut lines
+        # a coping along the top
+        tbox('trim', Frame(), (xa + xb) / 2, WALL_H + 0.04, (za + zb) / 2, (xb - xa) + 0.16, 0.12, (zb - za) + 0.16, 0.03)
+        # razor wire on the top: two taut lines on stanchions
         for d, y in ((0.0, WALL_H + 0.25), (0.12, WALL_H + 0.45)):
             a, b = P(0, y), P(L, y)
-            o = {'+z': (0, 0, d), '-z': (0, 0, -d), '+x': (d, 0, 0), '-x': (-d, 0, 0)}[face]
-            member((a[0] + o[0], y, a[2] + o[2]), (b[0] + o[0], y, b[2] + o[2]), 0.03, 'rail')
+            oo = {'+z': (0, 0, d), '-z': (0, 0, -d), '+x': (d, 0, 0), '-x': (-d, 0, 0)}[face]
+            member((a[0] + oo[0], y, a[2] + oo[2]), (b[0] + oo[0], y, b[2] + oo[2]), 0.03, 'rail')
+        k = 3.0
+        while k < L:
+            c = P(k, WALL_H + 0.35)
+            _vbox0('rail', Frame(), c[0], c[1], c[2], 0.05, 0.5, 0.05, skip=())
+            k += 6.0
 
 
 def base():
@@ -440,12 +730,18 @@ def boulevard():
 
 
 def plaza():
-    # the monument: a stepped plinth and an obelisk
+    # the monument: a stepped plinth, an obelisk with collars and a pyramidion, and four urns
     box_xz('concrete', -3.2, 3.2, -3.2, 3.2, 0, 0.5, skip=('-y',))
     box_xz('stucco', -2.0, 2.0, -2.0, 2.0, 0.5, 1.0, skip=('-y',))
     solid('stucco', Frame(), 0, 3.6, 0, 1.3, 5.2, 1.3)
-    vbox('concrete', Frame(), 0, 6.3, 0, 1.0, 0.3, 1.0, skip=('-y',))
-    vbox('concrete', Frame(), 0, 6.6, 0, 0.6, 0.3, 0.6, skip=('-y',))
+    tbox('trim', Frame(), 0, 1.12, 0, 1.75, 0.24, 1.75, 0.05)
+    tbox('trim', Frame(), 0, 1.35, 0, 1.5, 0.2, 1.5, 0.04)
+    tbox('trim', Frame(), 0, 6.1, 0, 1.55, 0.2, 1.55, 0.04)
+    lathe('trim', Frame(), 0, 0, [(0.97, 6.2), (0.0, 7.5)], n=4, phase=math.pi / 4)
+    for ux in (-1, 1):
+        for uz in (-1, 1):
+            lathe('trim', Frame(), ux * 2.7, uz * 2.7,
+                  [(0.0, 0.5), (0.26, 0.5), (0.3, 0.6), (0.2, 0.78), (0.14, 0.95), (0.24, 1.18), (0.0, 1.18)], n=12)
 
     def per_side(s):
         # planters: stone troughs along the plaza's long edges
@@ -453,6 +749,8 @@ def plaza():
         box_xz('concrete', *rect(s, -12.0, -6.0, 8.0, 9.2), 0, 1.0, skip=('-y',))
         for px in (9.0, -9.0):
             vbox('trunk', F(s, px, 8.6), 0, 1.02, 0, 4.8, 0.04, 0.8, skip=('-y',))
+            shrubs(s, px, 8.6, 200 + int(px) + s)
+            tbox('trim', F(s, px, 8.6), 0, 0.12, 0, 6.2, 0.24, 1.4, 0.05)
         bus(s, -12.0, 1.0, math.pi / 2, VEHICLES[3])
         sandbag(s, 8.0, 4.0, True, 3.2)
         sandbag(s, 13.0, -2.5, False, 2.4)
@@ -523,19 +821,33 @@ def east_district():
         for cz in (11.5, 15.0, 18.5):
             for cx in (27.0, 31.0):
                 solid('concrete', F(s, cx, cz), 0, 2.0, 0, 0.7, 4.0, 0.7)
+                # a capital and a base block on each column
+                tbox('trim', F(s, cx, cz), 0, 3.9, 0, 0.95, 0.2, 0.95, 0.05)
+                tbox('trim', F(s, cx, cz), 0, 0.12, 0, 0.9, 0.24, 0.9, 0.05)
         rubble(s, 24.5, 20.0, 0.4, 0.9, 61 + s)
         rubble(s, 34.0, 10.5, 1.0, 0.9, 63 + s)
         # E2: the fuel station, a canopy on four posts and a kiosk
         for px in (43.0, 53.0):
             for pz in (11.0, 17.0):
                 solid('steel', F(s, px, pz), 0, CEIL_Y / 2, 0, 0.5, CEIL_Y, 0.5)
+                tbox('trim', F(s, px, pz), 0, 0.15, 0, 0.8, 0.3, 0.8, 0.05)
         a, b, c, d = rect(s, 41.5, 54.5, 9.5, 18.5)
         box_xz('roof', a, b, c, d, CEIL_Y, CEIL_Y + 0.3, skip=(), block=0)
         a, b, c, d = rect(s, 41.5, 54.5, 9.5, 18.5)
         flat('floor', a, c, b, d, 0.004)
+        # a fascia all round the canopy, with a lit stripe
+        cfr = F(s, 48.0, 14.0)
+        for sz in (-1, 1):
+            tbox('trim', cfr, 0, CEIL_Y + 0.2, sz * 4.5, 13.3, 0.55, 0.3, 0.05)
+            _vbox0('glow', cfr, 0, CEIL_Y + 0.2, sz * 4.67, 11.0, 0.08, 0.02, skip=())
+        for sx in (-1, 1):
+            tbox('trim', cfr, sx * 6.5, CEIL_Y + 0.2, 0, 0.3, 0.55, 9.3, 0.05)
         for px in (46.0, 50.0):
             solid('steel', F(s, px, 14.0), 0, 0.65, 0, 0.9, 1.3, 0.6)
             vbox('glow', F(s, px, 14.0), 0, 1.0, 0.31, 0.5, 0.3, 0.02, skip=())
+            pf = F(s, px, 14.0)
+            tbox('rail', pf, 0, 1.36, 0, 1.0, 0.12, 0.7, 0.04)
+            tube('rail', pf, [(0.38, 1.0, 0.3), (0.55, 0.7, 0.42), (0.5, 0.35, 0.3), (0.42, 0.12, 0.28)], 0.022, n=5, caps=False)
         bldg(s, 57.0, 64.0, 8.0, 15.0, {'W': [3.5]}, 'cmu', True, seed=25)
         wreck(s, 47.0, 22.0, 0.6, VEHICLES[1])
         # E3: the factory
@@ -621,9 +933,28 @@ def backdrop():
         fr = Frame(x, base - 0.5, z, rnd() * 3.14)
         tint = SKYLINE[int(rnd() * len(SKYLINE))]
         vbox('far', fr, 0, h / 2, 0, w, h, d, tint=tint, skip=('-y',))
-        # a snapped upper storey, set back and off-centre
-        vbox('far', fr, (rnd() - 0.5) * 2, h + 1.5, (rnd() - 0.5) * 2, w * 0.6, 3.0 + rnd() * 2, d * 0.6,
-             tint=tuple(c * 0.9 for c in tint), skip=('-y',))
+        # a deep footing, so the block never hovers over the folds of the ground
+        vbox('far', fr, 0, -4.0, 0, w * 0.96, 8.0, d * 0.96, tint=tuple(c * 0.8 for c in tint), skip=('-y',))
+        # a snapped upper storey, set back and off-centre; a third of them break in a slanted edge
+        ox, oz = (rnd() - 0.5) * 2, (rnd() - 0.5) * 2
+        uh = 3.0 + rnd() * 2
+        w2, d2 = w * 0.6, d * 0.6
+        t2 = tuple(c * 0.9 for c in tint)
+        r2 = rnd_gen(k + 500)
+        if r2() < 0.35:
+            a2 = w2 / 2
+            ff = Frame(*fr.world((ox, h + 1.5 - uh / 2, oz)), fr.yaw)
+            prism('far', ff, [(-a2, 0), (a2, 0), (a2, uh * 0.55), (a2 * 0.2, uh * 1.15), (-a2 * 0.25, uh * 0.75),
+                              (-a2, uh * 1.0)], -d2 / 2, d2 / 2, t2)
+        else:
+            vbox('far', fr, ox, h + 1.5, oz, w2, uh, d2, tint=t2, skip=('-y',))
+        # a deep parapet round the main roof, and now and again a tank on legs
+        vbox('far', fr, 0, h + 0.3, 0, w + 0.5, 0.6, d + 0.5, tint=tuple(c * 0.82 for c in tint), skip=('-y',))
+        if r2() < 0.3:
+            tx, tz = (r2() - 0.5) * w * 0.5, (r2() - 0.5) * d * 0.5
+            lathe('far', fr, tx, tz, [(0.0, h + 2.5), (1.4, h + 2.5), (1.5, h + 2.7), (1.5, h + 4.6), (1.4, h + 4.8),
+                                       (0.0, h + 4.8)], n=10, tint=tuple(c * 0.7 for c in tint))
+            lathe('far', fr, tx, tz, [(1.55, h + 4.8), (0.0, h + 5.9)], n=10, tint=tuple(c * 0.62 for c in tint))
         # window grid on the four faces: dark panes in rows, a few missing
         for face_sign in (1, -1):
             for axis in (0, 1):
@@ -643,7 +974,7 @@ def backdrop():
                             X = face_sign * (w / 2 + 0.02)
                             q = [(X, y, u + 0.55), (X, y, u - 0.55), (X, y + 1.5, u - 0.55), (X, y + 1.5, u + 0.55)]
                             poly('dark', fr, q if face_sign > 0 else q[::-1])
-    # foothills banked beyond the town: two-tier mounds
+    # foothills banked beyond the town: smooth domes with a shoulder
     for k in range(10):
         ang = k / 10 * math.tau + rnd() * 0.3
         dist = 150 + rnd() * 60
@@ -651,8 +982,8 @@ def backdrop():
         hgt, r = 30 + rnd() * 26, 40 + rnd() * 30
         fr = Frame(x, height(x, z) - 6, z, rnd() * 6)
         tint = HILLS[k % len(HILLS)] if rnd() < 0.7 else ROCK
-        vcyl('far', fr, 0, 0, r, 0, hgt * 0.6, n=9, r1=r * 0.6, top=False, tint=tint)
-        vcyl('far', fr, 0, 0, r * 0.6, hgt * 0.6, hgt, n=9, r1=r * 0.12, tint=tuple(c * 1.06 for c in tint))
+        lathe('far', fr, 0, 0, [(r * 1.25, -4.0), (r * 1.12, hgt * 0.1), (r * 0.9, hgt * 0.32), (r * 0.66, hgt * 0.58),
+                                 (r * 0.4, hgt * 0.8), (r * 0.16, hgt * 0.95), (0.0, hgt)], n=14, tint=tint)
 
 
 def build_layout():
@@ -664,6 +995,22 @@ def build_layout():
     west_district()
     east_district()
     backdrop()
+    rk_finalize()
 
 
-result = run(build_layout)
+def run_round(layout):
+    _coll, objs, tris = build(layout)
+    rounded = 0
+    if IN_BLENDER:
+        rounded = rk_apply(objs)
+        if globals().get('OVERRUN_EXPORT', True):
+            export(objs)
+            rk_quantize(OUT_GLB)
+    return {
+        'objects': len(objs), 'tris': tris, 'faces': STATS['faces'], 'rounded': rounded, 'rboxes': RK_COUNT['rbox'],
+        'boxes': len(BOXES), 'ramps': len(RAMPS), 'cylinders': len(CYLINDERS), 'props': len(PLACED),
+        'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
+    }
+
+
+result = run_round(build_layout)

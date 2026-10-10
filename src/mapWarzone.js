@@ -27,23 +27,29 @@ export const WARZONE = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
+    // Walls, roofs, steel and timber carry vertex colours: dirt gathered at the foot and soft
+    // patches (the wear pass in roundkit_dh.py), multiplied over the texture.
+    const worn = { vertexColors: true };
     return {
       ground: pbrMat('dry_ground_rocks', { repeat: 1, ao: true, fallback: 0x6f6654, rough: 0.95 }),
       outer: pbrMat('dry_ground_rocks', { repeat: 1, fallback: 0x6f6654, rough: 0.95 }),
       road: pbrMat('asphalt_02', { repeat: 1, ao: true, fallback: 0x3c3c3e, rough: 0.95, extra: decal(1) }),
       lines: new THREE.MeshStandardMaterial({ color: 0xcdb866, roughness: 0.85, ...decal(2) }),
       paving: pbrMat('cobblestone_floor_04', { repeat: 1, ao: true, fallback: 0x87806f, rough: 0.9, extra: decal(1) }),
-      brick: pbrMat('broken_brick_wall', { repeat: 1, ao: true, fallback: 0x8a4e3a, rough: 0.9 }),
-      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9 }),
-      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92 }),
-      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true }),
-      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95 }),
+      brick: pbrMat('broken_brick_wall', { repeat: 1, ao: true, fallback: 0x8a4e3a, rough: 0.9, extra: worn }),
+      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9, extra: worn }),
+      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92, extra: worn }),
+      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true, extra: worn }),
+      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95, extra: worn }),
       floor: pbrMat('concrete_floor_damaged_01', { repeat: 1, ao: true, fallback: 0x625f59, rough: 0.9, extra: decal(1) }),
-      roof: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x6b4a40, rough: 0.6, metal: 0.3 }),
-      rubble: pbrMat('rubble', { repeat: 1, ao: true, fallback: 0x75706a, rough: 0.95 }),
-      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6 }),
+      roof: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x6b4a40, rough: 0.6, metal: 0.3, extra: worn }),
+      rubble: pbrMat('rubble', { repeat: 1, ao: true, fallback: 0x75706a, rough: 0.95, extra: worn }),
+      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6, extra: worn }),
       rail: new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.5, metalness: 0.6 }),
-      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 }),
+      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn }),
+      // precast trim (plinths, cornices, lintels, sills, copings, parapets): no collider
+      trim: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0xa9a699, rough: 0.9, detail: true, extra: worn }),
+      tyre: new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.95 }),
       trunk: pbrMat('rough_wood', { repeat: 1, ao: true, fallback: 0x4a3c30, rough: 0.95 }),
       // Containers, vehicles and sandbags: the colour is per face (vertex colours); the texture
       // only adds its scratches and weave, as luminance.

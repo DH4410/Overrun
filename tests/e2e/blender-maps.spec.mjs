@@ -25,7 +25,7 @@ const MAPS = [
     touch: ['cmu', 'concrete', 'floor', 'steel', 'wood', 'container', 'stucco', 'plaster'],
     castY: 6.3,
     half: [17.4, 25.4],
-    ghostStep: 0.513,
+    ghostStep: 0.517,
     symStep: [2.973, 2.737],
     minBoxes: 60,
     minSpawns: 16,

@@ -14,6 +14,7 @@ import { ITEMS, ITEM_SHIFT, TIERS, canUse, lootFor } from '../sim/items.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { killLine } from '../sim/killinfo.js';
 import { MODE_INFO, teamScore } from '../sim/modes.js';
+import { updateHealProp } from '../healProp.js';
 import { createChat } from './chat.js';
 import { createFlags } from './flags.js';
 import { createZone } from './zone.js';
@@ -1111,20 +1112,9 @@ export function createNetClient(d) {
       const using = b.alive && !!q.using;
       if (b.zombie && !b.zTint) tintZombie(b);
       if (b.gunMesh && b.alive) b.gunMesh.visible = !b.zombie && !b.emoteAction && !using;   // the dead have nothing to hold
-      // Someone healing shows a slow green spark over their head, so a covering teammate (or the man
-      // about to be shot) can see it. The snapshot only says "using", not which item.
-      if (using && !b.healMark) {
-        b.healMark = new THREE.Mesh(healGeo, healMat);
-        b.mesh.add(b.healMark);
-      }
-      if (b.healMark) {
-        b.healMark.visible = using;
-        // The puppet rig is scaled, so work in its units: about 2.15 m above the feet.
-        const k = 1 / (b.mesh.scale.y || 1);
-        b.healMark.scale.setScalar(k);
-        b.healMark.position.set(0, (2.15 + Math.sin(now * 0.004) * 0.05) * k, 0);
-        b.healMark.rotation.y += dt * 2.4;
-      }
+      // Someone healing is seen opening a medkit, so a covering teammate (or the man about to be
+      // shot) can tell. The snapshot only says "using", not which item.
+      updateHealProp(b, using, now);
     }
     // Seated players missing from the snapshot have dropped: their seat is held, their body is not.
     if (!kc) {
@@ -1154,8 +1144,6 @@ export function createNetClient(d) {
     for (const [id, mesh] of grenadeMeshes) if (!live.has(id)) { d.scene.remove(mesh); grenadeMeshes.delete(id); }
   }
 
-  const healGeo = new THREE.OctahedronGeometry(0.09, 0);
-  const healMat = new THREE.MeshBasicMaterial({ color: 0x7fe3a0 });
   const fragGeo = new THREE.SphereGeometry(0.075, 12, 9);
   const fragMat = new THREE.MeshStandardMaterial({ color: 0x39452f, roughness: 0.85, metalness: 0.2 });
   const smokeGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.17, 10);

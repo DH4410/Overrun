@@ -15,7 +15,7 @@ const CACHE = 'overrun-v56';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
-  './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hud.js',
+  './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunmodels.js', './src/hitflash.js', './src/hud.js',
   './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapArena.js', './src/mapBastion.js','./src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapMetro.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
   './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js', './src/emoteMusic.js', './src/itemModels.js', './src/healAnim.js', './src/healProp.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',

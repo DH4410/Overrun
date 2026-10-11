@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { CONFIG } from './config.js';
+import { updateHitFlash } from './hitflash.js';
 import { settings, tuning } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 
@@ -321,6 +322,7 @@ function spawnExplosion(pos) {
 }
 
 function updateExplosionFx(dt) {
+  updateHitFlash(dt);   // rides the same per-frame call: both are short-lived presentation timers
   for (let i = shocks.length - 1; i >= 0; i--) {
     const s = shocks[i];
     s.t += dt;

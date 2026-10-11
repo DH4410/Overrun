@@ -50,7 +50,7 @@ const SONGS = {
 export function createAudio({ getCamera }) {
   return {
     ctx: null, master: null, sfx: null, music: null, noise: null, ambientGain: null, ready: false,
-    _song: null, _wantSong: null, _heart: 0,
+    _song: null, _wantSong: null, _heart: 0, _occluder: null, _musicBase: 0,
 
     init() {
       if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -84,7 +84,23 @@ export function createAudio({ getCamera }) {
       if (this.master) this.master.gain.value = 0.5 * clamp(v, 0, 1);
     },
     setMusicVolume(v) {
-      if (this.music) this.music.gain.value = 0.7 * clamp(v, 0, 1);
+      this._musicBase = 0.7 * clamp(v, 0, 1);
+      if (this.music) this.music.gain.value = this._musicBase;
+    },
+
+    /** `fn(fromX, fromY, fromZ, toX, toY, toZ)` is true when a wall is between the two points. */
+    setOccluder(fn) { this._occluder = fn; },
+
+    /**
+     * Ducking: dip the music under something loud, then bring it back. Loud events need the room,
+     * and a mix that is already full stays readable instead of masking the one sound that matters.
+     */
+    duck(depth = 0.35, secs = 1.0) {
+      if (!this.ready || !this.music) return;
+      const t = this.ctx.currentTime, g = this.music.gain;
+      g.cancelScheduledValues(t);
+      g.setTargetAtTime(this._musicBase * depth, t, 0.03);
+      g.setTargetAtTime(this._musicBase, t + secs, 0.35);
     },
 
     /**
@@ -100,6 +116,16 @@ export function createAudio({ getCamera }) {
       const air = this.ctx.createBiquadFilter();
       air.type = 'lowpass';
       air.frequency.value = 16000 / (1 + d / 14);
+      // Occlusion: a wall between you and the sound takes the highs off it and some of its level,
+      // which is how you hear that a fight is in the next room and not in this one.
+      let tail = air;
+      if (this._occluder && d > 3 && this._occluder(cam.x, cam.y, cam.z, pos.x, pos.y, pos.z)) {
+        air.frequency.value = Math.min(air.frequency.value, 1400);
+        const dull = this.ctx.createGain();
+        dull.gain.value = 0.6;
+        air.connect(dull);
+        tail = dull;
+      }
       const p = this.ctx.createPanner();
       // HRTF is a convolution per voice; power saver trades it for plain equal-power panning.
       p.panningModel = saverActive() ? 'equalpower' : 'HRTF';
@@ -107,7 +133,7 @@ export function createAudio({ getCamera }) {
       p.refDistance = 8; p.rolloffFactor = 1; p.maxDistance = 200;
       if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; }
       else p.setPosition(pos.x, pos.y, pos.z);
-      air.connect(p); p.connect(this.sfx);
+      tail.connect(p); p.connect(this.sfx);
       return air;
     },
 
@@ -302,6 +328,10 @@ export function createAudio({ getCamera }) {
 
     explosion(pos) {
       const out = this._out(pos);
+      if (this.ready && pos) {
+        const c = getCamera().position;
+        if (Math.hypot(pos.x - c.x, pos.y - c.y, pos.z - c.z) < 25) this.duck(0.3, 1.4);
+      }
       this.tone({ f0: 110, f1: 24, dur: 0.7, gain: 0.8, type: 'sine', out });
       this.burst({ dur: 0.8, gain: 0.7, type: 'lowpass', freq: 700, decay: 0.7, out });
       this.burst({ dur: 0.25, gain: 0.4, type: 'highpass', freq: 1800, decay: 0.2, out });

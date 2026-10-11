@@ -6,6 +6,7 @@ import {
 } from './config.js';
 import { world } from './physics.js';
 import { HB_PLAYER } from './projectiles.js';
+import { flashHit } from './hitflash.js';
 import { canon } from './keybinds.js';
 import { aimToggles, assistLevel, lookBoost, settings } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
@@ -173,6 +174,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
   } else {
     if (source === player) {
       const lethal = target.health <= 0;
+      if (!shield) flashHit(target.mesh);
       if (!lethal) {
         showHitMarker(headshot ? 'head' : 'body');
         if (shield === 'break') Audio.shieldBreak();

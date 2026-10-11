@@ -60,6 +60,7 @@ export const DEFAULT_SETTINGS = {
   fxBlast: true,
   fxHitFlash: true,
   lowAmmoCue: true,
+  diegeticAmmo: true,
   rawInput: true,
   version: 2,
 };

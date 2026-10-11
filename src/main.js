@@ -119,6 +119,8 @@ let spawnCastY = 0;
 const Audio = createAudio({
   getCamera: () => camera,
 });
+// A wall between you and a sound muffles it (see Audio._out).
+Audio.setOccluder((x1, y1, z1, x2, y2, z2) => !losClear(x1, y1, z1, x2, y2, z2));
 // Browsers only start audio after a gesture. Menu buttons tick on hover and click.
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => Audio.init(), { once: true, capture: true });
 addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(); }, true);
@@ -374,6 +376,7 @@ const {
   vmModels,
   homePositions: VM_HOME,
   adsPosition,
+  setAmmoCounter,
   loadViewModels,
   ejectBrass,
   updateBrass,
@@ -973,6 +976,10 @@ const _vmAim = new THREE.Vector3();
 function updateViewModel(dt) {
   const w = currentWeapon();
   for (const id in vmModels) vmModels[id].visible = (id === w.id) && player.alive;
+  if (settings.diegeticAmmo && !w.thrown) {
+    const mag = player.ammo[w.id]?.mag ?? 0;
+    setAmmoCounter(String(mag), mag <= Math.max(2, Math.round(w.mag * 0.2)), clamp(1 - vmAds * 1.6, 0, 1));
+  }
 
   const aiming = isAiming();
   const scoped = aiming && w.zoom;

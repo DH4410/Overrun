@@ -28,6 +28,52 @@ for (const w of WEAPONS) {
 }
 
 /**
+ * A small digital readout on the gun itself, so rounds left can be read without looking away from
+ * the sights. One canvas and texture are shared; each model carries its own plane, set just behind
+ * its sight, and only the held gun is visible. The texture is repainted only when the text changes.
+ */
+const counter = { canvas: null, ctx: null, tex: null, mat: null, text: '', low: false };
+function buildAmmoCounters() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  counter.canvas = c; counter.ctx = c.getContext('2d');
+  counter.tex = new THREE.CanvasTexture(c);
+  counter.tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: counter.tex, transparent: true, depthWrite: false, toneMapped: false });
+  counter.mat = mat;
+  const geo = new THREE.PlaneGeometry(0.055, 0.0275);
+  for (const w of WEAPONS) {
+    const ud = vmModels[w.id]?.userData;
+    if (!ud?.sight || w.thrown) continue;
+    // Beside the receiver on the near (left) side, turned toward the eye: the camera sits above,
+    // behind and to the left of the gun at the hip.
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(ud.sight.x - 0.045, ud.sight.y - 0.012, ud.sight.z - 0.03);
+    m.rotation.order = 'YXZ';
+    m.rotation.set(-0.38, -0.35, 0);
+    m.renderOrder = 5;
+    vmModels[w.id].add(m);
+  }
+}
+
+/** `alpha` fades it out while aiming, when the sight picture must stay clear. */
+function setAmmoCounter(text, low, alpha = 1) {
+  if (!counter.ctx) return;
+  counter.mat.opacity = alpha;
+  if (counter.text === text && counter.low === low) return;
+  counter.text = text; counter.low = low;
+  const g = counter.ctx;
+  g.clearRect(0, 0, 128, 64);
+  g.fillStyle = 'rgba(6, 12, 14, 0.7)';
+  g.fillRect(2, 2, 124, 60);
+  g.font = 'bold 44px monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = low ? '#ff5a4a' : '#7dffd2';
+  g.fillText(text, 64, 34);
+  counter.tex.needsUpdate = true;
+}
+
+/**
  * Where each gun sits at the hip, in camera space. Real guns are different lengths, so one
  * position cannot frame them all: the rifle's stock has to reach the edge of the screen, the
  * pistol is held out in front.
@@ -126,11 +172,14 @@ function updateMuzzleFlash(dt) {
   }
 }
 
+buildAmmoCounters();
+
 return {
   vmRig,
   vmModels,
   homePositions: VM_HOME,
   adsPosition,
+  setAmmoCounter,
   loadViewModels,
   ejectBrass,
   updateBrass,

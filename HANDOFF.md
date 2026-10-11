@@ -180,9 +180,16 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   desaturation (CSS `saturate()` on `#view`, quantised, skipped in saver), +4 deg FOV on sprint, white
   `#blastflash` on close explosions, fast sparks + heavy debris in `spawnExplosion`, low-ammo tick
   (`Audio.lowAmmo`, last 20% of the mag), raw mouse (`requestPointerLock({unadjustedMovement})` with
-  fallback), sensitivity step 0.01. Unit tests: `tests/unit/power-tuning.test.mjs`. NOT done: enemy
-  hit flash (puppet skins share materials online), diegetic ammo counter, audio occlusion/ducking,
-  progression, minimap half-rate (`halfRateMinimap` is in `tuning()` but unread), static shadow cache.
+  fallback), sensitivity step 0.01, minimap redrawn every other frame in the saver. Later in the
+  session: enemy hit flash (`src/hitflash.js`, emissive blink, bots and online puppets own their
+  materials; ticked from `updateExplosionFx`), diegetic ammo counter (canvas plane beside each gun's
+  receiver, `setAmmoCounter` in weapons.js, fades out while aiming; `diegeticAmmo`), audio occlusion
+  (`Audio.setOccluder(losClear)`: lowpass 1.4 kHz and x0.6 behind a wall) and music ducking
+  (`Audio.duck`, on explosions within 25 m). Unit tests: `tests/unit/power-tuning.test.mjs`.
+  NOT done: progression/unlocks (locker, loadout and skins already exist), 30 s pacing loop, static
+  shadow cache, per-weapon muzzle-flash colour grading. Research notes: game feel = instant, layered
+  input -> flash/sound -> recoil -> hit confirm (marker 50-100 ms, distinct headshot, kill sting);
+  battery = cap fps, cap pixel ratio, no MSAA, low-power GPU hint, render only when needed.
 - Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v56. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.

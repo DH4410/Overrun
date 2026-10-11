@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { CONFIG, TEAM, TEAM_COLOR } from '../config.js';
+import { flashHit } from '../hitflash.js';
 import { hipFov } from '../settings.js';
 import { aimDirection } from '../sim/combat.js';
 import { MAP_DATA, MAP_IDS } from '../sim/mapData.js';
@@ -833,7 +834,7 @@ export function createNetClient(d) {
           }
           d.showDamageNumber(p, e.dmg, head, zone, !!shield, lethal);
           const b = puppets.get(e.victim);
-          if (b) { b.lastHurtBy = player; b.lastHurtAt = d.match.time; }
+          if (b) { b.lastHurtBy = player; b.lastHurtAt = d.match.time; if (!shield) flashHit(b.mesh); }
         }
         if (e.victim === myId) {
           if (shield === 'break') Audio.shieldBreak(true);

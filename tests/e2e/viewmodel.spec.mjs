@@ -22,7 +22,7 @@ async function aimedBounds(page, id) {
     const v = new THREE.Vector3();
     const out = { sight: [], rest: [] };
     model.traverse((o) => {
-      if (!o.isMesh) return;
+      if (!o.isMesh || !o.visible) return;      // a part that is switched off is not in the picture
       const pos = o.geometry.attributes.position;
       let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity, inFront = 0;
       for (let i = 0; i < pos.count; i += 1) {

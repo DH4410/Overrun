@@ -225,6 +225,9 @@ export async function pumpFrames(page, frames = 1, dtMs = 1000 / 60) {
 }
 
 export async function setGamepadButton(page, index, down) {
+  // The game counts a pad button only once it has been seen up (a receiver that reports a button
+  // held for good must not hold the aim), so two frames go by with the pad idle first.
+  if (down) await pumpFrames(page, 2);
   await page.evaluate(
     ({ buttonIndex, isDown }) => globalThis.__testGamepad.setButton(buttonIndex, isDown),
     { buttonIndex: index, isDown: down },
@@ -239,6 +242,7 @@ export async function pulseGamepadButton(page, index) {
 }
 
 export async function tapGamepadButton(page, index) {
+  await pumpFrames(page, 2);
   await page.evaluate((buttonIndex) => globalThis.__testGamepad.tapButton(buttonIndex), index);
   await pumpFrames(page);
 }

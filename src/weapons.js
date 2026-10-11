@@ -32,7 +32,7 @@ for (const w of WEAPONS) {
  * the sights. One canvas and texture are shared; each model carries its own plane, set just behind
  * its sight, and only the held gun is visible. The texture is repainted only when the text changes.
  */
-const counter = { canvas: null, ctx: null, tex: null, mat: null, text: '', low: false };
+const counter = { canvas: null, ctx: null, tex: null, mat: null, text: '', low: false, meshes: [] };
 function buildAmmoCounters() {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 64;
@@ -53,6 +53,7 @@ function buildAmmoCounters() {
     m.rotation.set(-0.38, -0.35, 0);
     m.renderOrder = 5;
     vmModels[w.id].add(m);
+    counter.meshes.push(m);
   }
 }
 
@@ -60,6 +61,9 @@ function buildAmmoCounters() {
 function setAmmoCounter(text, low, alpha = 1) {
   if (!counter.ctx) return;
   counter.mat.opacity = alpha;
+  // Fully faded means not drawn at all, so nothing of it sits over the sight picture.
+  const shown = alpha > 0.02;
+  if (counter.meshes[0] && counter.meshes[0].visible !== shown) for (const m of counter.meshes) m.visible = shown;
   if (counter.text === text && counter.low === low) return;
   counter.text = text; counter.low = low;
   const g = counter.ctx;

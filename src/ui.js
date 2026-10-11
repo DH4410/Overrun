@@ -107,7 +107,7 @@ function bindMenu() {
     Audio.init();
     // Cover the menu, build the match frozen, warm the graphics, then let it start: nothing
     // moves, and nothing hitches, in front of the player.
-    loadScreen.show({ kicker: $('mode-name')?.textContent ?? '', title: MAPS[map].name, sub: MAPS[map].blurb });
+    loadScreen.show({ kicker: $('mode-name')?.textContent ?? '', title: MAPS[map].name, sub: MAPS[map].blurb, map });
     try {
       await loadScreen.step(0.1, 'Building the arena');
       startMatch(mode, diff, el.nameInput.value.trim(), map, { hold: true });

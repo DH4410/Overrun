@@ -219,7 +219,7 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   rounding kit's `Bucket.face` takes ONE tint per face (no per-vertex gradients), and `roundkit_dh.lathe`
   has no `y0` (profile y is absolute). Plan-mode vertex counter: `count_wz.py <map>` pattern (stub
   `bmesh`, exec head of `build_<map>.py` up to the detail exec line, count in `Bucket.face`).
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v58. The live
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v59 (v59 is the full-page loading screen: src/loading.js + `#loadscreen` in ui-overhaul.css, art is the map's lobby thumbnail). The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (147) and lint (0 errors) were green per commit.
 

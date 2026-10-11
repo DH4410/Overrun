@@ -381,7 +381,7 @@ export function createNetClient(d) {
     loading = true;
     try {
       const lobby = phase === PHASE.LOBBY;
-      loadScreen.set({ kicker: `ONLINE \u00b7 ${modeLabel(lobby ? lobbyInfo.settings?.mode : mode)}`, title: lobby ? 'LOBBY' : String(mapId).toUpperCase(), sub: 'Getting everything ready' });
+      loadScreen.set({ kicker: `ONLINE \u00b7 ${modeLabel(lobby ? lobbyInfo.settings?.mode : mode)}`, title: lobby ? 'LOBBY' : String(mapId).toUpperCase(), sub: 'Getting everything ready', map: lobby ? '' : String(mapId) });
       await loadScreen.step(0.4, 'Loading graphics');
       await d.warmScene((f) => (active ? loadScreen.step(0.4 + f * 0.45, 'Loading graphics') : null));
       if (!active) return;
@@ -428,7 +428,7 @@ export function createNetClient(d) {
   }
 
   async function mapVeil(id) {
-    loadScreen.show({ kicker: 'MAP', title: id.toUpperCase(), sub: '' });
+    loadScreen.show({ kicker: 'MAP', title: id.toUpperCase(), sub: '', map: id });
     try {
       await loadScreen.step(0.2, 'Building the arena');
       if (!active) return;

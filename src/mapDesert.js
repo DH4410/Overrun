@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
+import { typeAtlas } from './typeAtlas.js';
 
 /**
  * DESERT: a walled desert town at mid-afternoon, modelled in Blender
@@ -59,10 +60,20 @@ export const DESERT = {
       water: new THREE.MeshStandardMaterial({ color: 0x2c3f3a, roughness: 0.15, metalness: 0.1 }),
       metal: new THREE.MeshStandardMaterial({ color: 0x3a3632, roughness: 0.5, metalness: 0.6 }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
+      // The detail pass (desertdetail.py): colour per piece, no collider.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.05, vertexColors: true }),
+      // Standard, not Lambert: only Standard takes the scene's environment light, and at env 0.5 that is
+      // most of what a wall in shade receives, so a Lambert decal would sit dark on its own wall.
+      mark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, ...decal(3) }),
+      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
+      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
+      tmark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
+      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, emitters, and everything past the wall. */
-  noCast: ['sand', 'dune', 'paving', 'dark', 'lamp', 'far', 'water'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, everything past the wall, and
+   *  the detail pass (too small to throw a shadow worth drawing). */
+  noCast: ['sand', 'dune', 'paving', 'dark', 'lamp', 'far', 'water', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
 
   look: {
     background: 0xe6d6ba,

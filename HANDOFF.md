@@ -204,9 +204,24 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   Dark soot/streak/skid values must be mid-tone (soot 0x58524c with a 0x71695f halo), never near-black.
   Also fixed: e2e `setGamepadButton`/`tapGamepadButton` pump two idle frames first (the game now counts
   a pad button only once seen up); the diegetic ammo counter plane is `visible = false` while faded out.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v57. The live
+- **DESERT deep detail pass** (`scripts/blender/desertdetail.py`, exec'd before `run_round` in
+  `build_desert.py`, `desert_detail()` just before `rk_finalize()`; visual only, `desert.json` hash
+  unchanged, GLB 5.7 -> 6.96 MB raw, ~40k detail verts). It *wraps* the layout's own functions (house,
+  window, entry, rug, arcade, stall, crate, well, cistern, palm, tower, perimeter) to learn where the
+  openings are, then adds: rising damp (two-tone, tinted from the house's own plaster so it never reads
+  as a pasted shape), sill and spout streaks, cracks, render patches, door number plates, sill pots,
+  timber lattices; glazed-tile columns and a diamond frieze on every arcade; painted stall boards and
+  hanging dried goods; crate stencils; damp rings round the wells; cistern plates and cracks; date
+  bunches and dead fronds on the palms; town-wall damp/stains/cracks/sector plates, studs and straps on
+  the gate leaves, gate names, tower pennants; paving cracks, drifted sand, cart ruts, foot tracks,
+  rugs, stones, fallen fronds, sherds (scatter is rejected inside house footprints). Nothing on roofs.
+  `mapDesert.js` has the five keys (Standard `mark`/`tmark`, same IBL reason as warzone). Gotchas: the
+  rounding kit's `Bucket.face` takes ONE tint per face (no per-vertex gradients), and `roundkit_dh.lathe`
+  has no `y0` (profile y is absolute). Plan-mode vertex counter: `count_wz.py <map>` pattern (stub
+  `bmesh`, exec head of `build_<map>.py` up to the detail exec line, count in `Bucket.face`).
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v58. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
-  the unit tests (144) and lint (0 errors) were green per commit.
+  the unit tests (147) and lint (0 errors) were green per commit.
 
 ## Session 9 (2026-10-07): playtest fixes, new modes, more maps (in progress)
 

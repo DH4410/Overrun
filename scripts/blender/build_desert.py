@@ -62,6 +62,12 @@ MATERIALS = {
     # Detail with no collider: neither is in the ghost probe's touch list.
     'trim':    ((0.72, 0.62, 0.48), 2.5),     # copings, cornices, plinths, sills, voussoirs; tinted
     'clay':    ((1.00, 1.00, 1.00), 1.0),     # jars, baskets, produce, sacks; tinted
+    # The detail pass (desertdetail.py): per-piece colour, no collider, none in the ghost probe's list.
+    'fit':     ((0.35, 0.30, 0.25), 1.0),     # hardware and small goods: lattices, pots, strings, date bunches
+    'mark':    ((1.00, 1.00, 1.00), 1.0),     # damp, stains, cracks, tiles, rugs, tracks: decals
+    'glyph':   ((1.00, 1.00, 1.00), 1.0),     # lit decals: unlit
+    'tmark':   ((1.00, 1.00, 1.00), 1.0),     # sign text, a quad per character
+    'tglyph':  ((1.00, 1.00, 1.00), 1.0),
 }
 SMOOTH = {'dune'}
 
@@ -70,11 +76,12 @@ RK_ROUND = {'mud': 0.16, 'plaster': 0.12, 'lime': 0.10, 'stone': 0.07, 'wood': 0
             'trim': 0.05, 'metal': 0.02, 'dome': 0.05}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 6.0
-RK_PLAIN = {'sand', 'dune', 'paving', 'dark', 'water', 'lamp', 'far', 'frond', 'cloth', 'clay'}
+RK_PLAIN = {'sand', 'dune', 'paving', 'dark', 'water', 'lamp', 'far', 'frond', 'cloth', 'clay',
+            'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 RK_WEAR = {'mud': (0.30, 0.20, True), 'plaster': (0.26, 0.18, True), 'lime': (0.22, 0.14, True),
            'stone': (0.20, 0.12, True), 'wood': (0.20, 0.10), 'beam': (0.14, 0.08), 'trim': (0.20, 0.12)}
 # Every key that shares a material with a worn one carries vertex colours too (lime/dome, wood/beam).
-TINTED = {'cloth', 'frond', 'far', 'trim', 'clay', 'dome', 'beam'} | set(RK_WEAR)
+TINTED = {'cloth', 'frond', 'far', 'trim', 'clay', 'dome', 'beam', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'} | set(RK_WEAR)
 
 # Poly Haven models: (slug, max triangles, collider, approximate w/h/d for plan mode)
 PROPS = {
@@ -994,6 +1001,7 @@ def build_layout():
     souk()
     yard()
     backdrop()
+    desert_detail()
     rk_finalize()
 
 
@@ -1011,5 +1019,7 @@ def run_round(layout):
         'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
     }
 
+
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'desertdetail.py')).read())
 
 result = run_round(build_layout)

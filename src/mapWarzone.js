@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
+import { typeAtlas } from './typeAtlas.js';
 
 /**
  * WARZONE: a ruined town on open ground under a smoky afternoon sky, modelled in Blender
@@ -59,10 +60,21 @@ export const WARZONE = {
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: true }),
+      // The detail pass (warzonedetail.py): hardware, paint, stains, sign text. No collider, and
+      // the scenery detail switch and the battery saver hide all of it.
+      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.4, vertexColors: true }),
+      // Standard, not Lambert: only Standard takes the scene's environment light, and on a hazy day that is
+      // most of what a wall in shade receives, so a Lambert decal would sit dark on its own wall.
+      mark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, ...decal(3) }),
+      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
+      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
+      tmark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
+      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, emitters, and everything past the wall. */
-  noCast: ['ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, the detail pass (too small to
+   * shade) and everything past the wall. */
+  noCast: ['ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
 
   look: {
     background: 0xb9b6ae,

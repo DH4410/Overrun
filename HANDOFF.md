@@ -1,4 +1,4 @@
-# HANDOFF — read this first
+# HANDOFF â€” read this first
 
 Say **"read HANDOFF.md"** to pick this up in a new session.
 
@@ -6,7 +6,7 @@ Session 1 (2026-09-27) reworked bot AI, game modes, gunplay, physics, the map ro
 character/animation pipeline. Session 2 (2026-09-28) was laptop work: frame rate, battery, and
 the two bugs a real playtest turned up. Session 3 (2026-09-28) was a full playtest of every
 mode and map, then a code review after you reported movement and animation looking wrong and
-dead bots floating — it found the bots were being drawn backwards. Session 4 (2026-09-28)
+dead bots floating â€” it found the bots were being drawn backwards. Session 4 (2026-09-28)
 worked through your ten-point list: bot jitter, animation, weapons, jumping through ramps, stuck
 bots, hitboxes and damage feedback, the UI, and movement. Session 5 (2026-09-29) did the last
 two: **PORT**, a new default map modelled in Blender, and **three more Mixamo characters**.
@@ -38,7 +38,7 @@ captured) and did not recur in any of the four full runs in session 3. Still wor
 it comes back.
 
 **Always run e2e with `CI=1`.** The Playwright config sets `reuseExistingServer: !CI`, and
-there are other checkouts of this repo on this machine — without `CI=1` a stale server on
+there are other checkouts of this repo on this machine â€” without `CI=1` a stale server on
 `:4173` can serve a different tree and give a false green.
 
 ---
@@ -190,7 +190,21 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   shadow cache, per-weapon muzzle-flash colour grading. Research notes: game feel = instant, layered
   input -> flash/sound -> recoil -> hit confirm (marker 50-100 ms, distinct headshot, kill sting);
   battery = cap fps, cap pixel ratio, no MSAA, low-power GPU hint, render only when needed.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v56. The live
+- **WARZONE deep detail pass** (`scripts/blender/warzonedetail.py`, exec'd before `run_round` in
+  `build_warzone.py`, `warzone_detail()` called just before `rk_finalize()`; visual only, `warzone.json`
+  hash unchanged, GLB 5.5 -> 8.1 MB raw / 2.8 MB gzip, ~95k detail verts): building names/numbers,
+  window frames, boards, sills, shutters, curtains, door posts/thresholds/hinges, soot, bullet pocks,
+  cracks, rain streaks, render repairs, downpipes, aerials/dishes on roofs, shop awnings; wreck/bus
+  decals and hardware; container names and codes; crate stencils; lamp-post bands; rubble chunks; road
+  cracks, patches, manholes, zebra and skid marks; plaza/base/fuel station signage; perimeter wall
+  plates. Same five keys and atlas as the other maps (`fit`, `mark`, `glyph`, `tmark`, `tglyph`).
+  Lesson: **Lambert does not receive `scene.environment`**, so on a map with real IBL (warzone env 0.5)
+  Lambert decals render ~10x darker than the Standard wall under them; warzone's `mark`/`tmark` are
+  Standard for that reason (the older maps' Lambert marks are fine only because their IBL is weaker).
+  Dark soot/streak/skid values must be mid-tone (soot 0x58524c with a 0x71695f halo), never near-black.
+  Also fixed: e2e `setGamepadButton`/`tapGamepadButton` pump two idle frames first (the game now counts
+  a pad button only once seen up); the diegetic ammo counter plane is `visible = false` while faded out.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v57. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 
@@ -202,7 +216,7 @@ Protocol bumps to v5 once, with the combat/items wire changes (not yet done).
 
 - [x] 1. Host powers and seat robustness: token takeover (no doubled players), silent sockets reaped
   (LIVENESS 75 s), host kick (`{t:'kick', id}`, 120 s token ban, `CLOSE.KICKED`/`REPLACED`), host
-  `{t:'lobby'}` from any phase, everyone-left → lobby after ALONE_GRACE 8 s. UI: roster with ✕ in the
+  `{t:'lobby'}` from any phase, everyone-left â†’ lobby after ALONE_GRACE 8 s. UI: roster with âœ• in the
   lobby, RETURN TO LOBBY + REMOVE buttons in the pause menu. Tests: `tests/unit/mp-host-powers.test.mjs`.
 - [x] 2. Always-on sprint (forward runs; drops while the trigger is held; the autoSprint/toggleSprint
   settings are gone), white crosshair (settings `version` 2 migration), all lobby/match music removed
@@ -266,7 +280,7 @@ The multiplayer work is documented in MULTIPLAYER.md; this is what else changed 
   (`.kf .kicon`), with chips for HEADSHOT/NOSCOPE/MIDAIR/distance. The killcam now draws the killer
   (a puppet from the recorded frames), replays their shots as cosmetic bullets, and sits an
   over-the-shoulder camera behind them with a line-of-sight pull-in; the death text reads
-  `KILLED BY name · weapon · tags`, and your own HUD hides while dead. The map hash folds in
+  `KILLED BY name Â· weapon Â· tags`, and your own HUD hides while dead. The map hash folds in
   PROTOCOL_VERSION, so client and server must be deployed together.
 - **FOV setting** (`settings.fov`, 60-100, default 78; ADS scales in proportion).
 - **Playthrough findings (real GPU, headless Chromium):** WARZONE referenced a Poly Haven texture
@@ -283,13 +297,13 @@ The multiplayer work is documented in MULTIPLAYER.md; this is what else changed 
   online; `desert-map.spec` ("a sv match on DESERT starts cleanly") and `hitboxes.spec.mjs:85` flake.
 - **Crouch cancelled by a jump** could not be reproduced; ask for exact steps.
 
-## Next session — start here
+## Next session â€” start here
 
 1. **Playtest sessions 6 and 7** in a real browser (`node scripts/serve-tests.mjs`, then
-   http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v17`). Sound and music
+   http://localhost:4173, Ctrl+Shift+R once â€” the cache is now `overrun-v17`). Sound and music
    in particular were only checked for "runs without errors": nobody has listened to them.
    DESERT and SNOW were checked from headless screenshots and the specs, not played.
-2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below; DESERT
+2. Map tweaks are a script edit and one Blender run away â€” see "Changing PORT" below; DESERT
    and SNOW work the same way with `build_desert.py` and `build_snow.py`.
 
 ---
@@ -303,8 +317,8 @@ spec). The lobby now has three maps, all modelled in Blender, all 180-degree sym
 | Map | Script | Loaded by |
 |---|---|---|
 | PORT (default) | `scripts/blender/build_port.py` | `src/mapPort.js` |
-| DESERT — a walled town at mid-afternoon: market square, souk and caravanserai on each flank | `scripts/blender/build_desert.py` | `src/mapDesert.js` |
-| SNOW — a research outpost at dusk: frozen pond round a radio mast, a station and a garage on each flank | `scripts/blender/build_snow.py` | `src/mapSnow.js` |
+| DESERT â€” a walled town at mid-afternoon: market square, souk and caravanserai on each flank | `scripts/blender/build_desert.py` | `src/mapDesert.js` |
+| SNOW â€” a research outpost at dusk: frozen pond round a radio mast, a station and a garage on each flank | `scripts/blender/build_snow.py` | `src/mapSnow.js` |
 
 - **One loader.** `src/mapGlb.js` loads any Blender map: the GLB (one mesh per material key),
   the collider JSON, a sky dome with clouds, a PMREM environment from the same sky, and the
@@ -315,7 +329,7 @@ spec). The lobby now has three maps, all modelled in Blender, all 180-degree sym
   measured bounds.
 - **Textures** are Poly Haven CC0, 2k on the Quality preset and 1k otherwise. Coloured cladding,
   snow and paint use a texture's luminance over a chosen colour (`pbrMat({ detail: true })`).
-- **Poly Haven units.** `steel_frame_shelves_01` ships in decimetres and imported 21 m tall —
+- **Poly Haven units.** `steel_frame_shelves_01` ships in decimetres and imported 21 m tall â€”
   on SNOW that was the "four tall towers" over the buildings. The importer now rescales a model
   that is off its listed size by a power of ten.
 - **Specs.** `desert-map.spec.mjs` and `snow-map.spec.mjs` are PORT's checks per map: colliders
@@ -380,9 +394,9 @@ wall: stacked containers, sheds, a quay, a ship and ship-to-shore cranes (visual
 - Bots path onto the dock, through the yard and into the warehouse
   (`bot-movement.spec.mjs`); no nav node sits in a solid or on a roof or container.
 - `ceilY` is 6.0 (the spawn sheds' roof underside) so spawn and pickup casts start under the
-  roofs — the Foundry bug from session 1 would otherwise have put the spawns on the roof.
+  roofs â€” the Foundry bug from session 1 would otherwise have put the spawns on the roof.
 - TDM, Survival and Duel each start cleanly on PORT, nobody on a roof. **A duel opens 114 m
-  apart** — the duel takes the two furthest spawns, which on a 100 x 76 m map are opposite
+  apart** â€” the duel takes the two furthest spawns, which on a 100 x 76 m map are opposite
   corners. Playable, but a long walk; a duel-only spawn pair (the two sheds, 62 m apart) would
   fix it if it feels slow.
 
@@ -405,7 +419,7 @@ bones per bot is a lot of skinning for a laptop.
 3. `CI=1 npx playwright test tests/e2e/port-map.spec.mjs`, and bump `CACHE` in `sw.js`.
 
 Spawns, pickups and interior lamps are gameplay, not geometry: they live in `src/mapPort.js`.
-Spawn candidates must clear `buildSpawnPoints`' 2 m blocker pad — 14 of the first 18 did not.
+Spawn candidates must clear `buildSpawnPoints`' 2 m blocker pad â€” 14 of the first 18 did not.
 
 ---
 
@@ -415,7 +429,7 @@ Numbers are measured, before -> after. Each fix has a regression test that was r
 seen to fail on the old code.
 
 1. **"The AI lags and teleports when I aim."** Two causes, both in how bots move.
-   - *The animation clips carry root motion* — despite the manifest saying "In Place". The drawn
+   - *The animation clips carry root motion* â€” despite the manifest saying "In Place". The drawn
      hips walked forward 1.7 m per Walk cycle, 2.5 m per Run cycle (every 0.73 s) and 1.2-1.6 m
      per strafe, then snapped back when the clip looped. The physics body already moves the
      bot, so every bot ran ahead of itself and teleported back. Now stripped at load
@@ -426,7 +440,7 @@ seen to fail on the old code.
      through the velocity (+1 m/s per step), flinging bunched bots apart; peak 6.9 -> <2 m/s.
    - `tests/e2e/bot-movement.spec.mjs`.
 2. **"The animation doesn't match."** Clips are now paced by their real speed, measured from the
-   root motion per character — the planted foot used to move at up to 15 m/s while chasing, now
+   root motion per character â€” the planted foot used to move at up to 15 m/s while chasing, now
    0.4-0.7 m/s (measurement noise from heel lift). The gun is posed procedurally (shouldered on
    the target when engaging, a ready carry otherwise) and both arms are solved onto it with
    two-bone IK: a bot shoots you with a gun pointing at you, 0-1 degrees off. Fast strafes turn
@@ -443,23 +457,23 @@ seen to fail on the old code.
 6. **"Bots get stuck running into walls."** Navigation rebuilt: nodes on every walkable surface
    (found by raycasting), edges only where a body-wide sweep clears, A*, reachable start nodes,
    a progress watchdog with unstick, paths that end at the real destination. The old path
-   straightening tested ~1.7 m up — over every low wall and crate. Stuck episodes per 240
+   straightening tested ~1.7 m up â€” over every low wall and crate. Stuck episodes per 240
    bot-seconds: 49-75 -> 0 on all three maps.
 7. **Hitboxes and "why didn't the headshot kill?"** Bots are hit on capsules on their posed
    skeleton: head x4 (an AR headshot now kills an unarmoured bot; it did 62), body and arms x1,
    legs x0.75 (`tests/e2e/hitboxes.spec.mjs`). The player's own hitbox had a "limb" cylinder
-   that enclosed the torso, scoring most chest hits at 0.6x — fixed. Feedback: gold hitmarker +
+   that enclosed the torso, scoring most chest hits at 0.6x â€” fixed. Feedback: gold hitmarker +
    metallic sound for a headshot, red for a kill, zone-coloured damage numbers, a kill banner
    (with HEADSHOT), and an enemy you just hit shows its health for 2.5 s. Sniper body shots kill.
 8. & 9. **UI.** One stylesheet replaces the inline block and the override layer: text over the
    game instead of glass panels, Barlow Condensed instead of Orbitron, one amber accent instead
    of neon cyan; scanlines, gradient title, emoji icons, the fake player card and the debug
    loading line are gone. READMEFORUI.md is updated.
-10. **Movement.** Acceleration + friction (full speed in 0.19 s, stop in 0.21 s — it was ~0.05 s
+10. **Movement.** Acceleration + friction (full speed in 0.19 s, stop in 0.21 s â€” it was ~0.05 s
     both ways), a quicker committed jump (same 1.25 m apex, 0.74 s in the air instead of 0.96 s,
     via extra player-only gravity), weak air control, a landing dip. `tests/e2e/player-movement.spec.mjs`.
 
-Knock-on: hard bots now land 38% of rounds on a standing target at 20 m (was 72% — the old
+Knock-on: hard bots now land 38% of rounds on a standing target at 20 m (was 72% â€” the old
 player limb cylinder caught near misses), but each torso hit counts in full. Elite unchanged.
 
 ---
@@ -475,7 +489,7 @@ property directly, and each test was re-broken and confirmed red.
    Mixamo export faces +Z. Toes pointed against the heading at a dot product of -0.97 on all of
    them. A bot running at you moonwalked; a bot shooting at you had its back turned. This is
    most of what "the animation doesn't match the movement" was. `facingCorrection()` now
-   measures each character's facing from its own skeleton — on the *posed* rig, because the
+   measures each character's facing from its own skeleton â€” on the *posed* rig, because the
    SWAT's rest pose faces the other way from its clips. The mesh rotation is also written
    every frame now; before, only a turn wrote it, so a fresh spawn faced anywhere until it
    moved.
@@ -486,7 +500,7 @@ property directly, and each test was re-broken and confirmed red.
    because the casts must stay disjoint (a test asserts it).
 3. **Corpses fell through the floor and then floated.** `die()` switched collisions off but
    left the body dynamic, so gravity took it through the floor, and at y = -20 the fall-out
-   guard — which ran before the alive check — teleported it to a spawn point in mid-air while
+   guard â€” which ran before the alive check â€” teleported it to a spawn point in mid-air while
    it faded. Frags launched corpses through walls too, because the explosion impulse hit every
    body with mass. Corpses are now kinematic and settled on the floor, and the impulse only
    touches dynamic bodies.
@@ -496,12 +510,12 @@ property directly, and each test was re-broken and confirmed red.
    `renderAlpha` in main.js). Crouch used to drop the camera 0.77 m in one frame and step-ups
    popped it; both are eased now.
 5. **The session-2 frame cap caused judder.** It aimed at exactly 60, which a 144 Hz panel can
-   only give by alternating 14 ms and 21 ms frames. It now runs every Nth refresh — evenly
+   only give by alternating 14 ms and 21 ms frames. It now runs every Nth refresh â€” evenly
    spaced, landing at or a little above the cap (72 on 144 Hz).
 6. **Aim pitch overwrote the animation.** It assigned the spine, neck and head X rotation
    instead of adding to it, throwing away the clips' torso lean. It also bent the wrong way
-   once the models faced forward — measured, and flipped (`AIM_PITCH_SIGN`).
-7. **Team kit** — the chest band and pads floated off the body. Now an armband on each upper
+   once the models faced forward â€” measured, and flipped (`AIM_PITCH_SIGN`).
+7. **Team kit** â€” the chest band and pads floated off the body. Now an armband on each upper
    arm, fitted from that bone's own vertices and carried by the animation.
 
 UI fixed in the same pass: final standings on the menu after a match (there was no results
@@ -509,14 +523,14 @@ screen), the result line no longer drawn over CALLSIGN in short windows, the HUD
 below ~1280x720 (at 800x450 it covered half the screen), allies labelled once instead of
 twice, no "walk in to collect" when you are already full, pointer-lock rejection handled.
 
-**What the playtest found and did not fix — worth your call:**
-- **The guns are toy blasters.** The viewmodels are the Kenney Blaster Kit — bright orange,
+**What the playtest found and did not fix â€” worth your call:**
+- **The guns are toy blasters.** The viewmodels are the Kenney Blaster Kit â€” bright orange,
   green and white plastic. That clashes with "Valorant / professional shooter" more than
   anything else on screen. Blender MCP is connected now; swapping in realistic weapon models is
   an art task, and a good use of it.
 - The maps are functional but plain, and Foundry's ceiling lamps render as flat white discs.
 - The menu's player card is hard-coded ("DH4410 / LEVEL 12") and the loading status line
-  ("96 nav nodes · 8/8 prop models") is debug text shown to the player.
+  ("96 nav nodes Â· 8/8 prop models") is debug text shown to the player.
 
 ## Session 2: what the playtest found
 
@@ -524,13 +538,13 @@ You reported: *the AI moves weird, the animation does not match the actual movem
 lag like they move at 2 fps*. That turned out to be one bug, plus a second one underneath it.
 
 **1. The loop threw simulation time away below 30 fps.** `CONFIG.MAX_SUBSTEPS` was 4, covering
-33.3 ms — exactly one frame at 30 fps, so no headroom at all, and below that the accumulator
+33.3 ms â€” exactly one frame at 30 fps, so no headroom at all, and below that the accumulator
 guard discarded the remainder every single frame. Measured in the real game, loaded down to
 10 fps: the simulation ran at **0.32x real time**. That is the "2 fps". It is also half of the
 animation complaint, because a bot's legs are paced off its *velocity* while its body was only
 covering a third of that per second, so the feet skated. Now 16 substeps (133 ms, real time
 down to 7.5 fps). One fixed step measures 0.407 ms, so the worst case is 6.5 ms of catch-up on
-a frame already over 130 ms long, and the frame rate was identical at 4, 8 and 16 substeps —
+a frame already over 130 ms long, and the frame rate was identical at 4, 8 and 16 substeps â€”
 which is the evidence that this cannot spiral.
 
 **2. Locomotion clips were paced by total speed, not by direction.** A bot closing while
@@ -541,8 +555,8 @@ of the ground the body did. Each clip is now paced by the component of travel it
 for, the ceiling is 2.6, and the walk/run crossfade was re-centred on the two clips' real
 speeds. Re-measured after the fix: **1.5%**.
 
-**Still open, and you will see it in any close-up:** the green team kit — chest band and
-shoulder pads — is parented to the mesh group rather than to bones, and was sized for the old
+**Still open, and you will see it in any close-up:** the green team kit â€” chest band and
+shoulder pads â€” is parented to the mesh group rather than to bones, and was sized for the old
 blocky humanoid. On the rigged characters it reads as large green blocks that do not move with
 the body at all. Fix: parent it to `Spine2` and the shoulder bones in `buildSoldierMesh`
 (`src/bots.js`) and scale it to the character. This is the next thing I would do.
@@ -550,21 +564,21 @@ the body at all. Fix: parent it to `Spine2` and the shoulder bones in `buildSold
 ## Carried over from session 1, still true
 
 1. **Very little has been playtested by hand.** Session 2 playtested the bots specifically. How
-   the rest *feels* — the elite bot, the new TTK — is still unverified.
+   the rest *feels* â€” the elite bot, the new TTK â€” is still unverified.
 
-2. **AR damage went 18 → 26, pistol 12 → 15.** Bots use the same weapon table as the player,
-   so this made every bot at every difficulty in every mode roughly 45% deadlier — that was
+2. **AR damage went 18 â†’ 26, pistol 12 â†’ 15.** Bots use the same weapon table as the player,
+   so this made every bot at every difficulty in every mode roughly 45% deadlier â€” that was
    not the stated intent of the gunplay change, it is a side effect. If the game feels
    punishing, revert this first: `src/weapons.js`, `WEAPONS[].damage`.
 
 3. **The e2e harness cannot tell you the game looks right.** Every test reroutes the CDN and
-   stubs the Poly Haven textures with a 1×1 image, so every scene looks wrong in the same
+   stubs the Poly Haven textures with a 1Ã—1 image, so every scene looks wrong in the same
    way. Foundry shipped as a literally black screen and the whole suite stayed green. Visual
    checks must go through the real page (see below).
 
 ---
 
-## What was built — session 2 (laptop and battery)
+## What was built â€” session 2 (laptop and battery)
 
 All of it is in the settings panel, under a new **LAPTOP & BATTERY** group and in CONTROLS.
 
@@ -582,12 +596,12 @@ All of it is in the settings panel, under a new **LAPTOP & BATTERY** group and i
   integrated GPU. Both are fixed at context creation, so both apply on reload; the panel says so.
 - **Adaptive resolution** (default on). Steps down when frames run late, then *verifies its own
   step*: if the next window is not 6% faster it puts the pixels back and stops. Without that
-  check it walked to the 0.6 floor on a CPU-bound machine and bought nothing — measured, in the
+  check it walked to the 0.6 floor on a CPU-bound machine and bought nothing â€” measured, in the
   real game, before the check existed.
 - **Fire rate no longer depends on frame rate.** The cooldown carries its overshoot past zero
   into the next shot. Without it a 30 fps cap rounds the AR's 0.09 s cooldown up to 0.1 and the
-  player loses a tenth of their rate of fire to a graphics setting, while bots — which fire on
-  the fixed clock — keep all of theirs.
+  player loses a tenth of their rate of fire to a graphics setting, while bots â€” which fire on
+  the fixed clock â€” keep all of theirs.
 - **Trackpad look boost** (off by default), **auto-sprint** (off by default, because sprinting
   is the widest accuracy cone in the game), and **aim assist** (`settings.aimAssist`, default
   0.35). Assist is friction-only up to 0.5: it slows the crosshair while it is over a visible
@@ -601,21 +615,21 @@ test pins the shipped constant, the other states what the old value did, so the 
 pass vacuously). But aim assist, trackpad boost and auto-sprint have only been read and reasoned
 about, never executed by a test. Write that spec first.
 
-## What was built — session 1
+## What was built â€” session 1
 
-- **1v1 Duel** — round-based, one life each, first to `CONFIG.DUEL_ROUNDS` (7), mirrored
+- **1v1 Duel** â€” round-based, one life each, first to `CONFIG.DUEL_ROUNDS` (7), mirrored
   spawns, mirrored loadout, always the ELITE tier. `src/match.js`.
-- **ELITE bot** — per-tier aim profiles in `src/bots.js`. Measured at 20 m against a
+- **ELITE bot** â€” per-tier aim profiles in `src/bots.js`. Measured at 20 m against a
   stationary target: hard 0.72 hit / 0.02 headshot, elite 1.00 / 0.75, elite-while-strafing
   0.03. That last number is the counter-play and `tests/e2e/duel.spec.mjs` asserts it holds.
-- **AI movement** — acceleration-limited locomotion, counter-strafing, cover peeking instead
+- **AI movement** â€” acceleration-limited locomotion, counter-strafing, cover peeking instead
   of a magic heal, string-pulled paths, pre-aimed angles.
-- **Gunplay** — additive accuracy cone (rest / move / air / spray bloom), deterministic
+- **Gunplay** â€” additive accuracy cone (rest / move / air / spray bloom), deterministic
   recoil patterns, crosshair that tracks the live cone.
-- **FOUNDRY** — mirrored three-lane map with a contested raised mid.
-- **Grenades** — inherit thrower velocity, tumble, roll to a stop; underhand lob on RMB.
-- **Characters** — Swat Guy, Crypto, Ely and the original soldier, split by team.
-- **Animation** — eight Mixamo clips, directional blending, spine-driven aiming, authored
+- **FOUNDRY** â€” mirrored three-lane map with a contested raised mid.
+- **Grenades** â€” inherit thrower velocity, tumble, roll to a stop; underhand lob on RMB.
+- **Characters** â€” Swat Guy, Crypto, Ely and the original soldier, split by team.
+- **Animation** â€” eight Mixamo clips, directional blending, spine-driven aiming, authored
   death, weapon carried in the hand bone.
 
 Branch triage: only `codex/phase2-modularization` had anything to merge (it splits the old
@@ -626,14 +640,14 @@ was already contained in it or zero commits ahead. **Nothing was deleted.**
 
 ## Open items
 
-- [x] **Decide what to do with the branch** — done: it is on master (sessions 1-5 by PR #7,
+- [x] **Decide what to do with the branch** â€” done: it is on master (sessions 1-5 by PR #7,
       sessions 6 and 7 pushed directly).
 - [ ] **An e2e spec for aim assist, trackpad boost and auto-sprint.** None of them are executed
       by any test yet.
 - [ ] **Playtest.** Especially the elite bot's difficulty and the new TTK.
-- [x] **Scene lighting from the sky** — done in session 7: every Blender map gets a PMREM
+- [x] **Scene lighting from the sky** â€” done in session 7: every Blender map gets a PMREM
       environment from its own sky (`skyEnvironment` in `mapGlb.js`, strength `look.env`).
-- [ ] **More animation, if wanted.** Hit reactions were discussed but not added — the bot has
+- [ ] **More animation, if wanted.** Hit reactions were discussed but not added â€” the bot has
       no hit-reaction hook yet, so it needs code as well as a clip.
 - [ ] **Clean up ~170 MB of source FBX in `C:\Users\dimah\Downloads`** (`Ch15_nonPBR`,
       `Ch45_nonPBR`, `Exo Gray`, `Ely By K.Atienza`, and the eight clip files). Safe to
@@ -667,12 +681,12 @@ from the real muzzle, and rejects lane endpoints that resolve inside geometry.
 
 **The Mixamo clips carry root motion, whatever the manifest says.** Check any new clip: the
 Hips position track's horizontal drift over one cycle should be ~0. `stripRootMotion` handles it
-at load; its "which axis is up" test is the axis that never nears zero — the largest average is
+at load; its "which axis is up" test is the axis that never nears zero â€” the largest average is
 wrong, because a Run cycle's forward drift averages more than the hip height.
 
 **The e2e harness fakes requestAnimationFrame**, so Playwright's actionability "stable" check
 never passes for a click inside a match: use `element.click()` in `page.evaluate`. Its fake
-gamepad also rewrites `aiming` every frame — hold LT (button 6) to aim in a test.
+gamepad also rewrites `aiming` every frame â€” hold LT (button 6) to aim in a test.
 
 **A ray exactly along a face or through a corner can go either way.** Two symmetric sight
 lines disagreed on PORT because both grazed a box corner. The layout's edges are all at round
@@ -688,7 +702,7 @@ ahead of the real set, and three reads COLOR_0: every container came out white. 
 exports the colour set by name.
 
 **"Every track binds" is not "the pose is right".** The crushed soldier bound every track of
-every clip. Measure the pose itself — head above feet, toes along the heading — as
+every clip. Measure the pose itself â€” head above feet, toes along the heading â€” as
 `bot-presentation.spec.mjs` does.
 
 **A regression test that passes on the bug is worse than none.** The Foundry ramp test
@@ -704,7 +718,7 @@ indoors and ambient alone is black. Any new map needs a `build*Lights()`.
 `document.visibilityState === 'visible'` and it paints when you take a screenshot, but rAF
 never fires on its own, so the game loop sits frozen at one frame and every measurement reads
 zero. To playtest through it, replace `requestAnimationFrame` with a `setTimeout(cb, 16)` shim
-*and* take one screenshot to force the pending native callback to fire — the loop then
+*and* take one screenshot to force the pending native callback to fire â€” the loop then
 re-registers through the shim and runs. Everything measured in session 2 was measured that way.
 Note that the shim pins every frame to >=16 ms, so it looks CPU-bound to the adaptive scaler;
 that is an artefact of the harness, not of the game.
@@ -733,12 +747,12 @@ node scripts/fbx-to-glb.mjs "<input.fbx>" assets/bots/<name>.glb --max-texture=5
 ```
 
 It normalises height to 1.832 m, restores `mixamorig:` names, indexes the geometry, merges
-draw groups and re-encodes textures — typically 115 MB → under 4 MB. It **rejects**
+draw groups and re-encodes textures â€” typically 115 MB â†’ under 4 MB. It **rejects**
 characters whose parts each carry their own copy of the skeleton (Exo Gray: 896 bones, 784
 duplicates), because only one part of those would animate. Then add the file to `CHARACTERS`
 in `src/bots.js`.
 
-**Add a map made in Blender:** follow SNOW — a generator script on `mapkit.py` that emits
+**Add a map made in Blender:** follow SNOW â€” a generator script on `mapkit.py` that emits
 meshes and colliders together, a GLB named by material key plus a collider JSON, and a
 `src/map*.js` definition added to `GLB_MAPS` in `maps.js`. `loadGlbMaps` loads every map at
 boot alongside the character loads; a map is marked `available` in `MAPS` only once its files
@@ -757,5 +771,5 @@ node scripts/serve-tests.mjs
 ```
 
 Then open `http://localhost:4173`. `window.__game` is exposed on localhost only and is the
-fastest way to drive a scenario — e.g. `__game.startMatch('duel','medium','PLAYER','snow')`.
+fastest way to drive a scenario â€” e.g. `__game.startMatch('duel','medium','PLAYER','snow')`.
 Pointer lock fails inside an embedded preview pane; that error is the pane, not the game.

@@ -65,8 +65,14 @@ MATERIALS = {
     # Detail with no collider: neither is in the ghost probe's touch list.
     'trim':     ((0.66, 0.64, 0.59), 3.0),     # plinths, cornices, lintels, sills, copings
     'tyre':     ((0.03, 0.03, 0.035), 1.0),    # rubber
+    # The detail pass (warzonedetail.py): per-piece colour, no collider, none in the ghost probe's list.
+    'fit':      ((0.35, 0.37, 0.40), 1.0),     # hardware: frames, boards, plates, rubble, aerials
+    'mark':     ((1.00, 1.00, 1.00), 1.0),     # paint, stains, pocks, cracks: decals
+    'glyph':    ((1.00, 1.00, 1.00), 1.0),     # lit decals: unlit
+    'tmark':    ((1.00, 1.00, 1.00), 1.0),     # sign text, a quad per character
+    'tglyph':   ((1.00, 1.00, 1.00), 1.0),
 }
-TINTED = {'container', 'paint', 'sand', 'far'}
+TINTED = {'container', 'paint', 'sand', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 SMOOTH = {'outer'}
 
 PROPS = {
@@ -84,7 +90,8 @@ RK_ROUND = {'brick': 0.05, 'stucco': 0.05, 'cmu': 0.06, 'plaster': 0.03, 'concre
             'rail': 0.02, 'trunk': 0.03}
 RK_ROUND_DEFAULT = 0.04
 RK_CELL = 6.0
-RK_PLAIN = {'ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far'}
+RK_PLAIN = {'ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far',
+            'fit', 'mark', 'glyph', 'tmark', 'tglyph'}
 RK_WEAR = {'brick': (0.34, 0.18, True), 'stucco': (0.30, 0.16, True), 'cmu': (0.30, 0.14, True),
            'plaster': (0.20, 0.10), 'concrete': (0.30, 0.14), 'roof': (0.14, 0.20), 'rubble': (0.10, 0.16),
            'steel': (0.14, 0.10), 'wood': (0.22, 0.10), 'trim': (0.22, 0.10),
@@ -995,6 +1002,7 @@ def build_layout():
     west_district()
     east_district()
     backdrop()
+    warzone_detail()
     rk_finalize()
 
 
@@ -1012,5 +1020,7 @@ def run_round(layout):
         'glb_kb': round(os.path.getsize(OUT_GLB) / 1024) if IN_BLENDER and os.path.exists(OUT_GLB) else None,
     }
 
+
+exec(open(os.path.join(REPO, 'scripts', 'blender', 'warzonedetail.py')).read())
 
 result = run_round(build_layout)

@@ -77,9 +77,12 @@ import {
   QUALITY,
   adsFov,
   hipFov,
+  initPower,
   loadSettings,
   saveSettings,
+  saverActive,
   settings,
+  tuning,
 } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 import {
@@ -166,6 +169,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.autoClear = false;                       // we drive clears manually (3 passes/frame)
+renderer.domElement.id = 'view';   // the HUD desaturates it at low health
 document.body.appendChild(renderer.domElement);
 
 const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
@@ -532,6 +536,8 @@ async function warmScene(tick = async () => {}) {
  */
 function applySettings() {
   const q = QUALITY[settings.quality];
+  // The battery saver (manual, or automatic while unplugged) only ever lowers these.
+  const t = tuning();
 
   renderer.shadowMap.enabled = q.shadows;
   rigSun.castShadow = q.shadows;
@@ -543,19 +549,21 @@ function applySettings() {
   }
   renderer.shadowMap.needsUpdate = true;
 
-  renderer.setPixelRatio(Math.min(devicePixelRatio, q.maxPixelRatio));
-  baseRenderScale = q.renderScale;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, t.maxPixelRatio));
+  baseRenderScale = t.renderScale;
   // A different preset is a different performance situation, so re-probe from the preset's own
   // resolution instead of inheriting a scale the previous one needed.
   resScaler.restore();
   applyRenderScale();
 
-  activeLightBudget = q.lights;
+  activeLightBudget = t.lights;
   // A slot that can never be leased is still a loop iteration in every fragment of every lit
   // material (three bakes the light count into the program), so hide the ones past the budget.
   // The count changes only here, in the settings panel, where the one recompile is free.
-  lightSlots.forEach((l, i) => { l.visible = i < q.lights; });
-  CONFIG.MAX_DECALS = q.decals;
+  lightSlots.forEach((l, i) => { l.visible = i < t.lights; });
+  CONFIG.MAX_DECALS = t.decals;
+  // Scenery detail: the Blender detail pass is dressing, so it can simply not be drawn.
+  mapGroup.traverse((o) => { if (o.userData.detail) o.visible = t.detail; });
 
   camera.fov = hipFov();         // updateCamera() overrides this every frame; set for first render
   camera.updateProjectionMatrix();
@@ -592,7 +600,7 @@ function setSharp(on) {
 
 function applyRenderScale() {
   renderScale = sharp ? 1 : baseRenderScale * resScaler.scale;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, sharp ? clamp(devicePixelRatio, 1.5, 2) : QUALITY[settings.quality].maxPixelRatio));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, sharp ? clamp(devicePixelRatio, 1.5, 2) : tuning().maxPixelRatio));
   resizeRenderer();
 }
 
@@ -1077,7 +1085,9 @@ function updateCamera(dt) {
   const w = currentWeapon();
   const aiming = isAiming();
   const scoped = aiming && w.zoom;
-  const wantFov = scoped ? w.zoomFov : (aiming ? adsFov(ADS_FOV) : hipFov());
+  // Sprinting pushes the view out a few degrees: speed you can feel, for the cost of one number.
+  const rush = settings.fxSpeed && player.sprinting && player.alive && !aiming ? 4 : 0;
+  const wantFov = scoped ? w.zoomFov : (aiming ? adsFov(ADS_FOV) : hipFov() + rush);
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
   camera.updateProjectionMatrix();
 
@@ -1096,7 +1106,8 @@ function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
   if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
   if (net.inLobby) return 1 / LOBBY_FPS;   // a character standing on a podium needs no more than this
-  return settings.frameCap > 0 ? 1 / settings.frameCap : 0;
+  const cap = tuning().frameCap;
+  return cap > 0 ? 1 / cap : 0;
 }
 
 let framesDrawn = 0;
@@ -1215,7 +1226,7 @@ function frame() {
   // saver. A 30 Hz shadow update against walking bots is not something you can see, and shadows
   // are the single most expensive thing in the frame.
   shadowFrame++;
-  renderer.shadowMap.needsUpdate = !settings.powerSaver || (shadowFrame & 1) === 0;
+  renderer.shadowMap.needsUpdate = !saverActive() || (shadowFrame & 1) === 0;
 
   // --- render: world, then viewmodel on a cleared depth buffer, then the minimap ---
   renderer.setScissorTest(false);
@@ -1230,7 +1241,8 @@ function frame() {
     renderer.clearDepth();
     renderer.render(vmScene, vmCamera);
   }
-  if (inMatch) minimap.draw();
+  // The minimap is a 2D canvas redrawn from scratch: half the redraws are invisible at 30 Hz.
+  if (inMatch && (!tuning().halfRateMinimap || (framesDrawn & 1) === 0)) minimap.draw();
   if (appState === APP_STATE.PLAYING) {
     Audio.updateListener();
     Audio.heartbeat(dt, (match.running || net.playing) && player.alive && player.health < 35);
@@ -1507,6 +1519,8 @@ async function boot() {
   bindMenu();
   bindSettings();
   applySettings();
+  // Unplugging (or plugging in) re-applies the whole budget: lights, pixel ratio, detail, frame cap.
+  initPower(applySettings);
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local

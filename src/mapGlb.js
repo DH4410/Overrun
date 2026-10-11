@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 import { markShared } from './rendering.js';
+import { tuning } from './settings.js';
 import { buildMapColliders } from './sim/colliders.js';
+
+/** The detail pass's material keys: dressing only, hidden by the scenery detail switch and the battery saver. */
+const DETAIL_KEYS = new Set(['fit', 'mark', 'glyph', 'tmark', 'tglyph', 'tuft']);
 
 /**
  * Maps modelled in Blender. Each one is a definition (src/mapPort.js, mapDesert.js,
@@ -56,6 +60,12 @@ export function createGlbMap(def, {
       if (mats[key]) o.material = mats[key];
       o.castShadow = !noCast.has(key);
       o.receiveShadow = !mats[key]?.isMeshBasicMaterial;
+      // The detail pass (hardware, paint, sign text, tufts) is pure dressing: the settings panel and
+      // the battery saver switch it off, and these meshes carry no collision.
+      if (DETAIL_KEYS.has(key)) {
+        o.userData.detail = true;
+        o.visible = tuning().detail;
+      }
     });
     mapGroup.add(root);
     mapGroup.add(skyDome(def.look.sky));

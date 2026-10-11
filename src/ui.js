@@ -152,16 +152,40 @@ const SETTINGS_SCHEMA = [
   },
   {
     key: 'powerSaver', type: 'toggle', label: 'Battery saver',
-    hint: 'Halves the shadow refresh rate, and asks for the integrated GPU instead of the '
-        + 'discrete one. The GPU choice and anti-aliasing are fixed when the page loads, so '
-        + 'reload to apply those two.',
+    hint: 'Always on: lower resolution and pixel ratio, half the particles and lights, no '
+        + 'scenery detail, a 60 frame cap, and shadows refreshed every other frame. It also '
+        + 'asks for the integrated GPU, which (with anti-aliasing) is fixed when the page '
+        + 'loads, so reload to apply those two.',
   },
+  {
+    key: 'powerAuto', type: 'toggle', label: 'Battery saver when unplugged',
+    hint: 'Turns the saver on by itself whenever the laptop is not charging, and off again '
+        + 'when you plug in. Below 15% charge the cap drops to 30. Needs a browser that '
+        + 'reports battery state (Chrome and Edge do).',
+  },
+  {
+    key: 'sceneryDetail', type: 'toggle', label: 'Scenery detail',
+    hint: 'The small dressing on the maps: signs and lettering, fittings, paint and stains, '
+        + 'grass tufts. Purely visual; turning it off saves fill rate and memory bandwidth.',
+  },
+  { group: 'EFFECTS' },
+  { key: 'fxLowHealth', type: 'toggle', label: 'Low-health desaturation',
+    hint: 'The picture drains of colour as your health runs low, along with the red vignette.' },
+  { key: 'fxSpeed', type: 'toggle', label: 'Sprint speed effect',
+    hint: 'A small field-of-view push while sprinting, so speed is something you feel.' },
+  { key: 'fxBlast', type: 'toggle', label: 'Explosion screen effects',
+    hint: 'A brief white flash when a grenade goes off close to you. Switch off if bright flashes bother you.' },
+  { key: 'lowAmmoCue', type: 'toggle', label: 'Low-ammo click',
+    hint: 'A metallic tick on the last few shots so you know to reload without looking.' },
   { group: 'CONTROLS' },
   { key: 'touchpad', type: 'toggle', label: 'I am using a touchpad',
     hint: 'One switch for laptop play: fast swipes turn further, right-click toggles aim, and aim assist slows the crosshair over enemies so you stop on '
         + 'target. The individual options below are left as you set them.' },
-  { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
-  { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
+  { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.01 },
+  { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.01 },
+  { key: 'rawInput', type: 'toggle', label: 'Raw mouse input',
+    hint: 'Bypasses the operating system\'s pointer acceleration so the same hand movement always '
+        + 'turns the same distance. Applies the next time you click into the game.' },
   { key: 'fov', type: 'range', label: 'Field of view', min: 60, max: 100, step: 1, unit: '\u00b0',
     hint: 'Vertical field of view while hip-firing. Wider sees more of the sides but makes enemies smaller.' },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },

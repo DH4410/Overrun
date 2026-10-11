@@ -170,7 +170,20 @@ Visuals only: collider JSONs and the map hash are untouched (`git status` must n
   `well`, `stone`, `pine`, `tower_viz`, `house_far`, `windmill`. Lesson: rain streaks and ground moss
   as light/opaque `mark` decals read as bars and hexagons; keep them dark, thin and small, and leave
   grass bare. Tests: blender-maps 21/21 (bastion 5), units 144, lint 0 errors.
-- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v55. The live
+- **Battery/detail/feel settings** (user asked for a "disable heavy features" switch plus the
+  shooter-feel list): `src/settings.js` now owns `tuning()`/`saverActive()`/`initPower()`. The saver is
+  the manual `powerSaver` OR (`powerAuto` and `navigator.getBattery()` says not charging); it only lowers
+  the preset (render scale <= 0.85, pixel ratio 1, particles x0.5, lights <= 6, decals x0.5, scenery
+  detail off, frame cap <= 60 and 30 at <= 15% charge, shadows every other frame, HRTF -> equalpower).
+  `initPower(applySettings)` re-applies on plug/unplug. `sceneryDetail` hides meshes whose material key is
+  `fit/mark/glyph/tmark/tglyph/tuft` (tagged `userData.detail` in mapGlb.js). Feel: low-health
+  desaturation (CSS `saturate()` on `#view`, quantised, skipped in saver), +4 deg FOV on sprint, white
+  `#blastflash` on close explosions, fast sparks + heavy debris in `spawnExplosion`, low-ammo tick
+  (`Audio.lowAmmo`, last 20% of the mag), raw mouse (`requestPointerLock({unadjustedMovement})` with
+  fallback), sensitivity step 0.01. Unit tests: `tests/unit/power-tuning.test.mjs`. NOT done: enemy
+  hit flash (puppet skins share materials online), diegetic ammo counter, audio occlusion/ducking,
+  progression, minimap half-rate (`halfRateMinimap` is in `tuning()` but unread), static shadow cache.
+- Needs a second `npx wrangler deploy` (user's call) plus a hard refresh; sw cache is v56. The live
   site is still on v43. Not yet run: the full e2e suite (30+ min, `CI=1`); each map's own spec and
   the unit tests (144) and lint (0 errors) were green per commit.
 

@@ -4,7 +4,7 @@ import { CONFIG, TEAM, TEAM_COLOR } from './config.js';
 import { codeOf, keyName } from './keybinds.js';
 import { killIcon } from './killicons.js';
 import { MULTIKILL_WINDOW_S, killTags, multiKillLabel } from './sim/killinfo.js';
-import { hipFov, settings } from './settings.js';
+import { hipFov, saverActive, settings } from './settings.js';
 import { ITEMS, TIERS, packItems, useProgress } from './sim/items.js';
 import { WEAPON_IDS } from './sim/protocol.js';
 import { clamp, rand } from './utils.js';
@@ -283,6 +283,23 @@ function updateVitals() {
   el.aptxt.textContent = Math.ceil(player.armor);
   el.lowhp.style.opacity = player.alive && player.health < 40
     ? String(clamp((40 - player.health) / 40, 0, 1)) : '0';
+  updateDesaturation();
+}
+
+/**
+ * The world drains of colour as health runs out (down to 40% saturation), the way a near-death
+ * shot does in film. A CSS filter on the canvas costs an extra compositing pass, so it exists only
+ * while health is low, is quantised to a handful of steps so the style rarely changes, and is
+ * skipped entirely by the battery saver.
+ */
+let satStep = 10;
+function updateDesaturation() {
+  const low = settings.fxLowHealth && !saverActive() && player.alive && player.health < 40;
+  const step = low ? 10 - Math.round(clamp((40 - player.health) / 40, 0, 1) * 6) : 10;
+  if (step === satStep) return;
+  satStep = step;
+  const view = document.getElementById('view');
+  if (view) view.style.filter = step >= 10 ? '' : `saturate(${step / 10})`;
 }
 
 function updateAmmoHud() {

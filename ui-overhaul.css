@@ -163,6 +163,7 @@ button { font: inherit; color: inherit; }
   clip-path: polygon(0 100%, 50% 0, 100% 100%);
 }
 #hitflash { position: absolute; inset: 0; opacity: 0; transition: opacity .35s ease-out; background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(170, 0, 0, .38) 100%); }
+#blastflash { position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, #fff 20%, #ffe9b8 100%); }
 #lowhp { position: absolute; inset: 0; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(150, 0, 0, .45) 100%); }
 
 /* ---- vitals, bottom centre: two thick bars you can read mid-fight without looking ---- */

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import { CONFIG } from './config.js';
-import { QUALITY, settings } from './settings.js';
+import { settings, tuning } from './settings.js';
 import { clamp, lerp, rand } from './utils.js';
 
 /**
@@ -179,7 +179,7 @@ function spawnBurst({ origin, count, color, size, speed, spreadDir = null, cone 
   _pcol.setHex(color);
   // Density scales with the graphics preset: fewer, slightly larger particles read almost
   // the same and cost proportionally less to integrate and upload.
-  const n = Math.max(1, Math.round(count * QUALITY[settings.quality].particles));
+  const n = Math.max(1, Math.round(count * tuning().particles));
   for (let i = 0; i < n; i++) {
     let dx = rand(-1, 1), dy = rand(-1, 1), dz = rand(-1, 1);
     const l = Math.hypot(dx, dy, dz) || 1;
@@ -279,6 +279,19 @@ function spawnExplosion(pos) {
     drag: 1.8, additive: false,
   });
 
+  // The fast, thin sparks lead and the heavy chunks fall behind them: two very different speeds
+  // and gravities are what make a blast read as a blast and not a fountain. Both scale with the
+  // particle budget, so the battery saver thins them along with everything else.
+  spawnBurst({
+    origin: pos, count: 40, color: 0xffe9a8, size: 0.07, speed: 26,
+    spreadDir: new THREE.Vector3(0, 1, 0), cone: 1.2, gravity: -9, life: 0.45, drag: 0.6,
+  });
+  spawnBurst({
+    origin: pos, count: 14, color: 0x4a4038, size: 0.16, speed: 11,
+    spreadDir: new THREE.Vector3(0, 1, 0), cone: 1.0, gravity: -22, life: 1.1, drag: 0.2,
+    additive: false,
+  });
+
   const slot = shockRings.find((r) => !r.busy);
   if (slot) {
     slot.busy = true;
@@ -297,6 +310,14 @@ function spawnExplosion(pos) {
     priority: 10,                              // outbids torches and lamps for a slot
   });
   blastLights.push({ emitter, t: 0 });
+
+  // A close blast whites the screen out for an instant and fades over ~0.45 s: the eye reads the
+  // flash before the sound arrives. One element animated by the compositor, only when near.
+  if (settings.fxBlast) {
+    const dist = camera.position.distanceTo(pos);
+    const flash = dist < 12 && document.getElementById('blastflash');
+    if (flash) flash.animate([{ opacity: 0.75 * (1 - dist / 12) }, { opacity: 0 }], { duration: 450, easing: 'ease-out' });
+  }
 }
 
 function updateExplosionFx(dt) {

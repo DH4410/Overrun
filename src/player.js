@@ -374,6 +374,9 @@ function tryFire() {
   if (a.mag <= 0) { startReload(); return; }
 
   a.mag--;
+  // The last rounds of a magazine ring a tick on top of the shot, so a reload is called for by ear
+  // (the same cue a real gun gives): the last 20% of the magazine, and never fewer than two.
+  if (settings.lowAmmoCue && w.mag > 4 && a.mag > 0 && a.mag <= Math.max(2, Math.round(w.mag * 0.2))) Audio.lowAmmo();
   player.cooldown = Math.max(0, w.cooldown - player.fireCarry);
   player.fireCarry = 0;
 
@@ -588,7 +591,16 @@ function requestLock() {
   // player left one — press Esc, click straight back in. Unhandled, that was a console error
   // and a click that silently did nothing. The pause overlay is still up when it happens, so
   // the next click simply asks again.
-  renderer.domElement.requestPointerLock()?.catch?.(() => {});
+  const el = renderer.domElement;
+  const plain = () => el.requestPointerLock()?.catch?.(() => {});
+  if (settings.rawInput) {
+    // Raw (unadjusted) movement skips OS pointer acceleration. Browsers that cannot give it reject
+    // the request, and the plain lock is asked for instead.
+    try {
+      const p = el.requestPointerLock({ unadjustedMovement: true });
+      if (p?.catch) p.catch((e) => { if (e?.name === 'NotSupportedError') plain(); });
+    } catch { plain(); }
+  } else plain();
   Audio.init();
 }
 

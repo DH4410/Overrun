@@ -1,4 +1,4 @@
-import { settings } from './settings.js';
+import { saverActive, settings } from './settings.js';
 import { clamp, rand } from './utils.js';
 
 const midi = (n) => 440 * 2 ** ((n - 69) / 12);
@@ -102,7 +102,7 @@ export function createAudio({ getCamera }) {
       air.frequency.value = 16000 / (1 + d / 14);
       const p = this.ctx.createPanner();
       // HRTF is a convolution per voice; power saver trades it for plain equal-power panning.
-      p.panningModel = settings?.powerSaver ? 'equalpower' : 'HRTF';
+      p.panningModel = saverActive() ? 'equalpower' : 'HRTF';
       p.distanceModel = 'inverse';
       p.refDistance = 8; p.rolloffFactor = 1; p.maxDistance = 200;
       if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; }
@@ -366,6 +366,9 @@ export function createAudio({ getCamera }) {
     },
 
     reloadClick(){ this.burst({ dur: 0.05, gain: 0.14, type: 'bandpass', freq: 2400, q: 4, decay: 0.04 }); },
+    /** The magazine is nearly empty: a short, dry metallic tick, higher the fewer rounds are left. */
+    lowAmmo()   { this.burst({ dur: 0.04, gain: 0.12, type: 'bandpass', freq: 3600, q: 7, decay: 0.03 });
+                  this.tone({ f0: 2200, f1: 1500, dur: 0.05, gain: 0.05, type: 'square', delay: 0.02 }); },
     pickup()    { this.tone({ f0: 660, f1: 1320, dur: 0.14, gain: 0.18, type: 'triangle' }); },
 
     /* ------------------------------ match ------------------------------ */

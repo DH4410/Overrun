@@ -184,7 +184,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
     killCombatant(target, source, headshot);
     if (source === player) {
       showHitMarker('kill');
-      showKillBanner(target, headshot);
+      showKillBanner(target, headshot, match.medal);
       if (headshot) Audio.headshot?.();
       Audio.kill();
     }

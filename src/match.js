@@ -1,5 +1,7 @@
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
+import { applyMatch, loadProfile, rankTitle, saveProfile } from './profile.js';
+import { renderPlayerCard } from './playercard.js';
 import {
   CONFIG,
   SPAWN_INVULN,
@@ -28,6 +30,13 @@ export function createMatchState() {
     roundsB: 0,
     roundTime: 0,
     roundReset: 0,
+    // The player's own run, for XP and the kill medals.
+    headshots: 0,
+    streak: 0,
+    bestStreak: 0,
+    multi: 0,
+    multiAt: -99,
+    medal: '',
   };
 }
 
@@ -108,6 +117,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   match.roundsA = 0; match.roundsB = 0;
   match.roundTime = CONFIG.DUEL_ROUND_SECONDS; match.roundReset = 0;
   match.outro = null;
+  match.headshots = 0; match.streak = 0; match.bestStreak = 0; match.multi = 0; match.multiAt = -99; match.medal = '';
   document.body.classList.remove('outro');
   $id('outro').className = '';
   $id('podium').className = '';
@@ -225,7 +235,17 @@ function finishMatch(title, sub, podium) {
   el.hud.classList.add('hidden');
   el.menu.classList.remove('hidden');
   el.menuResult.textContent = `${title} — ${sub}`;
-  if (podium) showPodium(outcome, title, sub);
+  // Only a match played to its end pays out; leaving from the pause screen (podium false) does not.
+  let progress = null;
+  if (podium) {
+    progress = applyMatch(loadProfile(), {
+      outcome, kills: player.kills, deaths: player.deaths,
+      headshots: match.headshots, bestStreak: match.bestStreak,
+    });
+    saveProfile(progress.profile);
+  }
+  renderPlayerCard(loadProfile());
+  if (podium) showPodium(outcome, title, sub, progress);
   clearEffects();
 }
 
@@ -233,7 +253,7 @@ function finishMatch(title, sub, podium) {
  * The final standings: the top three on a podium, the winner in the middle and biggest, and
  * everyone else in rows underneath. Built with DOM calls so names are never parsed as HTML.
  */
-function showPodium(outcome, title, sub) {
+function showPodium(outcome, title, sub, progress) {
   const rows = standings();
   $id('pd-kicker').textContent = title === OUTCOME_WORD[outcome] ? MODE_LABEL[match.mode] : `${MODE_LABEL[match.mode]} · ${title}`;
   $id('pd-title').textContent = OUTCOME_WORD[outcome];
@@ -259,9 +279,53 @@ function showPodium(outcome, title, sub) {
     r.append(span('pd-n', `#${j + 4}`), span('pd-nm', c.name), span('pd-k', `${c.kills} K · ${c.deaths} D`));
     rest.appendChild(r);
   });
+  showAward(progress);
   $id('podium').className = `on ${outcome}`;
   $id('podium-close').focus({ preventScroll: true });
 }
+/** The XP breakdown under the podium: each line counts in, then the bar fills and levels roll over. */
+function showAward(progress) {
+  const box = $id('pd-xp');
+  if (!box || !progress) { box?.classList.remove('on'); return; }
+  const lines = $id('pd-xplines');
+  lines.textContent = '';
+  progress.award.lines.forEach((l, i) => {
+    const r = document.createElement('div');
+    r.className = 'xp-line';
+    r.style.animationDelay = `${1.3 + i * 0.18}s`;
+    r.append(span('xp-l', l.label), span('xp-v', `+${l.xp}`));
+    lines.appendChild(r);
+  });
+  const tot = document.createElement('div');
+  tot.className = 'xp-line total';
+  tot.style.animationDelay = `${1.3 + progress.award.lines.length * 0.18}s`;
+  tot.append(span('xp-l', 'TOTAL XP'), span('xp-v', `+${progress.award.total}`));
+  lines.appendChild(tot);
+  const { before, after } = progress;
+  const fill = $id('pd-xpfill');
+  const frac = (x) => `${Math.round((x.into / x.need) * 100)}%`;
+  // Start where the bar was; a level-up fills it, then lands on the new level's progress.
+  fill.style.transition = 'none';
+  fill.style.width = frac(before);
+  void fill.offsetWidth;
+  const t = 1.3 + (progress.award.lines.length + 1) * 0.18 + 0.2;
+  setTimeout(() => {
+    fill.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
+    fill.style.width = progress.leveledUp ? '100%' : frac(after);
+    if (progress.leveledUp) {
+      setTimeout(() => {
+        fill.style.transition = 'none'; fill.style.width = '0%'; void fill.offsetWidth;
+        fill.style.transition = 'width .6s ease-out'; fill.style.width = frac(after);
+      }, 950);
+    }
+  }, t * 1000);
+  $id('pd-xplvl').textContent = progress.leveledUp
+    ? `LEVEL UP  ·  ${before.level} → ${after.level}  ·  ${rankTitle(after.level)}`
+    : `LEVEL ${after.level}  ·  ${after.into} / ${after.need} XP`;
+  $id('pd-xplvl').classList.toggle('up', progress.leveledUp);
+  box.classList.add('on');
+}
+
 $id('podium-close')?.addEventListener('click', () => { $id('podium').className = ''; });
 
 /** While you wait to respawn: where you stand, and the table, refreshed a few times a second. */
@@ -373,6 +437,10 @@ function endDuelRound(winner) {
   checkWinConditions();
 }
 
+const MULTI_WINDOW = 4;
+const MULTI_MEDAL = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'MEGA KILL'];
+const STREAK_MEDAL = { 3: '3 KILL STREAK', 5: 'RAMPAGE', 7: 'UNSTOPPABLE', 10: 'GODLIKE' };
+
 /** The single place a death is booked, for the player and for bots alike. */
 function killCombatant(target, source, headshot) {
   if (source && source !== target) {
@@ -396,6 +464,18 @@ function killCombatant(target, source, headshot) {
     }
   }
   target.deaths++;
+  match.medal = '';
+  if (source === player && target !== player) {
+    if (headshot) match.headshots++;
+    match.streak++;
+    match.bestStreak = Math.max(match.bestStreak, match.streak);
+    // Kills inside 4 s of each other chain into a multi-kill; a streak is kills without dying.
+    match.multi = match.time - match.multiAt <= MULTI_WINDOW ? match.multi + 1 : 1;
+    match.multiAt = match.time;
+    match.medal = MULTI_MEDAL[Math.min(match.multi, MULTI_MEDAL.length - 1)]
+      || STREAK_MEDAL[match.streak] || '';
+  }
+  if (target === player) match.streak = 0;
   addKillFeed(source, target, headshot);
 
   if (target === player) {

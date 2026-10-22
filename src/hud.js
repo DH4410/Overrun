@@ -53,9 +53,12 @@ function showHitMarker(kind) {
 }
 
 /** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
-function showKillBanner(target, headshot) {
+function showKillBanner(target, headshot, medal = '') {
   if (!el.killbanner) return;
   el.kbName.textContent = target.name;
+  const label = document.getElementById('kb-label');
+  if (label) label.textContent = medal || 'ELIMINATED';
+  el.killbanner.classList.toggle('medal', !!medal);
   el.killbanner.classList.toggle('headshot', !!headshot);
   el.killbanner.classList.remove('show');
   void el.killbanner.offsetWidth;            // restart the animation for back-to-back kills

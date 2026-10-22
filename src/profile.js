@@ -1,0 +1,80 @@
+/**
+ * The player's career: XP, level and lifetime numbers, kept in localStorage. Everything shown on
+ * the lobby card comes from here and every number in it was earned in a match, never invented.
+ * Pure functions plus a thin load/save pair, so the maths is unit-tested without a browser.
+ */
+const KEY = 'overrun.profile';
+
+export const XP = Object.freeze({ WIN: 150, DRAW: 75, LOSS: 50, KILL: 10, HEADSHOT: 8, STREAK_KILL: 4 });
+
+/** XP needed to go from `level` to `level + 1`: 250, 325, 400, ... */
+export function xpToNext(level) { return 250 + 75 * (level - 1); }
+
+/** Level, XP into it and XP it needs, from lifetime XP. */
+export function levelFromXp(totalXp) {
+  let level = 1;
+  let left = Math.max(0, Math.floor(totalXp) || 0);
+  while (left >= xpToNext(level)) { left -= xpToNext(level); level++; }
+  return { level, into: left, need: xpToNext(level) };
+}
+
+const RANKS = ['ROOKIE', 'RECRUIT', 'OPERATIVE', 'SPECIALIST', 'VETERAN', 'ELITE', 'LEGEND'];
+export function rankTitle(level) { return RANKS[Math.min(RANKS.length - 1, Math.floor((level - 1) / 4))]; }
+
+export const EMPTY_PROFILE = Object.freeze({
+  xp: 0, kills: 0, deaths: 0, headshots: 0, wins: 0, losses: 0, draws: 0, matches: 0, bestStreak: 0,
+});
+
+function clean(v) {
+  const out = { ...EMPTY_PROFILE };
+  if (v && typeof v === 'object') {
+    for (const k of Object.keys(EMPTY_PROFILE)) {
+      const n = Number(v[k]);
+      if (Number.isFinite(n) && n >= 0) out[k] = Math.floor(n);
+    }
+  }
+  return out;
+}
+
+export function loadProfile() {
+  try { return clean(JSON.parse(localStorage.getItem(KEY))); } catch { return clean(null); }
+}
+
+export function saveProfile(p) {
+  try { localStorage.setItem(KEY, JSON.stringify(clean(p))); } catch { /* private mode: still applied this session */ }
+}
+
+/**
+ * What a finished match pays. `outcome` is 'win' | 'loss' | 'draw'. Returns the itemised lines
+ * (so the podium can show where the XP came from) and the total.
+ */
+export function matchAward({ outcome, kills = 0, headshots = 0, bestStreak = 0 }) {
+  const lines = [];
+  const add = (label, xp) => { if (xp > 0) lines.push({ label, xp }); };
+  add(outcome === 'win' ? 'VICTORY' : outcome === 'draw' ? 'DRAW' : 'PARTICIPATION',
+    outcome === 'win' ? XP.WIN : outcome === 'draw' ? XP.DRAW : XP.LOSS);
+  add(`${kills} ELIMINATION${kills === 1 ? '' : 'S'}`, kills * XP.KILL);
+  add(`${headshots} HEADSHOT${headshots === 1 ? '' : 'S'}`, headshots * XP.HEADSHOT);
+  add(`${bestStreak}-KILL STREAK`, bestStreak >= 3 ? (bestStreak - 2) * XP.STREAK_KILL : 0);
+  return { lines, total: lines.reduce((s, l) => s + l.xp, 0) };
+}
+
+/** Book a finished match into the profile. Returns the new profile plus the level change. */
+export function applyMatch(profile, result) {
+  const award = matchAward(result);
+  const before = levelFromXp(profile.xp);
+  const next = clean({
+    ...profile,
+    xp: profile.xp + award.total,
+    kills: profile.kills + (result.kills || 0),
+    deaths: profile.deaths + (result.deaths || 0),
+    headshots: profile.headshots + (result.headshots || 0),
+    wins: profile.wins + (result.outcome === 'win' ? 1 : 0),
+    losses: profile.losses + (result.outcome === 'loss' ? 1 : 0),
+    draws: profile.draws + (result.outcome === 'draw' ? 1 : 0),
+    matches: profile.matches + 1,
+    bestStreak: Math.max(profile.bestStreak, result.bestStreak || 0),
+  });
+  const after = levelFromXp(next.xp);
+  return { profile: next, award, before, after, leveledUp: after.level > before.level };
+}

@@ -1,3 +1,5 @@
+import { loadProfile } from './profile.js';
+import { renderPlayerCard } from './playercard.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
@@ -17,6 +19,9 @@ export function createUiRuntime({
 }) {
 function bindMenu() {
   let mode = 'dm', diff = 'medium', map = defaultMap();
+
+  // The lobby card shows the saved career; the callsign field is the card's name line.
+  renderPlayerCard(loadProfile());
 
   // Mode and map are each a card in the sidebar that opens a popout of big tiles; picking a
   // tile closes it. Esc, the X, or a click on the backdrop closes it without a change.

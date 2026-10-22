@@ -391,12 +391,6 @@ button { font: inherit; color: inherit; }
 #diffgrp.locked #diffs { opacity: .3; pointer-events: none; }
 #diffgrp.locked #diff-locked { display: block; }
 
-.callsign #nameinput {
-  pointer-events: auto; background: none; border: none; border-bottom: 1px solid var(--ink-4); outline: none;
-  padding: 4px 0; width: 220px; color: var(--ink);
-  font-family: var(--f-display); font-size: 22px; font-weight: 600; letter-spacing: 2px;
-}
-.callsign #nameinput:focus { border-bottom-color: var(--accent); }
 
 /* The deploy row stays pinned to the bottom of the column however tall the options get. */
 .actions {
@@ -719,3 +713,50 @@ body.emoting #crosshair, body.emoting #hitmarker { display: none; }
   color: var(--ink-2); font-family: var(--f-display); font-weight: 700; letter-spacing: 3px; }
 .mpe-leave:hover { color: var(--ink); border-bottom-color: var(--accent); }
 body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: none; }
+
+/* ==========================================================================
+   Career: the lobby player card, the XP breakdown on the podium, kill medals.
+   ========================================================================== */
+
+#playercard {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center;
+  margin-bottom: 20px; padding: 10px 12px; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(243, 181, 63, .14), rgba(255, 255, 255, .04));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 3px 0 0 var(--accent);
+  font-family: var(--f-display);
+}
+.pc-badge { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 54px; height: 54px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: var(--accent); color: var(--accent-ink); line-height: 1; }
+.pc-badge span { font-size: 26px; font-weight: 800; }
+.pc-badge small { font-size: 9px; font-weight: 800; letter-spacing: 2px; margin-top: 1px; }
+.pc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+#nameinput { pointer-events: auto; min-width: 0; width: 100%; font-family: var(--f-display); font-size: 20px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink); background: transparent; border: 0; border-bottom: 1px dashed transparent; padding: 0; outline: 0; }
+#nameinput:hover { border-bottom-color: var(--ink-4); } #nameinput:focus { border-bottom: 1px solid var(--accent); }
+#pc-rank { font-size: 12px; font-weight: 700; letter-spacing: 3px; color: var(--accent); }
+.pc-xp { height: 6px; margin-top: 5px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.pc-xp i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #f3b53f, #ffd884); transition: width .6s ease-out; }
+.pc-xpt { margin-top: 3px; font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--ink-3); }
+.pc-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.pc-stats div { display: flex; flex-direction: column; align-items: center; }
+.pc-stats b { font-size: 19px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.pc-stats span { margin-top: 3px; font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--ink-3); }
+@media (max-height: 780px) { #playercard { margin-bottom: 12px; padding: 7px 10px; } .pc-badge { width: 44px; height: 44px; } .pc-badge span { font-size: 21px; } .pc-stats b { font-size: 16px; } }
+@media (max-height: 640px) { .pc-stats { display: none; } #playercard { margin-bottom: 8px; } }
+@media (max-height: 560px) { #playercard { display: none; } }
+
+#pd-xp { display: none; width: min(520px, 94vw); margin-top: clamp(8px, 2vh, 16px); font-family: var(--f-display); }
+#pd-xp.on { display: block; }
+.xp-lines { display: grid; gap: 2px; }
+.xp-line { display: flex; justify-content: space-between; padding: 2px 12px; font-size: clamp(13px, 2.3vh, 17px); font-weight: 700; letter-spacing: 2px; color: var(--ink-2);
+  opacity: 0; animation: o-up .3s ease-out both; }
+.xp-line .xp-v { color: var(--accent); font-variant-numeric: tabular-nums; }
+.xp-line.total { margin-top: 2px; border-top: 1px solid rgba(255, 255, 255, .15); color: var(--ink); font-size: clamp(15px, 2.7vh, 20px); }
+.xp-bar { height: 10px; margin: clamp(6px, 1.4vh, 10px) 12px 0; border-radius: 5px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.xp-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #f3b53f, #ffd884); }
+.xp-lvl { margin-top: 4px; font-size: clamp(12px, 2.1vh, 15px); font-weight: 700; letter-spacing: 3px; color: var(--ink-3); animation: o-up .3s ease-out 1.4s both; }
+.xp-lvl.up { color: var(--accent); font-size: clamp(15px, 2.8vh, 22px); letter-spacing: 4px; }
+@media (max-height: 640px) { .xp-lines { display: none; } }
+
+#killbanner.medal .kb-label { font-size: 17px; font-weight: 800; letter-spacing: 5px; color: var(--accent); }
+@media (max-height: 700px) { .xp-lines { display: none; } }
+@media (max-height: 560px) { .xp-bar { display: none; } #pd-xp { margin-top: 4px; } }

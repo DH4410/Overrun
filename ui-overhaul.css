@@ -757,6 +757,7 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 .xp-lvl.up { color: var(--accent); font-size: clamp(15px, 2.8vh, 22px); letter-spacing: 4px; }
 @media (max-height: 640px) { .xp-lines { display: none; } }
 
+#killbanner.revenge .kb-tag { color: #ff8a7a; }
 #killbanner.medal .kb-label { font-size: 17px; font-weight: 800; letter-spacing: 5px; color: var(--accent); }
 @media (max-height: 700px) { .xp-lines { display: none; } }
 @media (max-height: 560px) { .xp-bar { display: none; } #pd-xp { margin-top: 4px; } }
@@ -787,3 +788,35 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 /* While it runs, the combat HUD steps aside. */
 body.killcam #hud > *:not(#feed):not(#topbar):not(#toast) { display: none !important; }
 body.killcam #pause { display: none !important; }
+
+/* ==========================================================================
+   Streaks and kill reactions: the counter, the headshot bloom, what a streak cost you.
+   ========================================================================== */
+
+#streak {
+  position: absolute; left: 50%; top: 68px; transform: translateX(-50%); display: none; flex-direction: column; align-items: center;
+  font-family: var(--f-display); text-shadow: var(--shadow); line-height: 1; pointer-events: none; zoom: var(--hud-scale, 1);
+}
+#streak.on { display: flex; }
+#streak b { font-size: 34px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+#streak span { margin-top: 3px; font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--ink-2); }
+#streak.pop b { animation: streakPop .45s ease-out; }
+#streak.ended b, #streak.ended span { color: var(--enemy); }
+#streak.ended b { text-decoration: line-through; text-decoration-thickness: 3px; }
+@keyframes streakPop { 0% { transform: scale(1.7); } 100% { transform: scale(1); } }
+
+#hsflash { position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, transparent 52%, rgba(255, 200, 70, .32) 100%); }
+#hsflash.on { animation: hsFlash .38s ease-out; }
+@keyframes hsFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+#hitmarker.hskill i { background: var(--accent); }
+#hitmarker.hskill::after { content: ''; position: absolute; left: -17px; top: -17px; width: 34px; height: 34px; box-sizing: border-box;
+  border: 2px solid var(--accent); border-radius: 50%; animation: hsRing .35s ease-out both; }
+@keyframes hsRing { 0% { transform: scale(.4); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+
+#pause .lost { min-height: 0; margin-top: 6px; font-size: 15px; font-weight: 700; letter-spacing: 4px; color: var(--enemy); }
+#pause .lost:empty { display: none; }
+.kc-lost { margin-top: 6px; font-size: clamp(12px, 2vh, 16px); font-weight: 700; letter-spacing: 4px; color: var(--enemy); }
+.kc-lost:empty { display: none; }
+body.killcam #hud > #streak { display: none !important; }

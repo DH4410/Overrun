@@ -110,7 +110,7 @@ export function createKillcam({
   /* ------------------------------- playback ------------------------------- */
 
   let phase = 'off', t = 0;
-  let killer = null, killerName = '', killerWeapon = '', killerHp = 0, headshot = false;
+  let killer = null, killerName = '', killerWeapon = '', headshot = false;
   let ghostK = null, ghostMe = null, meAction = null;
   let frames = null, startT = 0, endT = 0;
   let hid = [];                         // live bot meshes hidden for the replay
@@ -170,7 +170,6 @@ export function createKillcam({
     killer = source;
     killerName = source.name;
     killerWeapon = WEAPON_BY_ID[source.weaponId]?.name ?? '';
-    killerHp = Math.max(0, Math.round(source.health));
     headshot = !!wasHeadshot;
     frames = framesOf(source);
     if (frames) {
@@ -191,6 +190,8 @@ export function createKillcam({
     if (name) name.textContent = killerName;
     if (who) who.textContent = 'ELIMINATED BY';
     if (wp) wp.textContent = `${killerWeapon}${headshot ? ' · HEADSHOT' : ''}`;
+    const lost = $('kc-lost');
+    if (lost) lost.textContent = extra.lost ? `YOUR ${extra.lost}-KILL STREAK ENDED` : '';
     $('killcam')?.classList.remove('replay');
     $('killcam')?.classList.add('on');
     return ZOOM_TIME + (frames ? CUT_TIME + (endT - startT) + HOLD_TIME : 0);

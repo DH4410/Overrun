@@ -44,25 +44,65 @@ let hitmarkerTimer = 0, toastTimer = 0;
  * did not kill reads differently from one that did — which was the whole of the "I headshot
  * him and he didn't die, why?" confusion.
  */
-function showHitMarker(kind) {
+function showHitMarker(kind, headshot = false) {
   const k = kind === true ? 'kill' : (kind || 'body');
   el.hitmarker.classList.toggle('kill', k === 'kill');
   el.hitmarker.classList.toggle('head', k === 'head');
+  // A kill by headshot: the red ticks gain a gold ring and a pulse, so it reads at a glance.
+  el.hitmarker.classList.toggle('hskill', k === 'kill' && !!headshot);
   el.hitmarker.style.opacity = '1';
   hitmarkerTimer = k === 'kill' ? 0.35 : 0.18;
 }
 
 /** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
-function showKillBanner(target, headshot, medal = '') {
+function showKillBanner(target, headshot, medal = '', tags = []) {
   if (!el.killbanner) return;
   el.kbName.textContent = target.name;
   const label = document.getElementById('kb-label');
   if (label) label.textContent = medal || 'ELIMINATED';
+  const tag = document.getElementById('kb-tag');
+  const all = [...(headshot ? ['HEADSHOT'] : []), ...tags];
+  if (tag) tag.textContent = all.join(' · ');
   el.killbanner.classList.toggle('medal', !!medal);
-  el.killbanner.classList.toggle('headshot', !!headshot);
+  el.killbanner.classList.toggle('headshot', all.length > 0);
+  el.killbanner.classList.toggle('revenge', tags.includes('REVENGE'));
+  if (headshot) flashHeadshot();
   el.killbanner.classList.remove('show');
   void el.killbanner.offsetWidth;            // restart the animation for back-to-back kills
   el.killbanner.classList.add('show');
+}
+
+const hsFlash = $('hsflash');
+/** A short gold bloom at the screen's edge for a headshot kill. */
+function flashHeadshot() {
+  if (!hsFlash) return;
+  hsFlash.classList.remove('on');
+  void hsFlash.offsetWidth;
+  hsFlash.classList.add('on');
+}
+
+/**
+ * The streak counter under the score. `n` is the run in progress (0 hides it); `lost` is a run that
+ * has just ended, which turns the counter red and leaves it up until you respawn instead of vanishing.
+ */
+function showStreak(n, lost = 0) {
+  const box = $('streak');
+  if (!box) return;
+  const num = $('streak-n'), lbl = $('streak-l');
+  box.classList.remove('pop', 'ended');
+  if (n > 0) {
+    num.textContent = n;
+    lbl.textContent = n >= 10 ? 'GODLIKE' : n >= 7 ? 'UNSTOPPABLE' : n >= 5 ? 'RAMPAGE' : 'KILL STREAK';
+    box.classList.add('on');
+    void box.offsetWidth;
+    box.classList.add('pop');
+  } else if (lost > 0) {
+    num.textContent = lost;
+    lbl.textContent = 'STREAK ENDED';
+    box.classList.add('on', 'ended');
+  } else {
+    box.classList.remove('on');
+  }
 }
 
 function showToast(text) {
@@ -419,6 +459,7 @@ return {
   el,
   showHitMarker,
   showKillBanner,
+  showStreak,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,

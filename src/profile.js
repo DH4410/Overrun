@@ -5,7 +5,13 @@
  */
 const KEY = 'overrun.profile';
 
-export const XP = Object.freeze({ WIN: 150, DRAW: 75, LOSS: 50, KILL: 10, HEADSHOT: 8, STREAK_KILL: 4 });
+export const XP = Object.freeze({
+  WIN: 150, DRAW: 75, LOSS: 50, KILL: 10, HEADSHOT: 8, STREAK_KILL: 4, REVENGE: 15,
+  // Paid each time a chain reaches that length inside the multi-kill window: a triple pays the
+  // double on the way to it, so a longer chain is worth more than the sum of shorter ones.
+  MULTI: Object.freeze({ 2: 10, 3: 15, 4: 25, 5: 40 }),
+});
+export const MULTI_NAME = Object.freeze({ 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'QUAD KILL', 5: 'MEGA KILL' });
 
 /** XP needed to go from `level` to `level + 1`: 250, 325, 400, ... */
 export function xpToNext(level) { return 250 + 75 * (level - 1); }
@@ -48,7 +54,7 @@ export function saveProfile(p) {
  * What a finished match pays. `outcome` is 'win' | 'loss' | 'draw'. Returns the itemised lines
  * (so the podium can show where the XP came from) and the total.
  */
-export function matchAward({ outcome, kills = 0, headshots = 0, bestStreak = 0 }) {
+export function matchAward({ outcome, kills = 0, headshots = 0, bestStreak = 0, multis = {}, revenges = 0 }) {
   const lines = [];
   const add = (label, xp) => { if (xp > 0) lines.push({ label, xp }); };
   add(outcome === 'win' ? 'VICTORY' : outcome === 'draw' ? 'DRAW' : 'PARTICIPATION',
@@ -56,6 +62,12 @@ export function matchAward({ outcome, kills = 0, headshots = 0, bestStreak = 0 }
   add(`${kills} ELIMINATION${kills === 1 ? '' : 'S'}`, kills * XP.KILL);
   add(`${headshots} HEADSHOT${headshots === 1 ? '' : 'S'}`, headshots * XP.HEADSHOT);
   add(`${bestStreak}-KILL STREAK`, bestStreak >= 3 ? (bestStreak - 2) * XP.STREAK_KILL : 0);
+  for (const size of Object.keys(XP.MULTI)) {
+    const n = Math.max(0, Math.floor(Number(multis[size])) || 0);
+    add(`${n} ${MULTI_NAME[size]}${n === 1 ? '' : 'S'}`, n * XP.MULTI[size]);
+  }
+  const r = Math.max(0, Math.floor(revenges) || 0);
+  add(`${r} REVENGE${r === 1 ? '' : 'S'}`, r * XP.REVENGE);
   return { lines, total: lines.reduce((s, l) => s + l.xp, 0) };
 }
 

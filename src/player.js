@@ -185,10 +185,10 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
     target.health = 0;
     killCombatant(target, source, headshot);
     if (source === player) {
-      showHitMarker('kill');
-      showKillBanner(target, headshot, match.medal);
-      if (headshot) Audio.headshot?.();
-      Audio.kill();
+      showHitMarker('kill', headshot);
+      showKillBanner(target, headshot, match.medal, match.tags);
+      if (headshot) Audio.headshotKill?.();
+      Audio.kill(match.streak);
     }
   }
 }

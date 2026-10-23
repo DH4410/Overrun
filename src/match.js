@@ -1,6 +1,7 @@
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
 import { applyMatch, loadProfile, rankTitle, saveProfile } from './profile.js';
+import { WEAPON_BY_ID } from './weapons.js';
 import { renderPlayerCard } from './playercard.js';
 import { AFTER_TIME } from './killcam.js';
 import {
@@ -38,6 +39,12 @@ export function createMatchState() {
     multi: 0,
     multiAt: -99,
     medal: '',
+    // Chains reached (by length) and revenge kills, for XP; who last killed you, and the streak that death cost.
+    multis: {},
+    revenges: 0,
+    nemesis: null,
+    lostStreak: 0,
+    tags: [],
   };
 }
 
@@ -75,6 +82,7 @@ export function createMatchRuntime({
   stopFiring,
   isPointerLocked,
   getKillcam = () => null,
+  showStreak = null,
   elements: el,
 }) {
 let nameSeed = 0;
@@ -121,6 +129,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   match.outro = null;
   getKillcam()?.reset();
   match.headshots = 0; match.streak = 0; match.bestStreak = 0; match.multi = 0; match.multiAt = -99; match.medal = '';
+  match.multis = {}; match.revenges = 0; match.nemesis = null; match.lostStreak = 0; match.tags = [];
+  showStreak?.(0);
   document.body.classList.remove('outro');
   $id('outro').className = '';
   $id('podium').className = '';
@@ -245,6 +255,7 @@ function finishMatch(title, sub, podium) {
     progress = applyMatch(loadProfile(), {
       outcome, kills: player.kills, deaths: player.deaths,
       headshots: match.headshots, bestStreak: match.bestStreak,
+      multis: match.multis, revenges: match.revenges,
     });
     saveProfile(progress.profile);
   }
@@ -364,6 +375,8 @@ function respawnPlayer(immediate = false, at = null) {
   player.armor = CONFIG.START_ARMOR;
   player.respawnTimer = 0;
   getKillcam()?.reset();
+  const lost = $id('p-lost'); if (lost) lost.textContent = '';
+  showStreak?.(0);
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
@@ -445,6 +458,23 @@ function endDuelRound(winner) {
 const MULTI_WINDOW = 4;
 const MULTI_MEDAL = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'MEGA KILL'];
 const STREAK_MEDAL = { 3: '3 KILL STREAK', 5: 'RAMPAGE', 7: 'UNSTOPPABLE', 10: 'GODLIKE' };
+// What a streak hands you, on the kill that reaches it. This is the single-player path: online, ammo and
+// health belong to the server and nothing here runs.
+const STREAK_REWARD = { 3: 'RESUPPLY', 5: 'ARMOR', 7: 'MEDKIT', 10: 'FULL KIT' };
+const MIN_STREAK = 3;                   // the shortest run that counts as a streak to lose
+
+function giveStreakReward(kind) {
+  const resupply = kind === 'RESUPPLY' || kind === 'FULL KIT';
+  if (resupply) {
+    for (const [id, a] of Object.entries(player.ammo)) a.reserve = WEAPON_BY_ID[id]?.reserve ?? a.reserve;
+    player.fragCount = Math.max(player.fragCount, 3);
+    updateAmmoHud();
+  }
+  if (kind === 'ARMOR' || kind === 'FULL KIT') player.armor = CONFIG.MAX_ARMOR;
+  if (kind === 'MEDKIT' || kind === 'FULL KIT') player.health = CONFIG.MAX_HEALTH;
+  updateVitals();
+  Audio.streakReward?.();
+}
 
 /** The single place a death is booked, for the player and for bots alike. */
 function killCombatant(target, source, headshot) {
@@ -470,6 +500,7 @@ function killCombatant(target, source, headshot) {
   }
   target.deaths++;
   match.medal = '';
+  match.tags = [];
   if (source === player && target !== player) {
     if (headshot) match.headshots++;
     match.streak++;
@@ -477,10 +508,31 @@ function killCombatant(target, source, headshot) {
     // Kills inside 4 s of each other chain into a multi-kill; a streak is kills without dying.
     match.multi = match.time - match.multiAt <= MULTI_WINDOW ? match.multi + 1 : 1;
     match.multiAt = match.time;
-    match.medal = MULTI_MEDAL[Math.min(match.multi, MULTI_MEDAL.length - 1)]
-      || STREAK_MEDAL[match.streak] || '';
+    const chain = Math.min(match.multi, MULTI_MEDAL.length - 1);
+    if (chain >= 2) match.multis[chain] = (match.multis[chain] || 0) + 1;
+    match.medal = MULTI_MEDAL[chain] || STREAK_MEDAL[match.streak] || '';
+    // Killing whoever last killed you.
+    if (match.nemesis && target === match.nemesis) {
+      match.nemesis = null;
+      match.revenges++;
+      match.tags.push('REVENGE');
+      Audio.revenge?.();
+    }
+    const reward = STREAK_REWARD[match.streak];
+    if (reward) {
+      giveStreakReward(reward);
+      showToast(`${match.streak} KILL STREAK · ${reward}`);
+    }
+    showStreak?.(match.streak);
   }
-  if (target === player) match.streak = 0;
+  if (target === player) {
+    match.lostStreak = match.streak >= MIN_STREAK ? match.streak : 0;
+    match.nemesis = source && source !== player && bots.includes(source) ? source : null;
+    match.streak = 0;
+    showStreak?.(0, match.lostStreak);
+    const lost = $id('p-lost');
+    if (lost) lost.textContent = match.lostStreak ? `STREAK LOST · ${match.lostStreak} KILLS` : '';
+  }
   addKillFeed(source, target, headshot);
 
   if (target === player) {
@@ -488,7 +540,7 @@ function killCombatant(target, source, headshot) {
     // A bot's kill gets the kill cam; its length is the respawn wait (the frame loop holds the timer
     // while it runs and gives the death screen a beat after). Otherwise a slower solo respawn.
     const cam = match.mode !== 'duel' && source !== player ? getKillcam() : null;
-    const camTime = cam ? cam.begin(source, headshot) : 0;
+    const camTime = cam ? cam.begin(source, headshot, { lost: match.lostStreak }) : 0;
     player.respawnTimer = camTime > 0 ? camTime + AFTER_TIME : CONFIG.PLAYER_RESPAWN;
     if (player.cooking) player.cooking = null;
     stopFiring();

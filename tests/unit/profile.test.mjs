@@ -42,3 +42,22 @@ test('rank titles step every four levels and stop at the top', () => {
   assert.equal(rankTitle(5), 'RECRUIT');
   assert.equal(rankTitle(999), 'LEGEND');
 });
+
+test('multi-kill chains and revenge kills pay their own itemised lines', () => {
+  const a = matchAward({ outcome: 'loss', kills: 5, multis: { 2: 2, 3: 1, 4: 0, 5: 0 }, revenges: 2 });
+  const byLabel = Object.fromEntries(a.lines.map((l) => [l.label, l.xp]));
+  assert.equal(byLabel['2 DOUBLE KILLS'], 2 * XP.MULTI[2]);
+  assert.equal(byLabel['1 TRIPLE KILL'], XP.MULTI[3]);
+  assert.equal(byLabel['2 REVENGES'], 2 * XP.REVENGE);
+  assert.ok(!a.lines.some((l) => /QUAD|MEGA/.test(l.label)));
+  assert.equal(a.total, a.lines.reduce((s, l) => s + l.xp, 0));
+});
+
+test('a longer chain is worth more than the shorter chains inside it', () => {
+  assert.ok(XP.MULTI[3] > XP.MULTI[2] && XP.MULTI[4] > XP.MULTI[3] && XP.MULTI[5] > XP.MULTI[4]);
+});
+
+test('absent or junk chain data is worth nothing', () => {
+  assert.equal(matchAward({ outcome: 'draw' }).total, XP.DRAW);
+  assert.equal(matchAward({ outcome: 'draw', multis: { 2: 'x', 3: -4 }, revenges: NaN }).total, XP.DRAW);
+});

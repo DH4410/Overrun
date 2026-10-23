@@ -735,6 +735,7 @@ const {
   el,
   showHitMarker,
   showKillBanner,
+  showStreak,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,
@@ -878,6 +879,7 @@ const {
   stopFiring,
   isPointerLocked,
   getKillcam: () => killcam,
+  showStreak,
   elements: el,
 });
 
@@ -1473,7 +1475,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net, killcam,
+    predictThrow, updateThrowPreview, grenades, net, killcam, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

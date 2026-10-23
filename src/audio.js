@@ -391,8 +391,32 @@ export function createAudio({ getCamera }) {
     },
     hurt()      { this.burst({ dur: 0.14, gain: 0.3, type: 'lowpass', freq: 500, decay: 0.12 });
                   this.tone({ f0: 160, f1: 70, dur: 0.16, gain: 0.2, type: 'sine' }); },
-    kill()      { this.tone({ f0: 880, f1: 880, dur: 0.09, gain: 0.22, type: 'triangle' });
-                  this.tone({ f0: 1320, f1: 1320, dur: 0.16, gain: 0.2, type: 'triangle', delay: 0.07 }); },
+    /**
+     * The kill confirmation. Each kill in a row without dying lifts it a whole tone (capped at
+     * eight), so a streak can be heard building without looking at the counter.
+     */
+    kill(streak = 0) {
+      const k = 2 ** (Math.min(Math.max(streak - 1, 0), 7) * 2 / 12);
+      this.tone({ f0: 880 * k, f1: 880 * k, dur: 0.09, gain: 0.22, type: 'triangle' });
+      this.tone({ f0: 1320 * k, f1: 1320 * k, dur: 0.16, gain: 0.2, type: 'triangle', delay: 0.07 });
+      if (streak >= 3) this.tone({ f0: 1760 * k, f1: 1760 * k, dur: 0.2, gain: 0.1, type: 'sine', delay: 0.13 });
+    },
+    /** A headshot kill, on top of kill(): a bone-crack thump under a bright ring. */
+    headshotKill() {
+      this.tone({ f0: 3200, f1: 2600, dur: 0.07, gain: 0.2, type: 'triangle' });
+      this.burst({ dur: 0.03, gain: 0.16, type: 'highpass', freq: 5000, decay: 0.025 });
+      this.tone({ f0: 140, f1: 55, dur: 0.14, gain: 0.34, type: 'sine' });
+      this.tone({ f0: 2400, f1: 2400, dur: 0.3, gain: 0.07, type: 'sine', delay: 0.05 });
+    },
+    /** A streak reward arriving: three rising notes. */
+    streakReward() {
+      [523, 659, 784, 1047].forEach((f, i) => this.tone({ f0: f, f1: f, dur: 0.14, gain: 0.14, type: 'triangle', delay: i * 0.07 }));
+    },
+    /** Killing whoever killed you: a low stab and a falling sting. */
+    revenge() {
+      this.tone({ f0: 196, f1: 98, dur: 0.22, gain: 0.3, type: 'sawtooth' });
+      this.tone({ f0: 1568, f1: 784, dur: 0.18, gain: 0.1, type: 'triangle', delay: 0.04 });
+    },
     /** A heartbeat while you are low; call every frame. */
     heartbeat(dt, low) {
       if (!low) { this._heart = 0; return; }

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 
-import { buildGunModel } from './gunmodels.js';
+import { applyGunSkin, buildGunModel } from './gunmodels.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
 import { clamp } from './utils.js';
+import { SKINS, skinInfo } from './rewards.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
 /** How each gun is labelled in the locker: its class and a rarity colour. */
@@ -30,10 +31,11 @@ function gunStats(w) {
  * Side-on portraits of the procedural guns, rendered once into images with a throwaway WebGL
  * context. The same models as the first-person view, so the locker shows the gun you get.
  */
-let icons = null;
-function gunIcons() {
-  if (icons) return icons;
-  icons = {};
+const iconCache = new Map();
+function gunIcons(skinId = 'stock') {
+  if (iconCache.has(skinId)) return iconCache.get(skinId);
+  const icons = {};
+  iconCache.set(skinId, icons);
   let r;
   try {
     r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -52,6 +54,7 @@ function gunIcons() {
   const box = new THREE.Box3(), size = new THREE.Vector3(), centre = new THREE.Vector3();
   for (const id of [...GUN_IDS, 'frag']) {
     const m = buildGunModel(id);
+    applyGunSkin(m, skinInfo(skinId));
     m.rotation.y = -0.32;                      // a touch of three-quarter, barrel to the right
     m.updateMatrixWorld(true);
     box.setFromObject(m).getSize(size);
@@ -80,7 +83,11 @@ function gunIcons() {
  * then a gun (or drag a gun onto a slot); a gun already carried swaps places. Every change is
  * applied and saved at once, so there is nothing to confirm.
  */
-export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClose = () => {} }) {
+export function createLocker({
+  getLoadout, setLoadout, onOpen = () => {}, onClose = () => {},
+  // Finishes: which is worn, how to wear another, and whether a given one is earned (and at what level).
+  getSkin = () => 'stock', setSkin = () => {}, skinLevel = () => 1, skinOwned = () => true,
+}) {
   let root = null, sel = 0;
 
   function build() {
@@ -94,6 +101,8 @@ export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClos
           <div class="set-actions"><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
         </div>
         <div class="lk-slots" id="lk-slots"></div>
+        <div class="lk-label">FINISH <span>repaints every gun you carry</span></div>
+        <div class="lk-skins" id="lk-skins"></div>
         <div class="lk-label">ARMORY <span>pick a slot above, then a weapon, or drag one onto a slot</span></div>
         <div class="lk-armory" id="lk-armory"></div>
       </div>`;
@@ -112,7 +121,7 @@ export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClos
     el.type = 'button';
     el.className = `lk-gun tier-${meta.tier}`;
     el.dataset.gun = id;
-    const img = gunIcons()[id];
+    const img = gunIcons(getSkin())[id];
     el.innerHTML = `
       ${slot !== null ? `<span class="lk-key">${slot}</span>` : ''}
       <span class="lk-img">${img ? `<img alt="" src="${img}">` : ''}</span>
@@ -150,6 +159,23 @@ export function createLocker({ getLoadout, setLoadout, onOpen = () => {}, onClos
     frag.classList.add('lk-slot', 'fixed');
     frag.disabled = true;
     slots.appendChild(frag);
+
+    const skins = root.querySelector('#lk-skins');
+    skins.innerHTML = '';
+    for (const sk of SKINS) {
+      const owned = skinOwned(sk.id);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lk-skin';
+      b.classList.toggle('on', getSkin() === sk.id);
+      b.classList.toggle('locked', !owned);
+      b.dataset.skin = sk.id;
+      b.title = owned ? sk.name : `${sk.name} - reach level ${skinLevel(sk.id)}`;
+      b.innerHTML = `<i style="background:${sk.swatch}"></i><span>${sk.name}</span>${owned ? '' : `<small>LVL ${skinLevel(sk.id)}</small>`}`;
+      b.disabled = !owned;
+      b.addEventListener('click', () => { setSkin(sk.id); render(); });
+      skins.appendChild(b);
+    }
 
     const armory = root.querySelector('#lk-armory');
     armory.innerHTML = '';

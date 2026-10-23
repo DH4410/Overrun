@@ -6,22 +6,7 @@ import * as THREE from 'three';
  * the body you see when you emote in a match. Presentation only: nothing here touches the sim.
  */
 
-/** Roster order for the picker. The stock 'soldier' is fallback-only and never offered. */
-const OPERATORS = [
-  { id: 'swat', name: 'SWAT', role: 'POLICE TACTICAL' },
-  { id: 'trooper', name: 'TROOPER', role: 'POLICE TACTICAL' },
-  { id: 'gasmask', name: 'GAS MASK', role: 'POLICE TACTICAL' },
-  { id: 'crypto', name: 'CRYPTO', role: 'MERCENARY' },
-  { id: 'ely', name: 'ELY', role: 'MILITARY' },
-  { id: 'steve', name: 'STEVE', role: 'MILITARY' },
-];
-const KEY = 'overrun.operator';
-
-export function loadOperator() {
-  try { const v = localStorage.getItem(KEY); if (OPERATORS.some((o) => o.id === v)) return v; } catch { /* default */ }
-  return 'swat';
-}
-function saveOperator(id) { try { localStorage.setItem(KEY, id); } catch { /* not persisted */ } }
+import { OPERATORS, isUnlocked } from './rewards.js';
 
 const HERO_SCALE = 1.2;                    // BOT_MESH_SCALE: drawn exactly as a bot is
 const HERO_FOOT = 0.78;                    // soles below the mesh origin at that scale
@@ -29,7 +14,11 @@ const ORBIT_RADIUS = 52, ORBIT_HEIGHT = 21, ORBIT_SPEED = 0.03;   // rad/s: a fu
 const LOBBY_FOV = 52;
 const LOBBY_EMOTES = ['wave', 'victory', 'hiphop', 'macarena', 'robot', 'ymca'];
 
-export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $ }) {
+export function createLobby({
+  scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $,
+  // What the player owns and wears (src/profile.js), and how to wear another operator.
+  getProfile = () => ({ xp: 0, equipped: { operator: 'swat' } }), onEquip = () => {},
+}) {
   let angle = Math.atan2(-40, 40);         // starts where the old fixed camera sat
   let shown = false;
   let hero = null, heroId = null;
@@ -57,11 +46,24 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   scene.add(pad);
 
   const ids = () => OPERATORS.filter((o) => loadedCharacters().includes(o.id));
+  const owned = (id) => isUnlocked(getProfile(), 'operator', id);
+  const wornId = () => { const e = getProfile().equipped?.operator; return owned(e) ? e : 'swat'; };
+
+  /** An operator you have not earned stands there as a black silhouette. */
+  function silhouette(g) {
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      o.material.color?.setScalar(0.035);
+      if (o.material.emissive) o.material.emissive.setScalar(0);
+    });
+  }
 
   function build(id) {
     if (hero) { scene.remove(hero); hero = null; emoteAct = null; }
     const g = buildCharacterMesh(id);
     if (!g) return;
+    if (!owned(id)) silhouette(g);
     g.scale.setScalar(HERO_SCALE);
     g.visible = shown;
     scene.add(g);
@@ -71,9 +73,12 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
 
   function syncLabel() {
     const o = OPERATORS.find((x) => x.id === heroId);
-    const n = $('op-name'), r = $('op-role');
+    const n = $('op-name'), r = $('op-role'), lock = $('op-lock');
+    const has = !o || owned(o.id);
     if (n) n.textContent = o?.name ?? '';
-    if (r) r.textContent = o?.role ?? '';
+    if (r) r.textContent = has ? (o?.role ?? '') : '';
+    if (lock) lock.textContent = has ? '' : `LOCKED · REACH LEVEL ${o.level}`;
+    $('operator')?.classList.toggle('locked', !has);
   }
 
   function cycle(step) {
@@ -81,8 +86,8 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
     if (list.length < 2) return;
     const i = list.findIndex((o) => o.id === heroId);
     const next = list[(i + step + list.length) % list.length];
-    saveOperator(next.id);
     build(next.id);
+    if (owned(next.id)) onEquip(next.id);
   }
   $('op-prev')?.addEventListener('click', () => cycle(-1));
   $('op-next')?.addEventListener('click', () => cycle(1));
@@ -91,7 +96,7 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   function init() {
     const list = ids();
     if (!list.length) return;
-    const want = loadOperator();
+    const want = wornId();
     build(list.some((o) => o.id === want) ? want : list[0].id);
     const bar = $('operator');
     if (bar && list.length > 1) bar.classList.add('on');
@@ -102,6 +107,7 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   function setShown(on) {
     if (on === shown) return;
     shown = on;
+    if (on) refresh();                          // a match may have unlocked something
     pad.visible = on && !!hero;
     if (hero) hero.visible = on;
     $('operator')?.classList.toggle('shown', on);
@@ -150,5 +156,8 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
     hero.userData.mixer.update(dt);
   }
 
-  return { init, update, setShown, cycle, setFocus: (on) => { focus = !!on; }, get operatorId() { return heroId; } };
+  /** The career changed (signed in, levelled up): show the operator you now wear. */
+  function refresh() { const want = wornId(); if (hero && (want !== heroId || !owned(heroId))) build(want); else syncLabel(); }
+
+  return { init, update, setShown, cycle, refresh, setFocus: (on) => { focus = !!on; }, get operatorId() { return heroId; } };
 }

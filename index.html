@@ -56,6 +56,59 @@
 
 <div id="killcam"><div class="kc-bar top"></div><div class="kc-bar bot"></div><div class="kc-rec"><i></i><span id="kc-who">ELIMINATED BY</span></div><div class="kc-card"><div class="kc-name" id="kc-name"></div><div class="kc-weapon" id="kc-weapon"></div><div class="kc-lost" id="kc-lost"></div></div><div class="kc-prog"><i id="kc-progress"></i></div><div class="kc-skip">CLICK TO SKIP</div><div class="kc-static"></div></div>
 <div id="pause"><div class="big" id="p-big">PAUSED</div><div class="sm" id="p-sm"></div><div class="lost" id="p-lost"></div><div id="p-board"></div><div class="cta" id="p-cta">CLICK TO RESUME</div><div class="pause-btns"><button id="locker-open-pause">LOCKER</button><button id="settings-open-pause">SETTINGS</button><button id="quit-match">LEAVE MATCH</button></div></div>
+<div id="acct" class="pop" role="dialog" aria-modal="true" aria-label="Account">
+  <div class="pop-card acct-card">
+    <div class="pop-head"><h2 id="acct-title">ACCOUNT</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
+    <div class="acct-body">
+      <form data-view="login" autocomplete="on">
+        <p class="acct-lead">Sign in to keep your career, operators and finishes on any device.</p>
+        <label>Username or email<input name="login" autocomplete="username" required maxlength="254" /></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="128" /></label>
+        <button class="acct-go" type="submit">SIGN IN</button>
+        <div class="acct-links"><button type="button" data-go="register">Create an account</button><button type="button" data-go="forgot">Forgot password?</button></div>
+      </form>
+      <form data-view="register" autocomplete="on">
+        <p class="acct-lead">Free. Your career so far on this device comes with you.</p>
+        <label>Username <small>3-12 letters, numbers, - or _</small><input name="username" autocomplete="username" required maxlength="12" pattern="[A-Za-z0-9_\-]{3,12}" /></label>
+        <label>Email <small>optional - lets you sign in with it</small><input name="email" type="email" autocomplete="email" maxlength="254" /></label>
+        <label>Password <small>8 or more characters</small><input name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
+        <button class="acct-go" type="submit">CREATE ACCOUNT</button>
+        <div class="acct-links"><button type="button" data-go="login">I already have an account</button></div>
+      </form>
+      <form data-view="forgot" autocomplete="off">
+        <p class="acct-lead">Enter the recovery code you were shown when you made the account.</p>
+        <label>Username or email<input name="login" autocomplete="username" required maxlength="254" /></label>
+        <label>Recovery code<input name="recoveryCode" autocomplete="off" required maxlength="40" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" /></label>
+        <label>New password<input name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
+        <button class="acct-go" type="submit">RESET PASSWORD</button>
+        <div class="acct-links"><button type="button" data-go="login">Back to sign in</button></div>
+      </form>
+      <div data-view="recovery">
+        <p class="acct-lead">This is your recovery code. It is shown <b>once</b>. Keep it somewhere safe: it is the only way to get back in if you forget your password.</p>
+        <div class="acct-code" id="acct-code"></div>
+        <div class="acct-row"><button class="acct-alt" id="acct-copy" type="button">COPY</button><button class="acct-go" id="acct-saved" type="button">I SAVED IT</button></div>
+      </div>
+      <div data-view="in">
+        <div class="acct-who"><b id="acct-name"></b><span id="acct-mail"></span></div>
+        <div class="acct-row"><button class="acct-alt" type="button" data-go="password">CHANGE PASSWORD</button><button class="acct-go" id="acct-out" type="button">SIGN OUT</button></div>
+        <div class="acct-links"><button type="button" data-go="delete">Delete this account</button></div>
+      </div>
+      <form data-view="password" autocomplete="off">
+        <label>Current password<input name="current" type="password" autocomplete="current-password" required maxlength="128" /></label>
+        <label>New password<input name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128" /></label>
+        <button class="acct-go" type="submit">CHANGE PASSWORD</button>
+        <div class="acct-links"><button type="button" data-go="in">Cancel</button></div>
+      </form>
+      <form data-view="delete" autocomplete="off">
+        <p class="acct-lead">This deletes the account and its saved career from the server. This device keeps its own copy. It cannot be undone.</p>
+        <label>Your password<input name="password" type="password" autocomplete="current-password" required maxlength="128" /></label>
+        <button class="acct-go danger" type="submit">DELETE FOREVER</button>
+        <div class="acct-links"><button type="button" data-go="in">Cancel</button></div>
+      </form>
+      <div class="acct-msg" id="acct-msg" role="alert"></div>
+    </div>
+  </div>
+</div>
 <div id="settings" class="hidden"><div class="set-card"><div class="set-head"><h2>SETTINGS</h2><div class="set-actions"><button id="settings-reset">RESET</button><button id="settings-close">DONE</button></div></div><div id="settings-body"></div></div></div>
 
 <div id="outro"><div class="o-rays"></div><div class="o-kicker" id="o-kicker"></div><div class="o-title" id="o-title"></div><div class="o-sub" id="o-sub"></div></div>
@@ -70,7 +123,7 @@
       <button class="tab" id="locker-open" type="button">LOCKER</button>
       <button class="tab" id="settings-open" type="button">SETTINGS</button>
     </div>
-    <div id="account"><i class="ac-dot"></i><span id="ac-name">GUEST</span></div>
+    <button id="account" type="button" title="Sign in"><i class="ac-dot"></i><span id="ac-name">GUEST</span></button>
   </nav>
 
   <aside id="lobby-left">
@@ -88,7 +141,7 @@
 
   <section id="operator" aria-label="Operator">
     <button id="op-prev" type="button" aria-label="Previous operator">&#x2039;</button>
-    <div class="op-plate"><b id="op-name"></b><span id="op-role"></span></div>
+    <div class="op-plate"><b id="op-name"></b><span id="op-role"></span><span id="op-lock"></span></div>
     <button id="op-next" type="button" aria-label="Next operator">&#x203A;</button>
   </section>
 

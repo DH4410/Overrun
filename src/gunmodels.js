@@ -23,7 +23,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
  */
 
 export function gunMaterials() {
-  return {
+  const m = {
     polymer: new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.74, metalness: 0.06 }),
     alloy: new THREE.MeshStandardMaterial({ color: 0x292c30, roughness: 0.46, metalness: 0.72 }),
     steel: new THREE.MeshStandardMaterial({ color: 0x3b3e43, roughness: 0.3, metalness: 0.9 }),
@@ -41,6 +41,34 @@ export function gunMaterials() {
     knuckle: new THREE.MeshStandardMaterial({ color: 0x33373c, roughness: 0.7, metalness: 0.05 }),
     sleeve: new THREE.MeshStandardMaterial({ color: 0x3a3f35, roughness: 0.93, metalness: 0 }),
   };
+  // The three roles a finish can repaint, each remembering its stock look (see applyGunSkin).
+  for (const role of ['polymer', 'alloy', 'steel']) {
+    const mat = m[role];
+    mat.userData.skinRole = role;
+    mat.userData.stock = [mat.color.getHex(), mat.roughness, mat.metalness];
+  }
+  return m;
+}
+
+/**
+ * Repaint a gun (or a whole viewmodel) with a finish from src/rewards.js. `skin.slots` maps a role
+ * to [colour, roughness, metalness]; a null `slots` (the stock finish), or a role it leaves out,
+ * goes back to the gun's own colours. Safe to call again and again.
+ */
+export function applyGunSkin(root, skin) {
+  const seen = new Set();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const mat of Array.isArray(o.material) ? o.material : [o.material]) {
+      const role = mat?.userData?.skinRole;
+      if (!role || seen.has(mat)) continue;
+      seen.add(mat);
+      const [hex, rough, metal] = skin?.slots?.[role] ?? mat.userData.stock;
+      mat.color.setHex(hex);
+      mat.roughness = rough;
+      mat.metalness = metal;
+    }
+  });
 }
 
 /* ------------------------------ helpers ------------------------------ */

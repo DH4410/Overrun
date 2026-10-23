@@ -1,6 +1,7 @@
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
 import { applyMatch, loadProfile, rankTitle, saveProfile } from './profile.js';
+import { levelRewards } from './rewards.js';
 import { WEAPON_BY_ID } from './weapons.js';
 import { renderPlayerCard } from './playercard.js';
 import { AFTER_TIME } from './killcam.js';
@@ -334,8 +335,11 @@ function showAward(progress) {
       }, 950);
     }
   }, t * 1000);
+  // What the levels just gained hand out, so a new operator or finish is never a surprise discovered later.
+  const unlocked = [];
+  for (let l = before.level + 1; l <= after.level; l++) for (const r of levelRewards(l)) unlocked.push(r.name);
   $id('pd-xplvl').textContent = progress.leveledUp
-    ? `LEVEL UP  ·  ${before.level} → ${after.level}  ·  ${rankTitle(after.level)}`
+    ? `LEVEL UP  ·  ${before.level} → ${after.level}  ·  ${rankTitle(after.level)}${unlocked.length ? `  ·  UNLOCKED: ${unlocked.join(', ')}` : ''}`
     : `LEVEL ${after.level}  ·  ${after.into} / ${after.need} XP`;
   $id('pd-xplvl').classList.toggle('up', progress.leveledUp);
   box.classList.add('on');

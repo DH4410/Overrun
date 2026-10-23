@@ -35,7 +35,8 @@ import {
 } from './bots.js';
 import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
-import { createLobby, loadOperator } from './lobby.js';
+import { createAccount } from './account.js';
+import { createLobby } from './lobby.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
 import {
@@ -58,6 +59,10 @@ import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
+import { applyGunSkin } from './gunmodels.js';
+import { renderPlayerCard } from './playercard.js';
+import { loadProfile, saveProfile, withEquipped } from './profile.js';
+import { SKINS, isUnlocked, sanitizeEquipped, skinInfo } from './rewards.js';
 import { createMinimap } from './minimap.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
@@ -1264,11 +1269,35 @@ const locker = createLocker({
     if (match.running) appState = APP_STATE.SETTINGS;
   },
   onClose: () => { if (match.running) requestLock(); },
+  getSkin: () => worn().skin,
+  setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
+  skinLevel: (id) => skinInfo(id)?.level ?? 1,
+  skinOwned: (id) => isUnlocked(loadProfile(), 'skin', id),
 });
 const emotes = createEmotes({
-  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: loadOperator, wheel: $('emote-wheel'), Audio,
+  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: () => worn().operator, wheel: $('emote-wheel'), Audio,
 });
-const lobby = createLobby({ scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $ });
+/** What the player wears: their saved choices, minus anything not yet earned. */
+const worn = () => { const p = loadProfile(); return sanitizeEquipped(p, p.equipped); };
+const wear = (patch) => saveProfile(withEquipped(loadProfile(), patch));
+/** The first-person guns take the worn finish. */
+function applyWornSkin() {
+  const skin = skinInfo(worn().skin);
+  for (const m of Object.values(vmModels)) applyGunSkin(m, skin);
+}
+applyWornSkin();
+const lobby = createLobby({
+  scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $,
+  getProfile: loadProfile, onEquip: (id) => wear({ operator: id }),
+});
+const account = createAccount({
+  getElement: $,
+  getProfile: loadProfile,
+  setProfile: (p) => saveProfile(p, { silent: true }),
+  setCallsign: (name) => { const input = $('nameinput'); if (input) input.value = name.toUpperCase().slice(0, 12); },
+  onChange: (p) => { renderPlayerCard(p); applyWornSkin(); lobby.refresh(); },
+});
+addEventListener('overrun:profile', () => account.profileSaved());
 /** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
 function setLobbyTab(tab) {
   const ops = tab === 'operators';
@@ -1280,7 +1309,7 @@ function setLobbyTab(tab) {
 $('tab-play')?.addEventListener('click', () => setLobbyTab('play'));
 $('tab-operators')?.addEventListener('click', () => setLobbyTab('operators'));
 killcam = createKillcam({
-  scene, camera, player, bots, buildCharacterMesh, getOperatorId: loadOperator, losClear, Audio,
+  scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
 });
 /** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
@@ -1476,6 +1505,7 @@ async function boot() {
   bindSettings();
   applySettings();
   lobby.init();
+  account.init();
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local
@@ -1495,7 +1525,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net, killcam, lobby, applyDamage,
+    predictThrow, updateThrowPreview, grenades, net, killcam, lobby, account, worn, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

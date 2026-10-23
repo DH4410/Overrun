@@ -455,6 +455,8 @@ button { font: inherit; color: inherit; }
 #op-prev:hover, #op-next:hover { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
 .op-plate { min-width: 190px; display: flex; flex-direction: column; align-items: center; line-height: 1; text-shadow: var(--shadow); }
 #op-name { font-family: var(--f-display); font-size: clamp(28px, 4.6vh, 42px); font-weight: 800; letter-spacing: 5px; text-transform: uppercase; }
+#op-lock { margin-top: 5px; font-family: var(--f-display); font-size: 13px; font-weight: 800; letter-spacing: 4px; color: var(--enemy); }
+#op-lock:empty { display: none; }
 #op-role { margin-top: 5px; font-family: var(--f-display); font-size: 12px; font-weight: 700; letter-spacing: 5px; color: var(--accent); }
 
 /* OPERATORS tab: the rails step aside and the operator has the screen. */
@@ -846,3 +848,53 @@ body.killcam #pause { display: none !important; }
 .kc-lost { margin-top: 6px; font-size: clamp(12px, 2vh, 16px); font-weight: 700; letter-spacing: 4px; color: var(--enemy); }
 .kc-lost:empty { display: none; }
 body.killcam #hud > #streak { display: none !important; }
+
+/* ==========================================================================
+   Account: the sign-in card, opened from the chip in the lobby's top bar.
+   ========================================================================== */
+
+#account { pointer-events: auto; cursor: pointer; border: 0; }
+#account:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+#account.off { cursor: default; opacity: .6; }
+#account.off:hover { color: var(--ink-2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); }
+.acct-card { width: min(440px, 94vw); padding: 22px 24px 24px; background: rgba(7, 10, 15, .96); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 3px 0 var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%); }
+.acct-card .pop-head h2 { font-size: 30px; }
+.acct-body [data-view] { display: none; flex-direction: column; gap: 12px; }
+.acct-body [data-view].on { display: flex; }
+.acct-lead { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.acct-body label { display: flex; flex-direction: column; gap: 5px; font-family: var(--f-display); font-size: 13px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--ink-3); }
+.acct-body label small { font-family: var(--f-body); font-weight: 400; font-size: 12px; letter-spacing: 0; text-transform: none; margin-left: 6px; color: var(--ink-3); }
+.acct-body input { user-select: text; pointer-events: auto; padding: 10px 12px; border: 0; border-bottom: 2px solid var(--ink-4); background: rgba(255, 255, 255, .06); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; letter-spacing: 0; text-transform: none; outline: 0; }
+.acct-body input:focus { border-bottom-color: var(--accent); background: rgba(255, 255, 255, .1); }
+.acct-go, .acct-alt { pointer-events: auto; cursor: pointer; padding: 12px 0; border: 0; font-family: var(--f-display); font-size: 18px; font-weight: 800; letter-spacing: 5px;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); }
+.acct-go { background: var(--accent); color: var(--accent-ink); flex: 1; }
+.acct-go:hover:not(:disabled) { filter: brightness(1.1); }
+.acct-go:disabled { opacity: .5; cursor: default; }
+.acct-go.danger { background: var(--enemy); color: #1b0805; }
+.acct-alt { background: rgba(255, 255, 255, .08); color: var(--ink); padding-left: 18px; padding-right: 18px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16); }
+.acct-alt:hover { background: rgba(255, 255, 255, .16); }
+.acct-row { display: flex; gap: 8px; }
+.acct-links { display: flex; justify-content: space-between; gap: 12px; }
+.acct-links button { pointer-events: auto; cursor: pointer; background: none; border: 0; padding: 4px 0; font-family: var(--f-display); font-size: 14px; font-weight: 700; letter-spacing: 2px; color: var(--ink-2); }
+.acct-links button:hover { color: var(--accent); }
+.acct-code { padding: 14px; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 22px; letter-spacing: 2px; color: var(--accent); user-select: all;
+  background: rgba(243, 181, 63, .1); box-shadow: inset 0 0 0 1px rgba(243, 181, 63, .4); }
+.acct-who { display: flex; flex-direction: column; gap: 3px; }
+.acct-who b { font-family: var(--f-display); font-size: 30px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
+.acct-who span { font-size: 14px; color: var(--ink-3); }
+.acct-msg { min-height: 20px; margin-top: 10px; font-size: 14px; color: var(--enemy); }
+.acct-msg.ok { color: var(--self); }
+
+/* Locker: the finish row. */
+.lk-skins { display: flex; flex-wrap: wrap; gap: 8px; }
+.lk-skin { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border: 0; background: rgba(255, 255, 255, .06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); color: var(--ink); font-family: var(--f-display); font-size: 14px; font-weight: 700; letter-spacing: 2px; }
+.lk-skin i { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); }
+.lk-skin small { font-size: 11px; letter-spacing: 1px; color: var(--ink-3); }
+.lk-skin:hover:not(:disabled) { background: rgba(255, 255, 255, .12); }
+.lk-skin.on { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+.lk-skin.locked { opacity: .45; cursor: default; }
+@media (max-height: 640px) { .lk-skins { display: none; } }

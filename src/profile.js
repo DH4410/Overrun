@@ -72,8 +72,11 @@ export function loadProfile() {
   try { return clean(JSON.parse(localStorage.getItem(KEY))); } catch { return clean(null); }
 }
 
-export function saveProfile(p) {
+export function saveProfile(p, { silent = false } = {}) {
   try { localStorage.setItem(KEY, JSON.stringify(clean(p))); } catch { /* private mode: still applied this session */ }
+  // The account (src/account.js) listens, to keep the server's copy up to date. `silent` is for
+  // writes that came from the server, which must not be sent straight back.
+  if (!silent && typeof globalThis.dispatchEvent === 'function' && typeof globalThis.CustomEvent === 'function') globalThis.dispatchEvent(new globalThis.CustomEvent('overrun:profile'));
 }
 
 /**

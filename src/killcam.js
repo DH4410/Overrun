@@ -391,10 +391,10 @@ export function createKillcam({
     _c.copy(_b).sub(_a); _c.y = 0;
     if (_c.lengthSq() < 0.01) _c.set(-Math.sin(ghostK.rotation.y), 0, -Math.cos(ghostK.rotation.y));
     _c.normalize();
-    const back = lerp(2.9, 2.0, ks.aim);
+    const back = lerp(3.7, 2.7, ks.aim);
     camera.position.copy(_a).addScaledVector(_c, -back);
-    camera.position.x += _c.z * 0.65; camera.position.z -= _c.x * 0.65;     // over the right shoulder
-    camera.position.y += 0.55;
+    camera.position.x += _c.z * 0.85; camera.position.z -= _c.x * 0.85;     // over the right shoulder
+    camera.position.y += 0.75;
     // Pull in if a wall is in the way.
     for (let k = 1; k > 0.2 && !losClear(_a.x, _a.y, _a.z, camera.position.x, camera.position.y, camera.position.z); k -= 0.2) {
       camera.position.lerpVectors(_a, camera.position, k);

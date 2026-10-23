@@ -127,7 +127,12 @@ export function createKillcam({
   })();
 
   function makeGhostOf(bot) {
-    const g = skeletonClone(bot.mesh);
+    // Object3D.copy() round-trips userData through JSON, and a bot's holds its mixer and actions,
+    // which point back at each other. The clone needs none of it, so set it aside while cloning.
+    const parked = [];
+    bot.mesh.traverse((o) => { parked.push([o, o.userData]); o.userData = {}; });
+    let g;
+    try { g = skeletonClone(bot.mesh); } finally { for (const [o, u] of parked) o.userData = u; }
     g.traverse((o) => {
       if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = false; o.material.opacity = 1; o.frustumCulled = false; }
     });

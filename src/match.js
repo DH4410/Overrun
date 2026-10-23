@@ -442,7 +442,6 @@ function endDuelRound(winner) {
   checkWinConditions();
 }
 
-const SOLO_RESPAWN = 4.5;               // without a kill cam (the sim's PLAYER_RESPAWN is hashed, so not edited)
 const MULTI_WINDOW = 4;
 const MULTI_MEDAL = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'MEGA KILL'];
 const STREAK_MEDAL = { 3: '3 KILL STREAK', 5: 'RAMPAGE', 7: 'UNSTOPPABLE', 10: 'GODLIKE' };
@@ -490,7 +489,7 @@ function killCombatant(target, source, headshot) {
     // while it runs and gives the death screen a beat after). Otherwise a slower solo respawn.
     const cam = match.mode !== 'duel' && source !== player ? getKillcam() : null;
     const camTime = cam ? cam.begin(source, headshot) : 0;
-    player.respawnTimer = camTime > 0 ? camTime + AFTER_TIME : SOLO_RESPAWN;
+    player.respawnTimer = camTime > 0 ? camTime + AFTER_TIME : CONFIG.PLAYER_RESPAWN;
     if (player.cooking) player.cooking = null;
     stopFiring();
   } else {
@@ -529,7 +528,7 @@ function checkWinConditions() {
   }
 }
 
-function updateMatch(dt) {
+function updateMatch(dt, realDt = dt) {
   if (!match.running) return;
   match.time += dt;
 
@@ -583,7 +582,7 @@ function updateMatch(dt) {
   // thing left here is the death overlay, counting down to the next round rather than to
   // a respawn.
   if (!player.alive) {
-    player.respawnTimer -= dt;
+    player.respawnTimer -= realDt;           // real time: the kill cam's slow motion must not stretch the wait
     el.pause.classList.add('on', 'dead');
     deathBoardTimer -= dt;
     if (deathBoardTimer <= 0) { deathBoardTimer = 0.25; renderDeathBoard(); }

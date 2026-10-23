@@ -828,6 +828,7 @@ const {
   throwGrenade,
   showThrowArc,
   getNet: () => net,
+  onPlayerHit: (...args) => killcam?.noteHit(...args),
 });
 
 
@@ -876,6 +877,7 @@ const {
   clearAlertsOn,
   stopFiring,
   isPointerLocked,
+  getKillcam: () => killcam,
   elements: el,
 });
 
@@ -1038,10 +1040,17 @@ function frameBudget() {
 let framesDrawn = 0;
 let shadowFrame = 0;
 const OUTRO_TIME_SCALE = 0.3;
+const KILLCAM_WORLD_SCALE = 0.3;    // world speed while the view zooms onto your killer
 const SPRINT_FOV_KICK = 4;          // degrees of widening while sprinting: the speed you can feel
 
 function frame() {
   requestAnimationFrame(frame);
+
+  // Paused or in a menu mid-cam: drop it, or its overlay would sit over the pause screen.
+  if (killcam.active && appState !== APP_STATE.PLAYING) {
+    killcam.reset();
+    player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
+  }
 
   const now = performance.now() / 1000;
   const budget = frameBudget();
@@ -1090,61 +1099,75 @@ function frame() {
     // The end-of-match outro: the world runs slowed, its timer runs on real time.
     const realDt = dt;
     if (match.outro) dt *= OUTRO_TIME_SCALE;
+    // The kill cam: the world slows while the view zooms on your killer, then stands still while
+    // the replay plays. Its own clock is real time, and so is the respawn wait it holds.
+    const kcPhase = killcam.phase;
+    const kcFrozen = kcPhase === 'replay';
+    if (kcPhase === 'zoom' || kcPhase === 'cut') dt *= KILLCAM_WORLD_SCALE;
     pollGamepad(dt);
     applyLook(realDt);
 
-    if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
+    if (kcFrozen) {
+      player.respawnTimer -= realDt;
+      updateBursts(realDt);
+      updateLights();
+    } else {
 
-    // Weapon timers. The fire cooldown carries its overshoot past zero into the next shot,
-    // because it is polled once per rendered frame: without the carry, a 30 fps cap rounds the
-    // AR's 0.09 s cooldown up to 0.1 s and the player quietly loses a tenth of their rate of
-    // fire to a graphics setting, while the bots — which fire on the fixed clock — keep all of
-    // theirs. The carry is at most one frame, so it can never bank rounds.
-    if (player.cooldown > 0) {
-      player.cooldown -= dt;
-      player.fireCarry = player.cooldown < 0 ? -player.cooldown : 0;
-      if (player.cooldown < 0) player.cooldown = 0;
-    }
-    if (player.reloading > 0) {
-      const from = 1 - player.reloading / player.reloadTotal;
-      player.reloading -= dt;
-      Audio.reloadProgress(player.current, from, 1 - Math.max(player.reloading, 0) / player.reloadTotal);
-      if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
-    }
-    if (isFiring() && currentWeapon().auto) tryFire();
+      if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
 
-    // Fixed-step physics, capped so a stall cannot spiral the accumulator.
-    accumulator += dt;
-    let steps = 0;
-    while (accumulator >= FIXED_DT && steps < CONFIG.MAX_SUBSTEPS) {
-      fixedStep(FIXED_DT);
-      accumulator -= FIXED_DT;
-      steps++;
-    }
-    if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
-    renderAlpha = accumulator / FIXED_DT;
+      // Weapon timers. The fire cooldown carries its overshoot past zero into the next shot,
+      // because it is polled once per rendered frame: without the carry, a 30 fps cap rounds the
+      // AR's 0.09 s cooldown up to 0.1 s and the player quietly loses a tenth of their rate of
+      // fire to a graphics setting, while the bots — which fire on the fixed clock — keep all of
+      // theirs. The carry is at most one frame, so it can never bank rounds.
+      if (player.cooldown > 0) {
+        player.cooldown -= dt;
+        player.fireCarry = player.cooldown < 0 ? -player.cooldown : 0;
+        if (player.cooldown < 0) player.cooldown = 0;
+      }
+      if (player.reloading > 0) {
+        const from = 1 - player.reloading / player.reloadTotal;
+        player.reloading -= dt;
+        Audio.reloadProgress(player.current, from, 1 - Math.max(player.reloading, 0) / player.reloadTotal);
+        if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
+      }
+      if (isFiring() && currentWeapon().auto) tryFire();
 
-    for (const b of bots) b.renderStep(dt, renderAlpha);
-    syncGrenades();
-    updateBursts(dt);
-    updateExplosionFx(dt);
-    updateSmoke(dt);
-    updateBrass(dt);
-    updatePickups(dt);
-    updateAmmoChests(dt);
-    updatePickupPrompt(updateConsumables(dt));
-    updateLights();          // after every emitter has had its chance to move or flicker
-    updateShake(dt);
-    updateSpotting(dt);
-    updateMatch(dt);
-    updateViewModel(dt);
-    updateCamera(dt);
-    emotes.update(dt, { running: match.running && !match.outro, firing: isFiring() });
-    updateThrowPreview(dt);
-    updatePlates(dt);
-    updateAllyMarkers();
-    updateHudTimers(dt);
-    updateOutro(realDt);
+      // Fixed-step physics, capped so a stall cannot spiral the accumulator.
+      accumulator += dt;
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < CONFIG.MAX_SUBSTEPS) {
+        fixedStep(FIXED_DT);
+        accumulator -= FIXED_DT;
+        steps++;
+      }
+      if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
+      renderAlpha = accumulator / FIXED_DT;
+
+      for (const b of bots) b.renderStep(dt, renderAlpha);
+      syncGrenades();
+      updateBursts(dt);
+      updateExplosionFx(dt);
+      updateSmoke(dt);
+      updateBrass(dt);
+      updatePickups(dt);
+      updateAmmoChests(dt);
+      updatePickupPrompt(updateConsumables(dt));
+      updateLights();          // after every emitter has had its chance to move or flicker
+      updateShake(dt);
+      updateSpotting(dt);
+      updateMatch(dt, realDt);
+      updateViewModel(dt);
+      updateCamera(dt);
+      if (player.alive && match.running) killcam.record(dt);
+      emotes.update(dt, { running: match.running && !match.outro, firing: isFiring() });
+      updateThrowPreview(dt);
+      updatePlates(dt);
+      updateAllyMarkers();
+      updateHudTimers(dt);
+      updateOutro(realDt);
+    }
+    if (killcam.active) killcam.update(realDt);
   }
 
   // The one shadow refresh of the frame (see renderer.shadowMap.autoUpdate), halved in battery
@@ -1233,8 +1256,20 @@ const locker = createLocker({
   onClose: () => { if (match.running) requestLock(); },
 });
 const emotes = createEmotes({
-  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio,
+  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: loadOperator, wheel: $('emote-wheel'), Audio,
 });
+killcam = createKillcam({
+  scene, camera, player, bots, buildCharacterMesh, getOperatorId: loadOperator, losClear, Audio,
+  spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
+});
+/** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
+function skipKillcam() {
+  if (killcam.skip()) player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
+}
+addEventListener('keydown', (e) => {
+  if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) skipKillcam();
+});
+addEventListener('mousedown', skipKillcam);
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
       && ((match.running && !match.outro) || net.playing)) emotes.openWheel();
@@ -1438,7 +1473,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net,
+    predictThrow, updateThrowPreview, grenades, net, killcam,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

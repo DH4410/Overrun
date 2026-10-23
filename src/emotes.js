@@ -29,7 +29,7 @@ const AVATAR_SCALE = 1.2;       // BOT_MESH_SCALE: the avatar is drawn exactly a
 const AVATAR_FOOT = 0.78;       // soles below the mesh origin at that scale
 const CAM_DIST = 3.4, CAM_HEIGHT = 1.5, LOOK_HEIGHT = 1.1;
 
-export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio }) {
+export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId = () => null, wheel, Audio }) {
   const clips = {};
   let loading = null;
   let avatar = null, action = null, active = null;
@@ -80,7 +80,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
 
   function makeAvatar() {
     const ids = loadedCharacters();
-    const id = ['swat', 'soldier', ...ids].find((c) => ids.includes(c));
+    const id = [getOperatorId(), 'swat', 'soldier', ...ids].find((c) => ids.includes(c));
     const g = id ? buildCharacterMesh(id) : null;
     if (!g) return null;
     g.scale.setScalar(AVATAR_SCALE);

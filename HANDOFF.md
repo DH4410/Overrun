@@ -95,6 +95,19 @@ That is the harness, not a game bug. Serve a grey texture instead if you need to
 
 **Not built**: private rooms, online kill cam/XP, Mixamo clips.
 
+### Session 8: test status
+
+- First branch, full run (112 specs): 107 passed. Three failed and were looked into: `match-end:78` was
+  the kill cam owning the screen (test fixed); `duel:306` is a statistical flake (passed 5/5 on a repeat and
+  on the original code; it samples a dozen random headshots); `multiplayer:60` also fails on the original
+  commit here (headless software rendering is too slow for its real-time clock). One spec (`hitboxes:85`)
+  was flaky once and passed on retry.
+- Accounts branch (includes the UI branch): the full run found a console 404 from the account probe, an
+  800 px lobby overflow and a career-screen Escape bug, all fixed. After the fixes the affected specs
+  (accounts, boot, kill cam, streaks, match-end, port, desert, snow) pass: 42/42. A *final* full run of all
+  118 specs on that branch was not repeated after the fixes; do that first.
+- Run e2e one run at a time (shared port 4173), and expect software-GL boots to take 20-60 s each.
+
 ---
 
 ## Session 7: the maps

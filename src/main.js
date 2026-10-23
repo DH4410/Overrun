@@ -36,6 +36,7 @@ import {
 import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
 import { createAccount } from './account.js';
+import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
@@ -1298,6 +1299,11 @@ const account = createAccount({
   onChange: (p) => { renderPlayerCard(p); applyWornSkin(); lobby.refresh(); },
 });
 addEventListener('overrun:profile', () => account.profileSaved());
+const career = createCareer({
+  getProfile: loadProfile,
+  onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
+});
+$('tab-career')?.addEventListener('click', () => career.open());
 /** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
 function setLobbyTab(tab) {
   const ops = tab === 'operators';

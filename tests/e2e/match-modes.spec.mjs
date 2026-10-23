@@ -70,3 +70,31 @@ test('Survival advances from wave one to wave two after the break', async ({ pag
   // Wave two is four hostiles, but only three walk in at once; the fourth trickles in later.
   expect(result).toEqual({ living: 3, total: 3, wave: 2 });
 });
+
+test('Gun Game: each kill hands you the next gun, a bot climbs too, and the last rung wins', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'gg', map: 'port', diff: 'easy' });
+
+  const first = await page.evaluate(() => ({ loadout: [...globalThis.__game.player.loadout], current: globalThis.__game.player.current }));
+  expect(first).toEqual({ loadout: ['pistol'], current: 'pistol' });
+
+  const step = await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.killCombatant(g.bots[0], g.player, false, 'pistol');
+    const afterOne = { current: g.player.current, loadout: [...g.player.loadout], mag: g.player.ammo[g.player.current].mag };
+    // A bot's kill moves that bot up for its next life.
+    g.killCombatant(g.bots[1], g.bots[2], false, 'pistol');
+    return { afterOne, botNext: g.bots[2].fixedWeaponId };
+  });
+  expect(step.afterOne.current).toBe('mp');
+  expect(step.afterOne.loadout).toEqual(['mp']);
+  expect(step.afterOne.mag).toBe(24);
+  expect(step.botNext).toBe('mp');
+
+  const won = await page.evaluate(() => {
+    const g = globalThis.__game;
+    for (let i = 0; i < 9; i++) g.killCombatant(g.bots[0], g.player, false, g.player.current);
+    return { running: g.match.running, kills: g.player.kills, current: g.player.current };
+  });
+  expect(won).toEqual({ running: false, kills: 10, current: 'sniper' });
+});

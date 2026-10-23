@@ -12,7 +12,14 @@ import {
   TEAM_COLOR,
 } from './config.js';
 
-export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL' };
+export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL', gg: 'GUN GAME' };
+/**
+ * Gun Game: everyone starts on the same gun and every kill hands the killer the next one. The
+ * ladder runs short barrels to long ones, so the opening kills are at arm's length and the last
+ * is a sniper shot. Finish it first to win. Owning the guns is not required: the ladder lends them.
+ */
+export const GUN_LADDER = ['pistol', 'mp', 'revolver', 'smg', 'ashotgun', 'shotgun', 'ar', 'lmg', 'dmr', 'sniper'];
+export const ladderGun = (kills) => GUN_LADDER[Math.min(Math.max(0, kills), GUN_LADDER.length - 1)];
 /**
  * Survival is meant to be a power fantasy you can lose, not a wall. Waves are small, hostiles walk
  * in a few at a time instead of all at once, the early waves are the easy tier whatever the lobby
@@ -175,6 +182,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   player.loadout = loadLoadout();
   match.loadout = mode === 'duel' && player.loadout.includes(CONFIG.DUEL_WEAPON)
     ? CONFIG.DUEL_WEAPON : player.loadout[0];
+  if (mode === 'gg') { player.loadout = [ladderGun(0)]; match.loadout = ladderGun(0); }
   player.current = match.loadout;
   player.cooking = null;
   player.cooldown = 0; player.reloading = 0;
@@ -192,6 +200,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
     for (let i = 0; i < 3; i++) addBot(TEAM.RED);
   } else if (mode === 'dm') {
     for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO);
+  } else if (mode === 'gg') {
+    for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO, ladderGun(0));
   } else if (mode === 'duel') {
     addBot(TEAM.RED, CONFIG.DUEL_WEAPON);
   } else {
@@ -548,8 +558,9 @@ function killCombatant(target, source, headshot, weaponId = null) {
         if (source.team === TEAM.BLUE) match.scoreA++;
         else if (source.team === TEAM.RED) match.scoreB++;
       }
-    } else if (match.mode === 'dm') {
+    } else if (match.mode === 'dm' || match.mode === 'gg') {
       if (source === player) match.scoreA++;
+      if (match.mode === 'gg') climbLadder(source);
       // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
     } else if (match.mode === 'duel') {
       // Rounds are scored in endDuelRound() below, off the death rather than off the kill,
@@ -616,6 +627,26 @@ function killCombatant(target, source, headshot, weaponId = null) {
   checkWinConditions();
 }
 
+/**
+ * A kill in Gun Game: the killer's next gun. The player is handed it at once, with a full magazine;
+ * a bot gets it when it next respawns, which is when a bot picks its gun.
+ */
+function climbLadder(killer) {
+  const id = ladderGun(killer.kills);
+  if (killer !== player) { killer.fixedWeaponId = id; return; }
+  if (killer.kills >= GUN_LADDER.length) return;            // the winning kill: the match ends on it
+  const w = WEAPON_BY_ID[id];
+  player.loadout = [id];
+  match.loadout = id;
+  player.ammo[id] = { mag: w.mag, reserve: w.reserve };
+  player.current = id;
+  player.reloading = 0;
+  player.cooldown = 0.35;
+  player.cooking = null;
+  updateAmmoHud();
+  showToast(`${killer.kills + 1} / ${GUN_LADDER.length}  ·  ${w.name}`);
+}
+
 /** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
 function dmLeader() {
   return bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
@@ -623,7 +654,10 @@ function dmLeader() {
 
 function checkWinConditions() {
   if (!match.running) return;
-  if (match.mode === 'dm') {
+  if (match.mode === 'gg') {
+    if (player.kills >= GUN_LADDER.length) return endMatch('VICTORY', 'Finished the ladder');
+    for (const b of bots) if (b.kills >= GUN_LADDER.length) return endMatch('DEFEAT', `${b.name} finished the ladder`);
+  } else if (match.mode === 'dm') {
     if (player.kills >= CONFIG.DM_TARGET) return endMatch('VICTORY', `${player.kills} kills`);
     for (const b of bots) {
       if (b.kills >= CONFIG.DM_TARGET) return endMatch('DEFEAT', `${b.name} reached ${CONFIG.DM_TARGET}`);
@@ -689,7 +723,7 @@ function updateMatch(dt, realDt = dt) {
     match.timeLeft -= dt;
     if (match.timeLeft <= 0) {
       match.timeLeft = 0;
-      if (match.mode === 'dm') {
+      if (match.mode === 'dm' || match.mode === 'gg') {
         const top = dmLeader();
         if (player.kills > top.kills) endMatch('TIME — VICTORY', `${player.kills} kills`);
         else if (player.kills < top.kills) endMatch('TIME — DEFEAT', `${top.kills} kills`);

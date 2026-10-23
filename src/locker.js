@@ -14,6 +14,11 @@ export const GUN_CARD = {
   ar: { cls: 'ASSAULT', tier: 'rare' },
   shotgun: { cls: 'SHOTGUN', tier: 'epic' },
   sniper: { cls: 'MARKSMAN', tier: 'legendary' },
+  revolver: { cls: 'HAND CANNON', tier: 'rare' },
+  mp: { cls: 'AUTO PISTOL', tier: 'uncommon' },
+  lmg: { cls: 'SUPPORT', tier: 'epic' },
+  ashotgun: { cls: 'AUTO SHOTGUN', tier: 'epic' },
+  dmr: { cls: 'DMR', tier: 'legendary' },
   frag: { cls: 'THROWABLE', tier: 'rare' },
 };
 

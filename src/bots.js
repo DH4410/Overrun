@@ -68,6 +68,12 @@ export const BOT_RANGE_BAND = {
   ar:      { min: 8,  max: 26 },
   shotgun: { min: 3,  max: 9  },
   sniper:  { min: 18, max: 50 },
+  smg:      { min: 4,  max: 16 },
+  revolver: { min: 6,  max: 22 },
+  mp:       { min: 3,  max: 12 },
+  lmg:      { min: 10, max: 30 },
+  ashotgun: { min: 3,  max: 11 },
+  dmr:      { min: 14, max: 40 },
 };
 
 export const DIFFICULTY = {

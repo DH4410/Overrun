@@ -49,9 +49,12 @@ async function aimedBounds(page, id) {
  * the gun — the slide or receiver sits just under them, as on the real thing — so for those the
  * rule is that nothing but the sights rises above the sight line.
  */
-const CEILING = { ar: -0.06, smg: -0.06, pistol: 0.0, shotgun: 0.0 };
+const CEILING = {
+  ar: -0.06, smg: -0.06, pistol: 0.0, shotgun: 0.0,
+  revolver: 0.0, mp: 0.0, lmg: -0.06, ashotgun: 0.0,
+};
 
-for (const id of ['ar', 'smg', 'pistol', 'shotgun']) {
+for (const id of ['ar', 'smg', 'pistol', 'shotgun', 'revolver', 'mp', 'lmg', 'ashotgun']) {
   test(`aiming the ${id} centres its sight and keeps the gun below the middle`, async ({ page }) => {
     await bootGame(page);
     await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });

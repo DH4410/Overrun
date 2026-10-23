@@ -38,6 +38,11 @@ const VM_HOME = {
   smg: new THREE.Vector3(0.14, -0.15, -0.3),
   shotgun: new THREE.Vector3(0.14, -0.15, -0.3),
   sniper: new THREE.Vector3(0.15, -0.165, -0.36),
+  revolver: new THREE.Vector3(0.12, -0.13, -0.3),
+  mp: new THREE.Vector3(0.12, -0.13, -0.3),
+  lmg: new THREE.Vector3(0.14, -0.16, -0.32),
+  ashotgun: new THREE.Vector3(0.14, -0.15, -0.3),
+  dmr: new THREE.Vector3(0.15, -0.16, -0.33),
   frag: new THREE.Vector3(0.16, -0.14, -0.3),
 };
 

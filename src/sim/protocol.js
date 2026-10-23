@@ -5,7 +5,7 @@
  * Bump PROTOCOL_VERSION whenever anything here or in the shared simulation changes meaning: it
  * is folded into the map hash, so a stale client is told to refresh instead of desyncing.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -22,7 +22,9 @@ export const BTN = {
 /** Bits a repeated command drops, so a late packet cannot reload or jump twice. */
 export const ONE_SHOT_BITS = BTN.JUMP | BTN.RELOAD;
 
-export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag'];
+export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'revolver', 'mp', 'lmg', 'ashotgun', 'dmr', 'frag'];
+/** The guns whose ammo rides in a snapshot: everything but the thrown frag, in wire order. */
+export const GUN_WIRE_IDS = WEAPON_IDS.filter((id) => id !== 'frag');
 /** Index 0 is "not emoting". Matches EMOTES in src/emotes.js. */
 export const EMOTE_IDS = [null, 'wave', 'hiphop', 'robot', 'chicken', 'macarena', 'ymca', 'thriller', 'victory'];
 export const MODE_IDS = ['dm', 'tdm'];
@@ -174,7 +176,7 @@ export function writeYou(w, p) {
   w.f64(p.slideTime); w.f64(p.airVy); w.f64(p.landTime);
   w.f64(p.health); w.f64(p.armor);
   w.u8(WEAPON_IDS.indexOf(p.current));
-  for (const id of WEAPON_IDS.slice(0, 5)) {
+  for (const id of GUN_WIRE_IDS) {
     const a = p.ammo[id] || { mag: 0, reserve: 0 };
     w.u8(a.mag); w.u16(a.reserve);
   }
@@ -199,7 +201,7 @@ export function readYou(r) {
   y.health = r.f64(); y.armor = r.f64();
   y.current = WEAPON_IDS[r.u8()] ?? 'pistol';
   y.ammo = {};
-  for (const id of WEAPON_IDS.slice(0, 5)) y.ammo[id] = { mag: r.u8(), reserve: r.u16() };
+  for (const id of GUN_WIRE_IDS) y.ammo[id] = { mag: r.u8(), reserve: r.u16() };
   y.fragCount = r.u8(); y.smokeCount = r.u8();
   y.cooldown = r.f64(); y.fireCarry = r.f64(); y.reloading = r.f64(); y.reloadTotal = r.f64();
   y.bloom = r.f64(); y.sprayIndex = r.u8(); y.sinceShot = r.f64();

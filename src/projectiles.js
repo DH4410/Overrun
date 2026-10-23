@@ -27,6 +27,7 @@ export function createProjectileRuntime({
   losClear,
   addShake,
   spawnSmoke,
+  onShot = null,
 }) {
 /* ------------- analytic segment tests (shared scratch) ------------- */
 
@@ -190,6 +191,7 @@ function fireWeapon(shooter, weapon, origin, dirBase, spreadMult = 1, coneOverri
   // The player's own gun plays dry; everyone else's is placed in 3D where they stand, so you
   // can tell where you are being shot from, and how far, before you see anyone.
   Audio.gunshot(weapon.sound, shooter === getPlayer() ? null : origin);
+  onShot?.(shooter, origin, dirBase, weapon.id);
   alertBots(origin, shooter);
 }
 

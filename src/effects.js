@@ -449,13 +449,19 @@ function clearEffectPools() {
 
 /* ---------------------------- screen shake ---------------------------- */
 
-let shakeAmp = 0;
+let shakeAmp = 0, shakeClock = 0;
 const _shakeOff = new THREE.Vector3();
+const _shakeRoll = { v: 0 };
 function addShake(a) { shakeAmp = Math.min(0.35, shakeAmp + a); }
+/** A smooth wobble from three summed sines: a camera that sways, not a buzz of random jumps. */
+const wobble = (t, seed) => Math.sin(t + seed) * 0.5 + Math.sin(t * 2.3 + seed * 1.7) * 0.3 + Math.sin(t * 4.1 + seed * 2.9) * 0.2;
 function updateShake(dt) {
   shakeAmp *= Math.pow(0.02, dt / 0.3);          // damped to ~nothing in 0.3 s
-  if (shakeAmp < 0.0005) { shakeAmp = 0; _shakeOff.set(0, 0, 0); return; }
-  _shakeOff.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(shakeAmp);
+  const amp = shakeAmp * (settings.screenShake ?? 1);
+  if (amp < 0.0005) { if (shakeAmp < 0.0005) shakeAmp = 0; _shakeOff.set(0, 0, 0); _shakeRoll.v = 0; return; }
+  shakeClock += dt * 38;
+  _shakeOff.set(wobble(shakeClock, 0), wobble(shakeClock, 11), wobble(shakeClock, 23)).multiplyScalar(amp);
+  _shakeRoll.v = wobble(shakeClock, 37) * amp * 0.3;   // radians: the biggest blast tilts the view ~6 degrees
 }
 
 return {
@@ -477,5 +483,6 @@ return {
   addShake,
   updateShake,
   shakeOffset: _shakeOff,
+  shakeRoll: _shakeRoll,
 };
 }

@@ -760,3 +760,30 @@ body.mp-spec #ammo, body.mp-spec #vitals, body.mp-spec #crosshair { display: non
 #killbanner.medal .kb-label { font-size: 17px; font-weight: 800; letter-spacing: 5px; color: var(--accent); }
 @media (max-height: 700px) { .xp-lines { display: none; } }
 @media (max-height: 560px) { .xp-bar { display: none; } #pd-xp { margin-top: 4px; } }
+
+/* ==========================================================================
+   Kill cam: the zoom onto whoever got you, then the replay.
+   ========================================================================== */
+#killcam { position: fixed; inset: 0; z-index: 20; pointer-events: none; display: none; font-family: var(--f-display); }
+#killcam.on { display: block; }
+.kc-bar { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .5s cubic-bezier(.2, .8, .2, 1); }
+.kc-bar.top { top: 0; } .kc-bar.bot { bottom: 0; }
+#killcam.on .kc-bar { height: 11vh; }
+#killcam.on::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0, 0, 0, .65) 100%); }
+.kc-rec { position: absolute; top: calc(11vh + 14px); left: 32px; display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: 6px; color: var(--ink); text-shadow: var(--shadow); }
+.kc-rec i { width: 12px; height: 12px; border-radius: 50%; background: var(--enemy); animation: kc-blink 1s steps(2) infinite; }
+#killcam:not(.replay) .kc-rec i { display: none; }
+@keyframes kc-blink { 50% { opacity: .15; } }
+.kc-card { position: absolute; left: 0; right: 0; bottom: calc(11vh + 18px); text-align: center; text-shadow: var(--shadow); }
+.kc-name { font-size: clamp(34px, 7vh, 60px); font-weight: 800; letter-spacing: 3px; color: var(--enemy); line-height: 1; animation: o-up .45s ease-out both; }
+.kc-weapon { margin-top: 4px; font-size: clamp(14px, 2.4vh, 19px); font-weight: 700; letter-spacing: 5px; color: var(--ink-2); }
+.kc-prog { position: absolute; left: 0; right: 0; bottom: 11vh; height: 3px; background: rgba(255, 255, 255, .12); }
+.kc-prog i { display: block; height: 100%; width: 0; background: var(--enemy); }
+.kc-skip { position: absolute; right: 32px; bottom: calc(11vh + 14px); font-size: 13px; font-weight: 700; letter-spacing: 4px; color: var(--ink-3); }
+#killcam:not(.replay) .kc-prog { display: none; }
+.kc-static { position: absolute; inset: 0; opacity: 0; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .16) 0 2px, rgba(0, 0, 0, .35) 2px 5px); mix-blend-mode: screen; }
+#killcam.cut .kc-static { animation: kc-cut .45s linear; }
+@keyframes kc-cut { 0% { opacity: 0; } 20% { opacity: .9; } 70% { opacity: .75; transform: translateY(14px); } 100% { opacity: 0; } }
+/* While it runs, the combat HUD steps aside. */
+body.killcam #hud > *:not(#feed):not(#topbar):not(#toast) { display: none !important; }
+body.killcam #pause { display: none !important; }

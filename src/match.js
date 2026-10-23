@@ -2,6 +2,7 @@ import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
 import { applyMatch, loadProfile, rankTitle, saveProfile } from './profile.js';
 import { renderPlayerCard } from './playercard.js';
+import { AFTER_TIME } from './killcam.js';
 import {
   CONFIG,
   SPAWN_INVULN,
@@ -73,6 +74,7 @@ export function createMatchRuntime({
   clearAlertsOn,
   stopFiring,
   isPointerLocked,
+  getKillcam = () => null,
   elements: el,
 }) {
 let nameSeed = 0;
@@ -117,6 +119,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   match.roundsA = 0; match.roundsB = 0;
   match.roundTime = CONFIG.DUEL_ROUND_SECONDS; match.roundReset = 0;
   match.outro = null;
+  getKillcam()?.reset();
   match.headshots = 0; match.streak = 0; match.bestStreak = 0; match.multi = 0; match.multiAt = -99; match.medal = '';
   document.body.classList.remove('outro');
   $id('outro').className = '';
@@ -202,6 +205,7 @@ function standings() {
 function endMatch(title, sub, { instant = false } = {}) {
   if (match.outro) return;
   match.running = false;
+  getKillcam()?.reset();
   stopFiring();
   showBoard(false);
   showPause(false);
@@ -359,6 +363,7 @@ function respawnPlayer(immediate = false, at = null) {
   player.health = CONFIG.MAX_HEALTH;
   player.armor = CONFIG.START_ARMOR;
   player.respawnTimer = 0;
+  getKillcam()?.reset();
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
@@ -437,6 +442,7 @@ function endDuelRound(winner) {
   checkWinConditions();
 }
 
+const SOLO_RESPAWN = 4.5;               // without a kill cam (the sim's PLAYER_RESPAWN is hashed, so not edited)
 const MULTI_WINDOW = 4;
 const MULTI_MEDAL = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'MEGA KILL'];
 const STREAK_MEDAL = { 3: '3 KILL STREAK', 5: 'RAMPAGE', 7: 'UNSTOPPABLE', 10: 'GODLIKE' };
@@ -480,7 +486,11 @@ function killCombatant(target, source, headshot) {
 
   if (target === player) {
     player.alive = false;
-    player.respawnTimer = CONFIG.PLAYER_RESPAWN;
+    // A bot's kill gets the kill cam; its length is the respawn wait (the frame loop holds the timer
+    // while it runs and gives the death screen a beat after). Otherwise a slower solo respawn.
+    const cam = match.mode !== 'duel' && source !== player ? getKillcam() : null;
+    const camTime = cam ? cam.begin(source, headshot) : 0;
+    player.respawnTimer = camTime > 0 ? camTime + AFTER_TIME : SOLO_RESPAWN;
     if (player.cooking) player.cooking = null;
     stopFiring();
   } else {

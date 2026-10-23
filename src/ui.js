@@ -142,6 +142,8 @@ const SETTINGS_SCHEMA = [
     hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
         + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
         + 'also pulls, gently.' },
+  { key: 'screenShake', type: 'range', label: 'Screen shake', min: 0, max: 1, step: 0.05,
+    hint: 'How hard the view shakes when you fire, are hit or stand near a blast. 0 turns it off.' },
   { group: 'INTERFACE' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },

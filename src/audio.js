@@ -350,6 +350,12 @@ export function createAudio({ getCamera }) {
     step(pos = null) {
       this.burst({ dur: 0.07, gain: pos ? 0.16 : 0.09, type: 'lowpass', freq: 420, decay: 0.06, out: this._out(pos) });
     },
+    /** The rewind into a kill-cam replay: a falling whirr and a tape click. */
+    rewind() {
+      this.tone({ f0: 1400, f1: 180, dur: 0.45, gain: 0.12, type: 'sawtooth' });
+      this.burst({ dur: 0.4, gain: 0.1, type: 'bandpass', freq: 2600, q: 1.2, decay: 0.38 });
+      this.tone({ f0: 90, f1: 40, dur: 0.18, gain: 0.3, type: 'sine', delay: 0.4 });
+    },
     slide()     { this.burst({ dur: 0.45, gain: 0.12, type: 'bandpass', freq: 900, q: 0.7, decay: 0.42 }); },
 
     /* ------------------------------ hits ------------------------------ */

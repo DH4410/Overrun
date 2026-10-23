@@ -34,6 +34,8 @@ import {
   createBotRuntime,
 } from './bots.js';
 import { createEffects } from './effects.js';
+import { AFTER_TIME, createKillcam } from './killcam.js';
+import { loadOperator } from './lobby.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
 import {
@@ -381,6 +383,9 @@ const {
 const player = createPlayerState();
 combatants.push(player);
 
+// Created after the emotes (it borrows the character builder); the runtimes reach it late-bound.
+let killcam = null;
+
 const {
   bullets,
   clearBullets,
@@ -408,6 +413,7 @@ const {
   losClear,
   addShake: (...args) => addShake(...args),
   spawnSmoke: (...args) => spawnSmoke(...args),
+  onShot: (...args) => killcam?.noteShot(...args),
 });
 
 
@@ -611,6 +617,7 @@ const {
   addShake,
   updateShake,
   shakeOffset: _shakeOff,
+  shakeRoll: _shakeRoll,
 } = createEffects({
   scene,
   audio: Audio,
@@ -998,7 +1005,7 @@ function updateCamera(dt) {
   _camPos.set(_renderBody.x, camBodyY + camEye - dip, _renderBody.z);
   _camPos.add(_shakeOff);
 
-  _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');
+  _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, _shakeRoll.v, 'YXZ');
   camera.quaternion.setFromEuler(_camE);
   // Sway nudges the eye laterally by at most +/- 0.02 m in camera space.
   _v1.set(player.sway.x * 0.02, player.sway.y * 0.02, 0).applyQuaternion(camera.quaternion);
@@ -1007,7 +1014,7 @@ function updateCamera(dt) {
   const w = currentWeapon();
   const aiming = isAiming();
   const scoped = aiming && w.zoom;
-  const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV);
+  const wantFov = scoped ? w.zoomFov : (aiming ? ADS_FOV : HIP_FOV + (player.sprinting && player.alive ? SPRINT_FOV_KICK : 0));
   camera.fov = lerp(camera.fov, wantFov, Math.min(1, 12 * dt));
   camera.updateProjectionMatrix();
 
@@ -1031,6 +1038,7 @@ function frameBudget() {
 let framesDrawn = 0;
 let shadowFrame = 0;
 const OUTRO_TIME_SCALE = 0.3;
+const SPRINT_FOV_KICK = 4;          // degrees of widening while sprinting: the speed you can feel
 
 function frame() {
   requestAnimationFrame(frame);

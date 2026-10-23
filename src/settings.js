@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS = {
   masterVolume: 0.8,
   musicVolume: 0.6,
   viewBob: true,
+  screenShake: 1,
   toggleAim: false,
   toggleCrouch: true,
   toggleSprint: false,

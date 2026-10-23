@@ -25,7 +25,7 @@ function saveOperator(id) { try { localStorage.setItem(KEY, id); } catch { /* no
 
 const HERO_SCALE = 1.2;                    // BOT_MESH_SCALE: drawn exactly as a bot is
 const HERO_FOOT = 0.78;                    // soles below the mesh origin at that scale
-const ORBIT_RADIUS = 52, ORBIT_HEIGHT = 21, ORBIT_SPEED = 0.03;   // rad/s: a full lap in ~3 minutes
+const ORBIT_SPEED = 0.03;   // rad/s: a full lap in ~3 minutes
 const LOBBY_FOV = 52;
 const LOBBY_EMOTES = ['wave', 'victory', 'hiphop', 'macarena', 'robot', 'ymca'];
 
@@ -34,6 +34,8 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   let shown = false;
   let hero = null, heroId = null;
   let idleW = 1, emoteAct = null, nextEmote = 4;
+  // The orbit is sized to the map behind it (see setExtent): the lens stays outside the walls and above the roofs.
+  let orbitR = 52, orbitH = 21;
   let focus = false, focusK = 0;          // the OPERATORS view: the lens comes in on the operator
 
   /* ---- the pad: a dark disc with an amber ring, so the operator stands on something ---- */
@@ -112,7 +114,7 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   /** Once a frame while the lobby is up. */
   function update(dt) {
     angle += dt * ORBIT_SPEED;
-    camera.position.set(Math.sin(angle) * ORBIT_RADIUS, ORBIT_HEIGHT, Math.cos(angle) * ORBIT_RADIUS);
+    camera.position.set(Math.sin(angle) * orbitR, orbitH, Math.cos(angle) * orbitR);
     camera.lookAt(0, 1, 0);
     if (camera.fov !== LOBBY_FOV) { camera.fov = LOBBY_FOV; camera.updateProjectionMatrix(); }
     if (!hero) return;
@@ -150,5 +152,8 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
     hero.userData.mixer.update(dt);
   }
 
-  return { init, update, setShown, cycle, setFocus: (on) => { focus = !!on; }, get operatorId() { return heroId; } };
+  /** The map behind the lobby changed: orbit at a distance that suits its half-extent (metres). */
+  function setExtent(extent) { orbitR = Math.min(90, Math.max(38, extent * 1.05)); orbitH = orbitR * 0.4; }
+
+  return { init, update, setShown, cycle, setExtent, setFocus: (on) => { focus = !!on; }, get operatorId() { return heroId; } };
 }

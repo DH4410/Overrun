@@ -16,6 +16,8 @@ export function createUiRuntime({
   settingsState,
   requestLock,
   endMatch,
+  // The lobby shows the map you pick behind the menu (see previewMap in main.js).
+  onMapPick = () => {},
 }) {
 function bindMenu() {
   let mode = 'dm', diff = 'medium', map = defaultMap();
@@ -52,6 +54,7 @@ function bindMenu() {
       document.querySelectorAll('#maps [data-map]').forEach((x) => x.classList.toggle('active', x === b));
       showMap();
       closePops();
+      onMapPick(map);
     });
   }
   showMap();

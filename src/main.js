@@ -1227,6 +1227,7 @@ const {
   requestLock,
   // LEAVE MATCH on the pause screen: online, that is leaving the server.
   endMatch: (...args) => (net.active ? net.leave() : endMatch(...args)),
+  onMapPick: (id) => previewMap(id),
 });
 
 
@@ -1269,6 +1270,12 @@ const emotes = createEmotes({
   scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: loadOperator, wheel: $('emote-wheel'), Audio,
 });
 const lobby = createLobby({ scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $ });
+/** Building the picked map now, rather than at DEPLOY, is what puts it behind the lobby. */
+function previewMap(id) {
+  if (match.running || net.active) return;
+  switchMap(id);
+  lobby.setExtent(currentPlan()?.extent ?? 46);
+}
 /** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
 function setLobbyTab(tab) {
   const ops = tab === 'operators';
@@ -1476,6 +1483,7 @@ async function boot() {
   bindSettings();
   applySettings();
   lobby.init();
+  lobby.setExtent(currentPlan()?.extent ?? 46);
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local

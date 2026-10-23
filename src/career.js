@@ -31,7 +31,8 @@ export function createCareer({ getProfile, onTitle = () => {}, onOpen = () => {}
       </div>`;
     document.body.appendChild(root);
     root.querySelector('#career-close').addEventListener('click', close);
-    root.addEventListener('keydown', (e) => { if (e.code === 'Escape') { e.stopPropagation(); close(); } });
+    // On the window, not the card: wearing a title redraws the card and focus falls back to the page.
+    addEventListener('keydown', (e) => { if (e.code === 'Escape' && !root.classList.contains('hidden')) close(); });
     root.addEventListener('click', (e) => { if (e.target === root) close(); });
   }
 

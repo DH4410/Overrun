@@ -951,5 +951,5 @@ body.killcam #hud > #streak { display: none !important; }
 .cr-title.worn { box-shadow: inset 0 0 0 2px var(--accent); }
 .cr-title.worn button { background: var(--accent); color: var(--accent-ink); cursor: default; }
 @media (max-height: 640px) { .cr-titles { display: none; } .cr-node { min-height: 110px; } }
-=======
+
 @media (max-width: 900px) { #topnav .brand span { display: none; } }

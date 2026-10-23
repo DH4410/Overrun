@@ -27,19 +27,34 @@ export function levelFromXp(totalXp) {
 const RANKS = ['ROOKIE', 'RECRUIT', 'OPERATIVE', 'SPECIALIST', 'VETERAN', 'ELITE', 'LEGEND'];
 export function rankTitle(level) { return RANKS[Math.min(RANKS.length - 1, Math.floor((level - 1) / 4))]; }
 
+const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak'];
+/** What is worn: operator, gun finish and title. Names only; src/rewards.js says whether they are earned. */
+export const EMPTY_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '' });
 export const EMPTY_PROFILE = Object.freeze({
   xp: 0, kills: 0, deaths: 0, headshots: 0, wins: 0, losses: 0, draws: 0, matches: 0, bestStreak: 0,
+  equipped: EMPTY_EQUIPPED,
 });
 
-function clean(v) {
-  const out = { ...EMPTY_PROFILE };
+export function clean(v) {
+  const out = { ...EMPTY_PROFILE, equipped: { ...EMPTY_EQUIPPED } };
   if (v && typeof v === 'object') {
-    for (const k of Object.keys(EMPTY_PROFILE)) {
+    for (const k of COUNTERS) {
       const n = Number(v[k]);
       if (Number.isFinite(n) && n >= 0) out[k] = Math.floor(n);
     }
+    const e = v.equipped;
+    if (e && typeof e === 'object') {
+      for (const k of Object.keys(EMPTY_EQUIPPED)) {
+        if (typeof e[k] === 'string' && e[k].length <= 24 && /^[a-z0-9_-]*$/.test(e[k])) out.equipped[k] = e[k];
+      }
+    }
   }
   return out;
+}
+
+/** The profile with part of what is worn changed. */
+export function withEquipped(profile, patch) {
+  return clean({ ...profile, equipped: { ...profile.equipped, ...patch } });
 }
 
 export function loadProfile() {

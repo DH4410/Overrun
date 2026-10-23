@@ -35,6 +35,7 @@ import {
 } from './bots.js';
 import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
+import { createHardpoint } from './hardpoint.js';
 import { createAccount } from './account.js';
 import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
@@ -436,6 +437,7 @@ const {
   botClipNames,
   buildBotGun,
   alertBots,
+  setPatrolFocus,
 } = createBotRuntime({
   scene,
   camera,
@@ -842,6 +844,8 @@ const {
 });
 
 
+const hardpoint = createHardpoint({ scene, waypoints, setPatrolFocus, hud: document.getElementById('hud'), player, camera });
+
 const {
   addBot,
   clearBots,
@@ -856,6 +860,7 @@ const {
   updateOutro,
   formatTime,
 } = createMatchRuntime({
+  hardpoint,
   match,
   player,
   bots,
@@ -1566,7 +1571,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net, killcam, lobby, account, worn, applyDamage,
+    hardpoint, predictThrow, updateThrowPreview, grenades, net, killcam, lobby, account, worn, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

@@ -702,6 +702,22 @@ function buildBotGun(id) {
   return g;
 }
 
+/**
+ * Objective modes pull patrolling bots toward a point. Left null the choice is the old random
+ * waypoint; set (by Hardpoint) most picks land on one of the waypoints nearest the objective so
+ * the fight actually happens there, and the rest still wander so it is not a conga line.
+ */
+let patrolFocus = null;
+function setPatrolFocus(pos) { patrolFocus = pos; }
+function pickPatrolWp() {
+  if (patrolFocus && Math.random() < 0.75) {
+    const near = waypoints.map((w, i) => [w.pos.distanceToSquared(patrolFocus), i]);
+    near.sort((a, b) => a[0] - b[0]);
+    return near[randInt(0, Math.min(3, near.length - 1))][1];
+  }
+  return randInt(0, waypoints.length - 1);
+}
+
 class Bot {
   /**
    * `puppet` makes a multiplayer stand-in for another player: drawn with `character`, driven by
@@ -980,7 +996,7 @@ class Bot {
       this.repath(dest);
     } else {
       this.stuckCount = 0;
-      this.patrolWp = randInt(0, waypoints.length - 1);
+      this.patrolWp = pickPatrolWp();
       this.repath(waypoints[this.patrolWp].pos);
     }
   }
@@ -1257,7 +1273,7 @@ class Bot {
         // waypoint every two seconds, so a patrolling bot turned round and headed somewhere new
         // before it had got anywhere — which looked exactly like confusion.
         if (!this.path || this.pathIdx >= this.path.length) {
-          this.patrolWp = randInt(0, waypoints.length - 1);
+          this.patrolWp = pickPatrolWp();
           this.repath(waypoints[this.patrolWp].pos);
         }
         this.followPath(this.moveSpeed('patrol'), dt);
@@ -2084,5 +2100,6 @@ return {
   botClipNames: BOT_CLIP_NAMES,
   buildBotGun,
   alertBots,
+  setPatrolFocus,
 };
 }

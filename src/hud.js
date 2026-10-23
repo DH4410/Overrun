@@ -464,7 +464,7 @@ function refreshBoard() {
     el.bBody.appendChild(tr);
   };
 
-  if (match.mode === 'tdm') {
+  if (match.mode === 'tdm' || match.mode === 'hp') {
     // Two blocks, yours first, each headed by its colour and its score.
     for (const team of [TEAM.BLUE, TEAM.RED]) {
       const members = order(everyone.filter((c) => c.team === team));

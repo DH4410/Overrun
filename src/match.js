@@ -12,7 +12,7 @@ import {
   TEAM_COLOR,
 } from './config.js';
 
-export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL', gg: 'GUN GAME' };
+export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL', gg: 'GUN GAME', hp: 'HARDPOINT' };
 /**
  * Gun Game: everyone starts on the same gun and every kill hands the killer the next one. The
  * ladder runs short barrels to long ones, so the opening kills are at arm's length and the last
@@ -107,6 +107,7 @@ export function createMatchRuntime({
   stopFiring,
   isPointerLocked,
   getKillcam = () => null,
+  hardpoint = null,
   showStreak = null,
   elements: el,
 }) {
@@ -135,6 +136,7 @@ function startSurvivalWave() {
 }
 
 function clearBots() {
+  hardpoint?.end();
   for (const [, m] of allyMarks) m.root.remove();
   allyMarks.clear();
   for (const b of bots) {
@@ -175,7 +177,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
 
   player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
   player.kills = 0; player.deaths = 0;
-  player.team = mode === 'tdm' ? TEAM.BLUE : TEAM.SOLO;
+  player.team = mode === 'tdm' || mode === 'hp' ? TEAM.BLUE : TEAM.SOLO;
   // A duel is a mirror match, so both sides start on the same gun (when the player carries
   // it) rather than the player opening on whatever the bot did not roll. Otherwise you spawn
   // holding slot 1.
@@ -195,7 +197,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   resetConsumables();
   el.feed.innerHTML = '';
 
-  if (mode === 'tdm') {
+  if (mode === 'tdm' || mode === 'hp') {
     for (let i = 0; i < 2; i++) addBot(TEAM.BLUE);
     for (let i = 0; i < 3; i++) addBot(TEAM.RED);
   } else if (mode === 'dm') {
@@ -207,6 +209,8 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   } else {
     startSurvivalWave();
   }
+
+  if (mode === 'hp') hardpoint?.begin();
 
   const playerBlipColor = TEAM_COLOR[player.team];
   playerBlip.traverse((o) => { if (o.material) o.material.color.setHex(playerBlipColor); });
@@ -558,6 +562,8 @@ function killCombatant(target, source, headshot, weaponId = null) {
         if (source.team === TEAM.BLUE) match.scoreA++;
         else if (source.team === TEAM.RED) match.scoreB++;
       }
+    } else if (match.mode === 'hp') {
+      // Hardpoint scores off the zone, not off kills; a kill only clears someone off it.
     } else if (match.mode === 'dm' || match.mode === 'gg') {
       if (source === player) match.scoreA++;
       if (match.mode === 'gg') climbLadder(source);
@@ -662,6 +668,10 @@ function checkWinConditions() {
     for (const b of bots) {
       if (b.kills >= CONFIG.DM_TARGET) return endMatch('DEFEAT', `${b.name} reached ${CONFIG.DM_TARGET}`);
     }
+  } else if (match.mode === 'hp') {
+    const goal = hardpoint?.target ?? 100;
+    if (match.scoreA >= goal) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
+    if (match.scoreB >= goal) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
   } else if (match.mode === 'tdm') {
     if (match.scoreA >= CONFIG.TDM_TARGET) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
     if (match.scoreB >= CONFIG.TDM_TARGET) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
@@ -721,6 +731,14 @@ function updateMatch(dt, realDt = dt) {
     }
   } else {
     match.timeLeft -= dt;
+    if (match.mode === 'hp' && hardpoint) {
+      const scored = hardpoint.update(dt, combatants);
+      if (scored === TEAM.BLUE) match.scoreA++; else if (scored === TEAM.RED) match.scoreB++;
+      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); }
+      hardpoint.updateHud();
+      checkWinConditions();
+      if (!match.running) return;
+    }
     if (match.timeLeft <= 0) {
       match.timeLeft = 0;
       if (match.mode === 'dm' || match.mode === 'gg') {
@@ -784,7 +802,7 @@ function updateMatch(dt, realDt = dt) {
     el.tbA.textContent = match.kills;
     el.tbB.textContent = `W${match.wave}`;
     el.tbTime.textContent = formatTime(match.time);
-  } else if (match.mode === 'tdm') {
+  } else if (match.mode === 'tdm' || match.mode === 'hp') {
     el.tbA.textContent = match.scoreA;
     el.tbB.textContent = match.scoreB;
     el.tbTime.textContent = formatTime(match.timeLeft);

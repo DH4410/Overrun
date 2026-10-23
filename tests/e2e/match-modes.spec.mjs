@@ -98,3 +98,37 @@ test('Gun Game: each kill hands you the next gun, a bot climbs too, and the last
   });
   expect(won).toEqual({ running: false, kills: 10, current: 'sniper' });
 });
+
+test('Hardpoint: holding the zone alone scores, a contested zone does not, and kills do not', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'hp', map: 'port', diff: 'easy' });
+
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const hp = g.hardpoint;
+    const out = { visible: hp.state.active, teams: [g.player.team, ...g.bots.map((b) => b.team)].join('') };
+    const put = (c) => { c.body.position.set(hp.state.pos.x, hp.state.pos.y, hp.state.pos.z); };
+    // Everybody off the zone first.
+    for (const c of g.combatants) c.body.position.set(hp.state.pos.x + 60, hp.state.pos.y, hp.state.pos.z + 60);
+    const at = (n) => { const a = g.match.scoreA; const b = g.match.scoreB; for (let i = 0; i < n; i++) g.forceRenderTick(1 / 4); return [g.match.scoreA - a, g.match.scoreB - b]; };
+    put(g.player);
+    out.blueHolds = at(8);                           // two seconds of play
+    const red = g.bots.find((b) => b.team === 2);
+    put(red);
+    out.contested = at(8);
+    g.combatants.forEach((c) => { if (c !== red) c.body.position.set(hp.state.pos.x + 60, hp.state.pos.y, hp.state.pos.z + 60); });
+    out.redHolds = at(8);
+    const before = [g.match.scoreA, g.match.scoreB];
+    g.killCombatant(g.bots.find((b) => b.team === 1) ?? red, red, false, 'ar');
+    out.killScores = [g.match.scoreA - before[0], g.match.scoreB - before[1]];
+    return out;
+  });
+  expect(r.visible).toBe(true);
+  expect(r.teams).toBe('111222');
+  expect(r.blueHolds[0]).toBeGreaterThanOrEqual(1);
+  expect(r.blueHolds[1]).toBe(0);
+  expect(r.contested).toEqual([0, 0]);
+  expect(r.redHolds[1]).toBeGreaterThanOrEqual(1);
+  expect(r.redHolds[0]).toBe(0);
+  expect(r.killScores).toEqual([0, 0]);
+});

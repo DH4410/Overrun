@@ -42,17 +42,22 @@ test('ONLINE is a pane of the play panel: it replaces the solo options, and says
   await expect(page.locator('#pane-online')).toBeHidden();
 });
 
-test('settings have a tab per section, and the tab for the section in view is lit', async ({ page }) => {
+test('settings are pages: one tab per page, and only the page you picked is shown', async ({ page }) => {
   await bootGame(page);
   await page.click('#settings-open');
-  const groups = await page.locator('#settings-body .set-group').count();
-  await expect(page.locator('#set-nav button')).toHaveCount(groups);
-  expect(groups).toBeGreaterThanOrEqual(4);
-  await expect(page.locator('#set-nav button.on')).toHaveText('GRAPHICS');
+  const pages = await page.locator('#settings-body .set-page').count();
+  await expect(page.locator('#set-nav button')).toHaveCount(pages);
+  expect(pages).toBeGreaterThanOrEqual(4);
+  await expect(page.locator('#set-nav button.on')).toHaveText('VIDEO');
+  await expect(page.locator('#settings-body .set-page:visible')).toHaveCount(1);
+  await expect(page.locator('#settings-body [data-page="VIDEO"]')).toBeVisible();
   await page.locator('#set-nav button', { hasText: 'AUDIO' }).click();
-  await expect(page.locator('#set-nav button.on')).toHaveText('AUDIO', { timeout: 5000 });
-  // Smooth scrolling takes a moment: it must end with the section on screen, not below the fold.
-  await expect.poll(async () => (await page.locator('#settings-body .set-group', { hasText: 'AUDIO' }).boundingBox()).y, { timeout: 8000 }).toBeLessThan(700);
+  await expect(page.locator('#set-nav button.on')).toHaveText('AUDIO');
+  await expect(page.locator('#settings-body [data-page="AUDIO"]')).toBeVisible();
+  await expect(page.locator('#settings-body [data-page="VIDEO"]')).toBeHidden();
+  // Everything on a page fits on screen without scrolling the panel.
+  const box = await page.locator('#settings-body [data-page="AUDIO"]').boundingBox();
+  expect(box.y + box.height).toBeLessThan(720);
 });
 
 test('the locker shows the gun you point at, turning, with its numbers', async ({ page }) => {

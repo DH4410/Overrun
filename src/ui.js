@@ -98,67 +98,54 @@ function bindMenu() {
  * is one line and the control, the label, the live read-out and the persistence all follow.
  */
 const SETTINGS_SCHEMA = [
-  { group: 'GRAPHICS' },
+  { group: 'VIDEO', icon: 'M3 5h18v11H3zM8 20h8M12 16v4' },
   {
-    key: 'quality', type: 'choice', label: 'Quality preset',
+    key: 'quality', type: 'choice', label: 'Quality',
     options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
-    hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
+    hint: 'Shadows are most of the frame cost. Drop to PERFORMANCE if you see stutter.',
   },
-  { group: 'LAPTOP & BATTERY' },
   {
-    key: 'frameCap', type: 'choice', label: 'Frame rate cap',
+    key: 'frameCap', type: 'choice', label: 'Frame cap',
     options: FRAME_CAPS.map((v) => ({ value: v, label: v === 0 ? 'UNCAPPED' : String(v) })),
-    hint: 'Every frame drawn costs battery; 30 stretches the charge furthest. Frames are kept '
-        + 'evenly spaced so turning stays smooth, which means some screens land a little above '
-        + 'the number (72 on a 144 Hz screen). The simulation runs on its own clock, so the cap '
-        + 'never slows the game down.',
+    hint: 'Every frame drawn costs battery; 30 stretches the charge furthest. The simulation runs on its own clock, so the cap never slows the game down.',
   },
-  {
-    key: 'adaptiveRes', type: 'toggle', label: 'Adaptive resolution',
-    hint: 'Quietly renders fewer pixels when frames run late, and puts them back when they '
-        + 'do not. The cheapest way out of a stutter.',
-  },
-  {
-    key: 'powerSaver', type: 'toggle', label: 'Battery saver',
-    hint: 'Halves the shadow refresh rate, and asks for the integrated GPU instead of the '
-        + 'discrete one. The GPU choice and anti-aliasing are fixed when the page loads, so '
-        + 'reload to apply those two.',
-  },
-  { group: 'CONTROLS' },
+  { key: 'adaptiveRes', type: 'toggle', label: 'Adaptive resolution',
+    hint: 'Renders fewer pixels when frames run late and puts them back when they do not.' },
+  { key: 'powerSaver', type: 'toggle', label: 'Battery saver',
+    hint: 'Halves the shadow refresh rate and asks for the integrated GPU. Reload to apply the GPU choice.' },
+  { key: 'screenShake', type: 'range', label: 'Screen shake', min: 0, max: 1, step: 0.05,
+    hint: 'How hard the view shakes when you fire, are hit or stand near a blast. 0 turns it off.' },
+  { key: 'viewBob', type: 'toggle', label: 'View bob' },
+  { group: 'AIM', icon: 'M12 4v5M12 15v5M4 12h5M15 12h5M12 12h.01' },
   { key: 'sensitivity', type: 'range', label: 'Mouse sensitivity', min: 0.1, max: 3, step: 0.05 },
   { key: 'adsSensitivity', type: 'range', label: 'Aim-down-sights sensitivity', min: 0.1, max: 1.5, step: 0.05 },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
-  { key: 'viewBob', type: 'toggle', label: 'View bob' },
-  { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle' ,
-    hint: 'Trackpad friendly — right-click toggles aim instead of having to hold it.' },
+  { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle',
+    hint: 'Trackpad friendly: right-click toggles aim instead of holding it.' },
+  { key: 'aimAssist', type: 'range', label: 'Aim assist', min: 0, max: 1, step: 0.05,
+    hint: '0 is off. Up to 0.5 it only slows your crosshair over a visible enemy; past 0.5 it also pulls, gently.' },
+  { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
+    hint: 'Fast swipes turn further, slow ones are untouched.' },
+  { group: 'MOVE', icon: 'M5 18l5-5 3 3 6-8M15 8h4v4' },
   { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
   { key: 'toggleSprint', type: 'toggle', label: 'Sprint: press to toggle' },
-  { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
-  { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
-    hint: 'Fast swipes turn further, slow ones are untouched — so a trackpad can manage a 180 '
-        + 'without giving up fine aim.' },
   { key: 'autoSprint', type: 'toggle', label: 'Sprint automatically',
-    hint: 'Runs whenever you hold forward, so Shift never has to be held down. Off while '
-        + 'aiming, and never while strafing, because sprinting is the widest accuracy cone in '
-        + 'the game.' },
-  { key: 'aimAssist', type: 'range', label: 'Aim assist', min: 0, max: 1, step: 0.05,
-    hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
-        + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
-        + 'also pulls, gently.' },
-  { key: 'screenShake', type: 'range', label: 'Screen shake', min: 0, max: 1, step: 0.05,
-    hint: 'How hard the view shakes when you fire, are hit or stand near a blast. 0 turns it off.' },
-  { group: 'INTERFACE' },
+    hint: 'Runs whenever you hold forward. Off while aiming, and never while strafing.' },
+  { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
+  { group: 'HUD', icon: 'M4 6h16v12H4zM4 10h16' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
   { key: 'showDamageNumbers', type: 'toggle', label: 'Floating damage numbers' },
-  { key: 'highContrast', type: 'toggle', label: 'High-contrast text and panels',
-    hint: 'Brighter secondary text, solid panels and heavier shadows, for bright rooms, small screens or tired eyes.' },
-  { key: 'showEnemyHealth', type: 'toggle', label: 'Show enemy health bars',
-    hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
-  { group: 'AUDIO' },
+  { key: 'showEnemyHealth', type: 'toggle', label: 'Enemy health bars' },
+  { key: 'highContrast', type: 'toggle', label: 'High contrast',
+    hint: 'Brighter secondary text, solid panels and heavier shadows, for bright rooms or small screens.' },
+  { group: 'AUDIO', icon: 'M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 0 1 0 6' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
   { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
 ];
+
+/** The page being shown, remembered while the panel is open. */
+let settingsPage = 'VIDEO';
 
 function buildSettingsPanel() {
   const host = $('settings-body');
@@ -167,23 +154,28 @@ function buildSettingsPanel() {
 
   const nav = $('set-nav');
   if (nav) nav.textContent = '';
+  let page = host;
+  const show = (name) => {
+    settingsPage = name;
+    host.querySelectorAll('.set-page').forEach((x) => { x.hidden = x.dataset.page !== name; });
+    nav?.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.page === name));
+  };
+  if (!SETTINGS_SCHEMA.some((r) => r.group === settingsPage)) settingsPage = SETTINGS_SCHEMA[0].group;
   for (const row of SETTINGS_SCHEMA) {
     if (row.group) {
-      const h = document.createElement('div');
-      h.className = 'set-group';
-      h.textContent = row.group;
-      host.appendChild(h);
-      // A tab per section, so a long list is a jump away rather than a scroll.
+      // One page at a time: a tab with an icon per page, and only that page's rows on screen.
+      page = document.createElement('div');
+      page.className = 'set-page';
+      page.dataset.page = row.group;
+      page.setAttribute('aria-label', row.group);
+      host.appendChild(page);
       if (nav) {
         const tab = document.createElement('button');
         tab.type = 'button';
-        tab.textContent = row.group;
-        tab.addEventListener('click', () => {
-          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          nav.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === tab));
-        });
+        tab.dataset.page = row.group;
+        tab.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${row.icon}"/></svg><span>${row.group}</span>`;
+        tab.addEventListener('click', () => show(row.group));
         nav.appendChild(tab);
-        h._tab = tab;
       }
       continue;
     }
@@ -241,31 +233,18 @@ function buildSettingsPanel() {
     }
 
     wrap.append(name, ctl);
-    host.appendChild(wrap);
+    // The explanation lives behind a small "i" instead of a paragraph under every row.
     if (row.hint) {
-      const h = document.createElement('div');
-      h.className = 'set-hint';
-      h.textContent = row.hint;
-      host.appendChild(h);
+      const i = document.createElement('i');
+      i.className = 'set-info';
+      i.textContent = 'i';
+      i.title = row.hint;
+      wrap.title = row.hint;
+      name.appendChild(i);
     }
+    page.appendChild(wrap);
   }
-}
-
-/** Marks the nav tab of the section nearest the top of the panel. */
-function trackSettingsScroll() {
-  const panel = $('settings');
-  const groups = [...document.querySelectorAll('#settings-body .set-group')];
-  if (!panel || !groups.length) return;
-  const paint = () => {
-    const top = panel.getBoundingClientRect().top + 130;
-    let cur = groups[0];
-    for (const g of groups) if (g.getBoundingClientRect().top <= top) cur = g;
-    // The last sections are short: at the very bottom the final one is the one being read.
-    if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 4) cur = groups[groups.length - 1];
-    for (const g of groups) g._tab?.classList.toggle('on', g === cur);
-  };
-  panel.onscroll = paint;
-  paint();
+  show(settingsPage);
 }
 
 function showSettings(on) {
@@ -276,7 +255,7 @@ function showSettings(on) {
     if (match.running) setAppState(settingsState);
   }
   panel.classList.toggle('hidden', !on);
-  if (on) { document.exitPointerLock?.(); trackSettingsScroll(); }
+  if (on) document.exitPointerLock?.();
 }
 
 function bindSettings() {

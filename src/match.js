@@ -216,7 +216,24 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   Audio.startAmbient();
   Audio.playMusic('match');
   Audio.roundStart();
+  playIntro(mode);
   requestLock();
+}
+
+/** Out of black: the mode and the map, then the HUD slides in. Scenery only, nothing waits on it. */
+let introTimer = 0;
+function playIntro(mode) {
+  const box = $id('intro');
+  if (!box) return;
+  $id('in-kicker').textContent = match.diff && mode !== 'duel' && mode !== 'sv' ? `${(match.diff.label ?? '').toUpperCase()}` : '';
+  $id('in-title').textContent = MODE_LABEL[mode];
+  $id('in-map').textContent = getCurrentMapId().replace(/[-_]/g, ' ').toUpperCase();
+  box.className = '';
+  void box.offsetWidth;                    // restart the animation when a match starts right after another
+  box.className = 'on';
+  document.body.classList.add('intro');
+  clearTimeout(introTimer);
+  introTimer = setTimeout(() => { box.className = ''; document.body.classList.remove('intro'); }, 2200);
 }
 
 /**

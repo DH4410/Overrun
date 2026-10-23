@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 
-import { clamp } from './utils.js';
-
 /**
  * The lobby as a scene: the chosen map drifts past behind the menu, and your operator stands on a
  * lit pad in front of it, idling and now and then breaking into an emote. The operator is also
@@ -27,7 +25,7 @@ function saveOperator(id) { try { localStorage.setItem(KEY, id); } catch { /* no
 
 const HERO_SCALE = 1.2;                    // BOT_MESH_SCALE: drawn exactly as a bot is
 const HERO_FOOT = 0.78;                    // soles below the mesh origin at that scale
-const ORBIT_RADIUS = 56, ORBIT_HEIGHT = 13, ORBIT_SPEED = 0.035;   // rad/s: a full lap in ~3 minutes
+const ORBIT_RADIUS = 52, ORBIT_HEIGHT = 21, ORBIT_SPEED = 0.03;   // rad/s: a full lap in ~3 minutes
 const LOBBY_FOV = 52;
 const LOBBY_EMOTES = ['wave', 'victory', 'hiphop', 'macarena', 'robot', 'ymca'];
 
@@ -36,6 +34,7 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   let shown = false;
   let hero = null, heroId = null;
   let idleW = 1, emoteAct = null, nextEmote = 4;
+  let focus = false, focusK = 0;          // the OPERATORS view: the lens comes in on the operator
 
   /* ---- the pad: a dark disc with an amber ring, so the operator stands on something ---- */
   const pad = new THREE.Group();
@@ -101,32 +100,33 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
   }
 
   function setShown(on) {
+    if (on === shown) return;
     shown = on;
     pad.visible = on && !!hero;
     if (hero) hero.visible = on;
     $('operator')?.classList.toggle('shown', on);
   }
 
-  const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+  const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 
   /** Once a frame while the lobby is up. */
   function update(dt) {
     angle += dt * ORBIT_SPEED;
     camera.position.set(Math.sin(angle) * ORBIT_RADIUS, ORBIT_HEIGHT, Math.cos(angle) * ORBIT_RADIUS);
-    camera.lookAt(0, 3, 0);
+    camera.lookAt(0, 1, 0);
     if (camera.fov !== LOBBY_FOV) { camera.fov = LOBBY_FOV; camera.updateProjectionMatrix(); }
     if (!hero) return;
-    // On the right of the frame, clear of the menu column, a few metres in front of the lens.
-    const wide = innerWidth / innerHeight;
+    // Centre stage, a few metres in front of the lens and low in the frame, between the two panels.
+    // In the OPERATORS view the lens comes in closer and the operator fills more of the screen.
+    focusK += ((focus ? 1 : 0) - focusK) * Math.min(1, dt * 5);
+    const dist = 3.7 - 0.7 * focusK, drop = 1.3 - 0.1 * focusK;
     camera.getWorldDirection(_f);
     _r.crossVectors(_f, _up).normalize();
-    const side = clamp(0.42 * wide, 0.5, 1.15);
-    const base = camera.position.clone().addScaledVector(_f, 4.6).addScaledVector(_r, 4.6 * side * Math.tan(camera.fov * Math.PI / 360) * 1.0)
-      .addScaledVector(_up, -1.75);
+    const base = _p.copy(camera.position).addScaledVector(_f, dist).addScaledVector(_up, -drop);
     pad.position.copy(base);
     hero.position.set(base.x, base.y + HERO_FOOT + 0.03, base.z);
-    // Faces the lens, turned a little toward the menu so the shoulder leads.
-    hero.rotation.y = Math.atan2(-(camera.position.x - base.x), -(camera.position.z - base.z)) + 0.4;
+    // Faces the lens, turned a little so the shoulder leads.
+    hero.rotation.y = Math.atan2(-(camera.position.x - base.x), -(camera.position.z - base.z)) + 0.3;
     ring.material.opacity = 1;
 
     // Idle between dances; a dance fades the idle out and back in around itself.
@@ -150,5 +150,5 @@ export function createLobby({ scene, camera, buildCharacterMesh, loadedCharacter
     hero.userData.mixer.update(dt);
   }
 
-  return { init, update, setShown, cycle, get operatorId() { return heroId; } };
+  return { init, update, setShown, cycle, setFocus: (on) => { focus = !!on; }, get operatorId() { return heroId; } };
 }

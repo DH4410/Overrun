@@ -35,7 +35,7 @@ import {
 } from './bots.js';
 import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
-import { loadOperator } from './lobby.js';
+import { createLobby, loadOperator } from './lobby.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
 import {
@@ -1035,12 +1035,14 @@ function updateCamera(dt) {
  */
 function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
+  if (appState === APP_STATE.MENU && !net.active) return 1 / MENU_FPS;
   if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
   return settings.frameCap > 0 ? 1 / settings.frameCap : 0;
 }
 
 let framesDrawn = 0;
 let shadowFrame = 0;
+const MENU_FPS = 30;                // the lobby animates (operator, orbiting map), but 30 is plenty for it
 const OUTRO_TIME_SCALE = 0.3;
 const KILLCAM_WORLD_SCALE = 0.3;    // world speed while the view zooms onto your killer
 const SPRINT_FOV_KICK = 4;          // degrees of widening while sprinting: the speed you can feel
@@ -1053,6 +1055,10 @@ function frame() {
     killcam.reset();
     player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
   }
+
+  // The lobby scene (operator on his pad, map orbiting) shows behind the menu and its settings panel.
+  const lobbyUp = !net.active && !match.running && (appState === APP_STATE.MENU || appState === APP_STATE.SETTINGS);
+  lobby.setShown(lobbyUp);
 
   const now = performance.now() / 1000;
   const budget = frameBudget();
@@ -1097,6 +1103,8 @@ function frame() {
     updatePlates(dt);
     updateAllyMarkers();
     updateHudTimers(dt);
+  } else if (lobbyUp) {
+    lobby.update(dt);
   } else if (appState === APP_STATE.PLAYING) {
     // The end-of-match outro: the world runs slowed, its timer runs on real time.
     const realDt = dt;
@@ -1260,6 +1268,17 @@ const locker = createLocker({
 const emotes = createEmotes({
   scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: loadOperator, wheel: $('emote-wheel'), Audio,
 });
+const lobby = createLobby({ scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $ });
+/** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
+function setLobbyTab(tab) {
+  const ops = tab === 'operators';
+  $('menu').classList.toggle('ops', ops);
+  $('tab-play').classList.toggle('active', !ops);
+  $('tab-operators').classList.toggle('active', ops);
+  lobby.setFocus(ops);
+}
+$('tab-play')?.addEventListener('click', () => setLobbyTab('play'));
+$('tab-operators')?.addEventListener('click', () => setLobbyTab('operators'));
 killcam = createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId: loadOperator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
@@ -1456,6 +1475,7 @@ async function boot() {
   bindMenu();
   bindSettings();
   applySettings();
+  lobby.init();
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local
@@ -1475,7 +1495,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net, killcam, applyDamage,
+    predictThrow, updateThrowPreview, grenades, net, killcam, lobby, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

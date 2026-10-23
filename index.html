@@ -62,10 +62,19 @@
 <div id="podium"><div class="pd-card"><div class="pd-kicker" id="pd-kicker"></div><h2 class="pd-title" id="pd-title"></h2><div class="pd-sub" id="pd-sub"></div><div class="pd-stands" id="pd-stands"></div><div class="pd-rest" id="pd-rest"></div><div id="pd-xp"><div class="xp-lines" id="pd-xplines"></div><div class="xp-bar"><i id="pd-xpfill"></i></div><div class="xp-lvl" id="pd-xplvl"></div></div><button id="podium-close" type="button">CONTINUE</button></div></div>
 
 <div id="menu">
-  <div id="menu-sidebar">
-    <header class="title-wrap"><h1>OVERRUN</h1><div class="tag2">Tactical arena shooter</div></header>
-    <div id="menuresult"></div>
+  <nav id="topnav" aria-label="Main">
+    <div class="brand"><b>OVERRUN</b><span>TACTICAL ARENA SHOOTER</span></div>
+    <div class="tabs">
+      <button class="tab active" id="tab-play" type="button">PLAY</button>
+      <button class="tab" id="tab-operators" type="button">OPERATORS</button>
+      <button class="tab" id="locker-open" type="button">LOCKER</button>
+      <button class="tab" id="settings-open" type="button">SETTINGS</button>
+    </div>
+    <div id="account"><i class="ac-dot"></i><span id="ac-name">GUEST</span></div>
+  </nav>
 
+  <aside id="lobby-left">
+    <div id="menuresult"></div>
     <div id="playercard">
       <div class="pc-badge"><span id="pc-level">1</span><small>LVL</small></div>
       <div class="pc-main">
@@ -75,32 +84,34 @@
       </div>
       <div class="pc-stats" id="pc-stats"></div>
     </div>
+  </aside>
 
+  <section id="operator" aria-label="Operator">
+    <button id="op-prev" type="button" aria-label="Previous operator">&#x2039;</button>
+    <div class="op-plate"><b id="op-name"></b><span id="op-role"></span></div>
+    <button id="op-next" type="button" aria-label="Next operator">&#x203A;</button>
+  </section>
+
+  <aside id="lobby-right">
+    <div class="rp-head">NEXT MATCH</div>
     <section class="grp">
       <div class="glbl">Mode</div>
       <button id="mode-card" class="sel-card" type="button"><span class="sc-name" id="mode-name">Deathmatch</span><span class="sc-desc" id="mode-desc"></span><span class="sc-change">CHANGE</span></button>
     </section>
-
     <section class="grp">
       <div class="glbl">Map</div>
       <button id="map-card" class="sel-card" type="button"><span class="sc-name" id="map-name">Port</span><span class="sc-desc" id="map-blurb"></span><span class="sc-change">CHANGE</span></button>
     </section>
-
-    <section class="grp">
-      <div class="glbl">Loadout</div>
-      <button id="locker-open" class="sel-card" type="button"><span class="sc-name">Locker</span><span class="sc-desc" id="locker-sum"></span><span class="sc-change">EDIT</span></button>
-    </section>
-
     <section class="grp" id="diffgrp">
       <div class="glbl">Bot difficulty</div>
       <div id="diffs"><button class="pill" data-diff="easy">Easy</button><button class="pill active" data-diff="medium">Medium</button><button class="pill" data-diff="hard">Hard</button></div>
       <div id="diff-locked">The duel always runs the elite opponent.</div>
     </section>
-
-    <div class="actions"><button id="play" disabled>LOADING</button><button id="settings-open" class="ghost-btn">Settings</button><div class="mp-row"><button id="mp-play" disabled>MULTIPLAYER</button><button id="mp-watch" class="ghost-btn" disabled>Spectate</button></div></div>
+    <div class="rp-loadout"><span>LOADOUT</span><b id="locker-sum"></b></div>
+    <div class="actions"><button id="play" disabled>LOADING</button><div class="mp-row"><button id="mp-play" disabled>MULTIPLAYER</button><button id="mp-watch" class="ghost-btn" disabled>Spectate</button></div></div>
     <div id="loading">Preparing arena…</div>
-  </div>
-  <div id="mode-pop" class="pop"><div class="pop-card"><div class="pop-head"><h2>GAME MODE</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
+  </aside>
+<div id="mode-pop" class="pop"><div class="pop-card"><div class="pop-head"><h2>GAME MODE</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
     <div id="modes" class="pop-grid">
       <button class="mode-btn tile active" data-mode="dm"><span class="ti-art"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg></span><span class="mt">Deathmatch</span><span class="md">Free-for-all. First to 20 kills, five minutes.</span></button>
       <button class="mode-btn tile" data-mode="tdm"><span class="ti-art"><svg viewBox="0 0 24 24"><circle cx="8" cy="7" r="3"/><circle cx="16" cy="7" r="3"/><path d="M2 20c0-4 3-6 6-6s6 2 6 6M10 20c0-4 3-6 6-6s6 2 6 6"/></svg></span><span class="mt">Team Deathmatch</span><span class="md">You and two allies against three. First team to 25.</span></button>

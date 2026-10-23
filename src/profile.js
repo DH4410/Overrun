@@ -3,6 +3,8 @@
  * the lobby card comes from here and every number in it was earned in a match, never invented.
  * Pure functions plus a thin load/save pair, so the maths is unit-tested without a browser.
  */
+import { CREDITS, creditsForXp, isShopKey, ownedValue } from './shop.js';
+
 const KEY = 'overrun.profile';
 
 export const XP = Object.freeze({
@@ -27,21 +29,23 @@ export function levelFromXp(totalXp) {
 const RANKS = ['ROOKIE', 'RECRUIT', 'OPERATIVE', 'SPECIALIST', 'VETERAN', 'ELITE', 'LEGEND'];
 export function rankTitle(level) { return RANKS[Math.min(RANKS.length - 1, Math.floor((level - 1) / 4))]; }
 
-export const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak'];
+export const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak', 'credits', 'spent'];
 /** What is worn: operator, gun finish and title. Names only; src/rewards.js says whether they are earned. */
 export const EMPTY_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '' });
 export const EMPTY_PROFILE = Object.freeze({
   xp: 0, kills: 0, deaths: 0, headshots: 0, wins: 0, losses: 0, draws: 0, matches: 0, bestStreak: 0,
+  credits: 0, spent: 0, owned: Object.freeze([]),
   equipped: EMPTY_EQUIPPED,
 });
 
 export function clean(v) {
-  const out = { ...EMPTY_PROFILE, equipped: { ...EMPTY_EQUIPPED } };
+  const out = { ...EMPTY_PROFILE, owned: [], equipped: { ...EMPTY_EQUIPPED } };
   if (v && typeof v === 'object') {
     for (const k of COUNTERS) {
       const n = Number(v[k]);
       if (Number.isFinite(n) && n >= 0) out[k] = Math.floor(n);
     }
+    if (Array.isArray(v.owned)) out.owned = [...new Set(v.owned.filter((k) => typeof k === 'string' && isShopKey(k)))];
     const e = v.equipped;
     if (e && typeof e === 'object') {
       for (const k of Object.keys(EMPTY_EQUIPPED)) {
@@ -59,7 +63,13 @@ export function clean(v) {
 export function mergeProfiles(a, b) {
   const [hi, lo] = a.xp >= b.xp ? [a, b] : [b, a];
   const out = clean(hi);
-  for (const k of COUNTERS) out[k] = Math.max(out[k], clean(lo)[k]);
+  const other = clean(lo);
+  for (const k of COUNTERS) out[k] = Math.max(out[k], other[k]);
+  // What either device bought stays bought. If the two spent the same credits twice, the career
+  // keeps both purchases rather than taking one away.
+  out.owned = [...new Set([...out.owned, ...other.owned])];
+  out.spent = Math.max(out.spent, ownedValue(out.owned));
+  out.credits = Math.max(out.credits, out.spent);
   return out;
 }
 
@@ -97,16 +107,21 @@ export function matchAward({ outcome, kills = 0, headshots = 0, bestStreak = 0, 
   }
   const r = Math.max(0, Math.floor(revenges) || 0);
   add(`${r} REVENGE${r === 1 ? '' : 'S'}`, r * XP.REVENGE);
-  return { lines, total: lines.reduce((s, l) => s + l.xp, 0) };
+  const total = lines.reduce((s, l) => s + l.xp, 0);
+  return { lines, total, credits: creditsForXp(total) };
 }
 
 /** Book a finished match into the profile. Returns the new profile plus the level change. */
 export function applyMatch(profile, result) {
   const award = matchAward(result);
   const before = levelFromXp(profile.xp);
+  const after = levelFromXp(profile.xp + award.total);
+  // Credits follow the XP, plus a bonus for every level this match climbed.
+  const earned = award.credits + CREDITS.LEVEL_UP * (after.level - before.level);
   const next = clean({
     ...profile,
     xp: profile.xp + award.total,
+    credits: profile.credits + earned,
     kills: profile.kills + (result.kills || 0),
     deaths: profile.deaths + (result.deaths || 0),
     headshots: profile.headshots + (result.headshots || 0),
@@ -116,6 +131,5 @@ export function applyMatch(profile, result) {
     matches: profile.matches + 1,
     bestStreak: Math.max(profile.bestStreak, result.bestStreak || 0),
   });
-  const after = levelFromXp(next.xp);
-  return { profile: next, award, before, after, leveledUp: after.level > before.level };
+  return { profile: next, award, before, after, leveledUp: after.level > before.level, credits: earned };
 }

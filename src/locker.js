@@ -5,6 +5,7 @@ import { gunIcons } from './gunicons.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
 import { clamp } from './utils.js';
 import { SKINS, skinInfo } from './rewards.js';
+import { gunPrice } from './shop.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
 /** How each gun is labelled in the locker: its class and a rarity colour. */
@@ -105,6 +106,8 @@ export function createLocker({
   getLoadout, setLoadout, onOpen = () => {}, onClose = () => {},
   // Finishes: which is worn, how to wear another, and whether a given one is earned (and at what level).
   getSkin = () => 'stock', setSkin = () => {}, skinLevel = () => 1, skinOwned = () => true,
+  // Credits: whether a gun is yours, the balance, and how to pay for one.
+  gunOwned = () => true, getBalance = () => 0, buyGun = () => false,
 }) {
   let root = null, sel = 0, shown = 'pistol', preview = null;
 
@@ -115,23 +118,29 @@ export function createLocker({
     root.innerHTML = `
       <div class="lk-card">
         <div class="lk-head">
-          <div><h2>LOCKER</h2><div class="lk-sub">Pick a slot, then a weapon. Keys 1-4 follow the slots; 5 is always the frag.</div></div>
+          <div><h2>LOCKER</h2></div>
+          <div class="lk-bal" title="Credits"><i class="coin"></i><b id="lk-bal">0</b></div>
           <div class="set-actions"><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
         </div>
         <div class="lk-body">
           <section class="lk-col lk-left"><div class="lk-label">LOADOUT</div><div class="lk-slots" id="lk-slots"></div></section>
           <section class="lk-col lk-stage">
             <div class="lk-view"><canvas id="lk-canvas"></canvas><div class="lk-tag" id="lk-tag"></div></div>
-            <div class="lk-name-row"><h3 id="lk-gname"></h3><span id="lk-gcls"></span></div>
+            <div class="lk-name-row"><h3 id="lk-gname"></h3><span id="lk-gcls"></span><button id="lk-buy" type="button" hidden><i class="coin"></i><b></b></button></div>
             <div class="lk-facts" id="lk-facts"></div>
-            <div class="lk-label">FINISH <span>repaints every gun you carry</span></div>
+            <div class="lk-label">FINISH</div>
             <div class="lk-skins" id="lk-skins"></div>
           </section>
-          <section class="lk-col lk-right"><div class="lk-label">ARMORY <span>click to put it in the selected slot, or drag it onto one</span></div><div class="lk-armory" id="lk-armory"></div></section>
+          <section class="lk-col lk-right"><div class="lk-label">ARMORY</div><div class="lk-armory" id="lk-armory"></div></section>
         </div>
       </div>`;
     document.body.appendChild(root);
     root.querySelector('#locker-close').addEventListener('click', close);
+    root.querySelector('#lk-buy').addEventListener('click', () => {
+      if (!buyGun(shown)) return;
+      apply(assignSlot(getLoadout(), sel, shown));      // a gun you just paid for goes straight into your slot
+      render(); showGun(shown);
+    });
     root.querySelector('#locker-reset').addEventListener('click', () => { apply([...DEFAULT_LOADOUT]); sel = 0; shown = getLoadout()[0]; render(); });
     addEventListener('keydown', (e) => {
       if (!isOpen()) return;
@@ -153,11 +162,31 @@ export function createLocker({
     el.className = `lk-gun tier-${meta.tier}`;
     el.dataset.gun = id;
     const img = gunIcons(getSkin())[id];
+    const owned = id === 'frag' || gunOwned(id);
+    el.classList.toggle('locked', !owned);
     el.innerHTML = `
       ${slot !== null ? `<span class="lk-key">${slot}</span>` : ''}
+      ${owned ? '' : `<span class="lk-price"><i class="coin"></i>${gunPrice(id)}</span>`}
       <span class="lk-img">${img ? `<img alt="" src="${img}">` : ''}</span>
       <span class="lk-meta"><span class="lk-name">${w.name}</span><span class="lk-cls">${meta.cls}</span></span>`;
     return el;
+  }
+
+  const tagFor = (id) => id === 'frag' ? 'ALWAYS ON KEY 5'
+    : !gunOwned(id) ? 'LOCKED'
+    : getLoadout().includes(id) ? `EQUIPPED · SLOT ${getLoadout().indexOf(id) + 1}` : 'IN THE LOCKER';
+
+  /** The buy button shows for the gun you are looking at while it is not yours; dim when you cannot afford it. */
+  function syncBuy() {
+    const b = root.querySelector('#lk-buy');
+    const price = gunPrice(shown);
+    const show = shown !== 'frag' && !gunOwned(shown) && price > 0;
+    b.hidden = !show;
+    b.querySelector('b').textContent = String(price);
+    b.classList.toggle('poor', show && getBalance() < price);
+    b.disabled = show && getBalance() < price;
+    b.title = b.disabled ? `${price - getBalance()} more credits needed` : 'Buy';
+    root.querySelector('#lk-bal').textContent = String(getBalance());
   }
 
   function showGun(id) {
@@ -169,7 +198,8 @@ export function createLocker({
     cls.textContent = meta.cls;
     cls.className = `tier-${meta.tier}`;
     const at = getLoadout().indexOf(id);
-    root.querySelector('#lk-tag').textContent = id === 'frag' ? 'ALWAYS ON KEY 5' : at >= 0 ? `EQUIPPED · SLOT ${at + 1}` : 'IN THE LOCKER';
+    root.querySelector('#lk-tag').textContent = tagFor(id);
+    syncBuy();
     const facts = root.querySelector('#lk-facts');
     facts.textContent = '';
     if (!w.thrown) {
@@ -195,7 +225,7 @@ export function createLocker({
       c.addEventListener('drop', (e) => {
         e.preventDefault();
         const gun = e.dataTransfer.getData('text/plain');
-        if (GUN_IDS.includes(gun)) { sel = i; apply(assignSlot(getLoadout(), i, gun)); showGun(gun); render(); }
+        if (GUN_IDS.includes(gun) && gunOwned(gun)) { sel = i; apply(assignSlot(getLoadout(), i, gun)); showGun(gun); render(); }
       });
       slots.appendChild(c);
     });
@@ -229,14 +259,18 @@ export function createLocker({
       if (at >= 0) c.insertAdjacentHTML('afterbegin', `<span class="lk-equipped">SLOT ${at + 1}</span>`);
       c.classList.toggle('in-slot', at === sel);
       c.classList.toggle('looking', id === shown);
-      c.draggable = true;
+      c.draggable = gunOwned(id);
       c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', id));
       c.addEventListener('mouseenter', () => { if (shown !== id) { showGun(id); armory.querySelectorAll('.lk-gun').forEach((x) => x.classList.toggle('looking', x === c)); } });
-      c.addEventListener('click', () => { apply(assignSlot(getLoadout(), sel, id)); showGun(id); render(); });
+      c.addEventListener('click', () => {
+        if (gunOwned(id)) apply(assignSlot(getLoadout(), sel, id));   // a locked gun is only looked at
+        showGun(id); render();
+      });
       armory.appendChild(c);
     }
     // After a hover has moved the preview off your slot, the facts still describe what is shown.
-    root.querySelector('#lk-tag').textContent = shown === 'frag' ? 'ALWAYS ON KEY 5' : loadout.includes(shown) ? `EQUIPPED · SLOT ${loadout.indexOf(shown) + 1}` : 'IN THE LOCKER';
+    root.querySelector('#lk-tag').textContent = tagFor(shown);
+    syncBuy();
   }
 
   function open() {

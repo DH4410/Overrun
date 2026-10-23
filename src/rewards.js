@@ -1,4 +1,5 @@
 import { levelFromXp } from './profile.js';
+import { ownsGun } from './shop.js';
 
 /**
  * What the career unlocks. Pure data and functions, no DOM: the lobby, the locker, the career
@@ -64,6 +65,7 @@ export function isUnlocked(profile, kind, id) {
   const level = levelOf(profile);
   if (kind === 'operator') { const o = OPERATOR_BY_ID[id]; return !!o && level >= o.level; }
   if (kind === 'skin') { const s = SKIN_BY_ID[id]; return !!s && level >= s.level; }
+  if (kind === 'gun') return ownsGun(profile, id);
   if (kind === 'title') {
     const t = TITLE_BY_ID[id];
     return !!t && Object.entries(t.need).every(([k, v]) => (profile?.[k] ?? 0) >= v);

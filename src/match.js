@@ -363,6 +363,15 @@ function showAward(progress) {
   tot.style.animationDelay = `${1.3 + progress.award.lines.length * 0.18}s`;
   tot.append(span('xp-l', 'TOTAL XP'), span('xp-v', `+${progress.award.total}`));
   lines.appendChild(tot);
+  const pay = document.createElement('div');
+  pay.className = 'xp-line credits';
+  pay.style.animationDelay = `${1.3 + (progress.award.lines.length + 1) * 0.18}s`;
+  const coin = document.createElement('i');
+  coin.className = 'coin';
+  const paid = span('xp-v', `+${progress.credits}`);
+  paid.prepend(coin);
+  pay.append(span('xp-l', 'CREDITS'), paid);
+  lines.appendChild(pay);
   const { before, after } = progress;
   const fill = $id('pd-xpfill');
   const frac = (x) => `${Math.round((x.into / x.need) * 100)}%`;

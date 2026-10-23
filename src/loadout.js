@@ -1,3 +1,5 @@
+import { loadProfile } from './profile.js';
+import { ownsGun } from './shop.js';
 import { WEAPONS } from './sim/weaponData.js';
 
 /**
@@ -20,7 +22,8 @@ export function validLoadout(list) {
 export function loadLoadout() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY));
-    if (validLoadout(v)) return v;
+    // A gun that has to be bought and has not been (a hand-edited save) never makes it in.
+    if (validLoadout(v) && v.every((id) => ownsGun(loadProfile(), id))) return v;
   } catch { /* private mode or bad JSON: fall through to the default */ }
   return [...DEFAULT_LOADOUT];
 }

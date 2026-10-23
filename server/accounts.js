@@ -1,4 +1,5 @@
-import { COUNTERS, clean, mergeProfiles } from '../src/profile.js';
+import { COUNTERS, clean, levelFromXp, mergeProfiles } from '../src/profile.js';
+import { maxCredits, ownedValue } from '../src/shop.js';
 import { sanitizeEquipped } from '../src/rewards.js';
 
 /**
@@ -199,6 +200,11 @@ export class Accounts {
         if (next[k] > COUNTER_CAP) throw new AccountError(400, 'range', 'That career has impossible numbers.');
         if (next[k] < cur.profile[k]) throw new AccountError(400, 'regress', 'A career cannot go backwards.');
       }
+      // Credits follow XP, spending cannot exceed what was earned, and what was bought must have
+      // been paid for and cannot be given back.
+      if (next.credits > maxCredits(next.xp, levelFromXp(next.xp).level)) throw new AccountError(400, 'range', 'That career has more credits than it could have earned.');
+      if (next.spent > next.credits || ownedValue(next.owned) > next.spent) throw new AccountError(400, 'range', 'That career has spent more than it has.');
+      if ((cur.profile.owned ?? []).some((k) => !next.owned.includes(k))) throw new AccountError(400, 'regress', 'A career cannot lose what it bought.');
       next.equipped = sanitizeEquipped(next, next.equipped);
       cur.profile = next;
       cur.rev += 1;

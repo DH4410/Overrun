@@ -61,6 +61,7 @@ import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
+import { balance, buyGun, ownsGun } from './shop.js';
 import { applyGunSkin } from './gunmodels.js';
 import { renderPlayerCard } from './playercard.js';
 import { loadProfile, saveProfile, withEquipped } from './profile.js';
@@ -1263,7 +1264,7 @@ showLoadoutSummary();
 const locker = createLocker({
   getLoadout: () => player.loadout,
   setLoadout: (list) => {
-    if (!validLoadout(list)) return;
+    if (!validLoadout(list) || !list.every((id) => ownsGun(loadProfile(), id))) return;
     player.loadout = list;
     saveLoadout(list);
     showLoadoutSummary();
@@ -1279,6 +1280,15 @@ const locker = createLocker({
   setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
   skinLevel: (id) => skinInfo(id)?.level ?? 1,
   skinOwned: (id) => isUnlocked(loadProfile(), 'skin', id),
+  gunOwned: (id) => ownsGun(loadProfile(), id),
+  getBalance: () => balance(loadProfile()),
+  buyGun: (id) => {
+    const next = buyGun(loadProfile(), id);
+    if (!next) return false;
+    saveProfile(next);
+    renderPlayerCard(next);
+    return true;
+  },
 });
 const emotes = createEmotes({
   scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: () => worn().operator, wheel: $('emote-wheel'), Audio,

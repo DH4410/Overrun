@@ -26,7 +26,7 @@ export function describeRoom(report, pingMs = null) {
   const exhausted = !!report.budget?.exhausted || report.phase === 'CLOSED';
   const full = players >= ROOM_CAPACITY;
   const roster = Object.entries(report.rtt ?? {}).slice(0, ROOM_CAPACITY).map(([name, rtt]) => ({ name: String(name).slice(0, 12), ping: Math.round(Number(rtt)) || 0 }));
-  let headline = 'ONLINE', state = 'online', note = 'One shared room. The server picks the mode and map; you vote between rounds.';
+  let headline = 'ONLINE', state = 'online', note = '';
   if (exhausted) {
     headline = 'CLOSED FOR TODAY'; state = 'closed';
     note = `The free daily budget is used up. It reopens in about ${Math.max(1, Math.ceil((Number(report.budget?.resetInSec) || 0) / 3600))} h. You can still play solo.`;

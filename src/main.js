@@ -38,6 +38,7 @@ import { AFTER_TIME, createKillcam } from './killcam.js';
 import { createHardpoint } from './hardpoint.js';
 import { createAccount } from './account.js';
 import { createFriends } from './friends.js';
+import { hudIcons } from './gunicons.js';
 import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
 import { createOnlineLobby } from './online.js';
@@ -1264,7 +1265,16 @@ player.loadout = loadLoadout();
 /** The lobby's Locker card lists what you are carrying. */
 function showLoadoutSummary() {
   const sum = $('locker-sum');
-  if (sum) sum.textContent = player.loadout.map((id) => WEAPON_BY_ID[id].name).join(' · ');
+  if (!sum) return;
+  // Pictures of the guns, not their names: the picture is what you recognise. Names stay as the tooltip.
+  let icons = null;
+  try { icons = hudIcons(); } catch { /* no GL for the icon renderer: names instead */ }
+  sum.textContent = '';
+  for (const id of player.loadout) {
+    const name = WEAPON_BY_ID[id].name;
+    if (!icons?.[id]) { sum.append(Object.assign(document.createElement('span'), { textContent: name })); continue; }
+    sum.append(Object.assign(document.createElement('img'), { src: icons[id], alt: name, title: name }));
+  }
 }
 showLoadoutSummary();
 const locker = createLocker({

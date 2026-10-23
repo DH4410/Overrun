@@ -197,3 +197,21 @@ Suggested order, since `ui-overhaul.css` and `game.js` never overlap:
 Before opening a PR, load the game and confirm: health and ammo readable, crosshair centred,
 minimap sharp and unblurred, a nameplate appears above an enemy's head when you can see them
 and disappears behind a wall, and the settings panel opens with populated rows.
+
+## 8. Added in session 9
+
+New ids (do not rename; no `!important` on anything the game writes at runtime):
+
+| Id / class | What | Notes |
+|---|---|---|
+| `#hp-chip` | Hardpoint distance chip under the top bar | Created by `src/hardpoint.js`; `data-state` is `open`, `mine`, `theirs` or `contested`; `.hp-arrow` is rotated by script |
+| `#friends`, `#friends-btn`, `#fr-badge`, `#fr-add`, `#fr-name`, `#fr-msg`, `#fr-list`, `#fr-close` | Friends drawer and its button | `#friends.on` is open; rows are built by `src/friends.js` (`.fr-row` with `.on`/`.off`/`.req`/`.invite`/`.out`, `.fr-dot.online/lobby/solo`, `.fr-b.go/.inv/.no`) |
+| `#fr-invite` | Invite banner, appended to `#menu` by script | `.on` shows it |
+| `#wallet`, `#wallet-n`, `.coin` | Credits chip in the top bar | `.coin` is one glyph reused in the locker and podium |
+| `#lk-buy`, `#lk-bal`, `.lk-price`, `.lk-gun.locked` | Locker buying | |
+| `#locker-sum` | Now a row of gun pictures (`<img>`), not text | |
+| `.mode-btn[data-mode="gg"]`, `[data-mode="hp"]` | Gun Game and Hardpoint tiles | |
+
+Less text on purpose: the lobby cards no longer show a sentence under the mode and map names
+(`.sc-desc` is hidden), the online pane has no standing explanation, and the loadout is pictures.
+Please keep icons ahead of sentences.

@@ -109,7 +109,8 @@ test('high contrast is a setting: it brightens the secondary ink and makes the p
   const ink = () => page.evaluate(() => getComputedStyle(document.body).getPropertyValue('--ink-3').trim());
   const before = await ink();
   await page.click('#settings-open');
-  await page.locator('#settings-body .set-row', { hasText: 'High-contrast' }).locator('input').check();
+  await page.locator('#set-nav button', { hasText: 'HUD' }).click();
+  await page.locator('#settings-body .set-row', { hasText: 'High contrast' }).locator('input').check();
   expect(await ink()).not.toBe(before);
   expect(await page.evaluate(() => document.body.classList.contains('hc'))).toBe(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overrun.settings')).highContrast)).toBe(true);

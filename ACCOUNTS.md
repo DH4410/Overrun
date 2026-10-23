@@ -38,6 +38,9 @@ having no mail server; adding one (Cloudflare Email Service, or any SMTP relay) 
 | `src/account.js` | The browser side: the chip in the top bar, the sign-in card, saving the career when it changes. |
 | `src/rewards.js` | The unlock table (operators, finishes, titles). Shared by the browser and the server. |
 | `src/career.js` | The career screen. |
+| `src/shop.js` | Credits and the gun price list. Shared by the browser and the server's checks. |
+| `server/friends.js` | Friends, requests, presence and invites (see "Friends" below). |
+| `src/friends.js` | The friends drawer in the lobby. |
 
 ## The API
 
@@ -51,6 +54,9 @@ having no mail server; adding one (Cloudflare Email Service, or any SMTP relay) 
 | `POST /api/password` | `{ current, password }` | signs every other device out |
 | `POST /api/recover` | `{ login, recoveryCode, password }` | signs in, issues a new recovery code |
 | `DELETE /api/account` | `{ password }` | deletes the account |
+| `GET /api/friends` | | friends (with presence), incoming and outgoing requests, invites |
+| `POST /api/presence` | `{ status }` (`lobby`, `solo`, `online`) | checks in, answers like `GET /api/friends` |
+| `POST /api/friends/request` `accept` `decline` `remove` `invite` `dismiss` | `{ name }` | the new friends panel |
 
 Usernames are 3-12 letters, numbers, `-` or `_` (the callsign length), unique ignoring case.
 Passwords are 8-128 characters.
@@ -100,3 +106,36 @@ to it. Two things to check on a real deploy:
 To add a reward, add a row there. The lobby picker, locker, career screen, podium ("UNLOCKED: ...")
 and the server's check all read the same table. A finish only recolours the gun's `polymer`,
 `alloy` and `steel` materials (see `applyGunSkin` in `src/gunmodels.js`); it needs no new art.
+
+## Credits
+
+Before this there was no currency: rewards were unlocked by level and stats only. Now matches pay
+**credits** and the locker spends them.
+
+- A match pays `round(XP earned x 0.5)` credits, plus a bonus on every level-up (`CREDITS` in `src/shop.js`).
+- The first guns (pistol, AR, SMG, shotgun, sniper) are free. The revolver, machine pistol, auto
+  shotgun, marksman rifle and LMG are bought in the locker (`GUN_PRICES`).
+- A career keeps three numbers for this: `credits` (earned, only ever goes up), `spent` (only ever
+  goes up) and `owned` (`gun:<id>` keys). Balance is `credits - spent`.
+- The server checks the same three: credits cannot exceed what the XP and levels could have paid,
+  spending cannot exceed earnings, and a bought item must be paid for. As above, that is a save
+  file's sanity check, not anti-cheat: someone editing their own browser can still award themselves XP.
+- Credits are not earned online yet (the multiplayer room does not report results to accounts).
+
+## Friends
+
+Sign in, press the two-people button beside your name in the lobby, and add a friend by username.
+
+- Requests wait until accepted. If you ask someone who already asked you, you become friends at once.
+- **Presence is a heartbeat, not a socket.** While the page is visible and you are signed in it checks
+  in every 30 s (10 s with the drawer open). A friend is "online" if they checked in within 60 s. Status
+  is `lobby`, `solo` or `online` (in the shared multiplayer room). The cost is about 2-6 requests a
+  minute per open page, which is what the free Cloudflare plan counts, so watch that if many people play.
+- **An invite is a nudge.** It lands as a banner (and a badge) the next time the invitee's page checks in,
+  up to 30 s later, and expires after 10 minutes. Accepting it, or pressing the play arrow on a friend who
+  is in the room, opens the ONLINE tab and joins.
+- **There are no private parties or rooms yet.** The multiplayer server runs exactly one shared room, so
+  "join a friend" means "join the room they are in". A real party (a private room per code, or group
+  matchmaking) needs more than one Durable Object room and a decision on cost; it was not built.
+- Not tried live: like the rest of the accounts server, it runs against the local server in the tests
+  (unit and a two-browser e2e) but has not been deployed to Cloudflare.

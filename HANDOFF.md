@@ -16,7 +16,9 @@ music, and emotes. See "Session 6". Session 7 (2026-09-30) was the maps: the thr
 procedural maps are gone, replaced by **DESERT** and **SNOW**, both modelled in Blender like
 PORT, and clicking back in from the pause screen no longer leaves it over the game. See
 "Session 7". Session 8 (2026-10-23) added career progression, the kill cam, streaks, a rebuilt
-lobby and HUD, and accounts with unlockable rewards. See "Session 8".
+lobby and HUD, and accounts with unlockable rewards. See "Session 8". Session 9 (2026-10-23) added
+a credits economy, six more guns, Gun Game and Hardpoint, a friends drawer, an easier Survival, a
+new HUD, and cut a lot of text for icons. See "Session 9".
 
 ---
 
@@ -26,8 +28,8 @@ lobby and HUD, and accounts with unlockable rewards. See "Session 8".
 |---|---|
 | Branch | `claude/overrun-game-repo-check-955578`: career progression, kill cam, streaks (session 8). Pushed. |
 | Also open | `claude/lobby-ui-rework` (new lobby and HUD) and `claude/accounts-and-rewards` (accounts, unlocks), stacked in that order on this branch. See "Session 8" below. |
-| Service worker cache | `overrun-v22` here, `v24` on the accounts branch. Bump it whenever a precached file changes; `tests/unit/sw-precache.test.mjs` fails if a `src/*.js` file is missing from the list. |
-| Tests | Unit: 44 here, 73 on the accounts branch, lint 0 errors. E2E (`CI=1 npm run test:e2e`, 112 specs here): see "Session 8: test status". |
+| Service worker cache | `overrun-v22` here, `v28` on the accounts branch. Bump it whenever a precached file changes; `tests/unit/sw-precache.test.mjs` fails if a `src/*.js` file is missing from the list. |
+| Tests | Unit: 44 here, 94 on the accounts branch, lint 0 errors. E2E (`CI=1 npm run test:e2e`, 112 specs here): see "Session 8: test status". |
 
 ```bash
 npm ci && npx playwright install chromium
@@ -52,6 +54,37 @@ not run two e2e runs at once: they share that port.
 4. Not started: private multiplayer rooms by code (needs a decision on cost, see Session 8), Mixamo
    animation clips (needs a signed-in Mixamo session: unarmed idle, hit reactions, jump/fall, grenade
    throw, reload), a kill cam and XP for online play.
+
+---
+
+## Session 9: credits, guns, modes, friends, a less wordy UI
+
+Work is on `claude/accounts-and-rewards`, stacked on the two branches above. Answers to your list:
+
+- **Currency.** It did not exist before: rewards were unlocked by level only. Now matches pay credits
+  and the locker sells guns (`src/shop.js`, "Credits" in `ACCOUNTS.md`). Online play pays nothing yet.
+- **Guns.** 11 now: pistol, AR, SMG, shotgun, sniper, plus revolver, machine pistol, LMG, auto shotgun,
+  marksman rifle and the frag. Stats in `src/sim/weaponData.js`, models in `src/gunmodels.js`.
+  Online play carries the first ten (`GUN_WIRE_IDS`; the wire protocol is version 2). Bots use the
+  original four, except in Gun Game.
+- **Modes.** Deathmatch and TDM as before. New and solo only: **Gun Game** (kills climb a gun ladder,
+  `GUN_LADDER` in `src/match.js`) and **Hardpoint** (`src/hardpoint.js`: one zone, 1 point a second for
+  the team holding it alone, nothing while contested, kills score nothing, first to 100, zone moves
+  every 45 s, bots patrol toward it). Survival waves are much gentler.
+- **Friends.** A drawer in the lobby (`src/friends.js`, `server/friends.js`). Requests, presence and
+  invites are real; "invite" means "join the one shared online room". No private parties yet.
+- **HUD and lobby.** New health bar, kill feed that marks teammates, scoreboard, intro and
+  win/lose transitions, tabbed settings, medkit/shield pickups redrawn. Lobby cards and the loadout
+  row use pictures, not sentences (`.sc-desc` is hidden on purpose).
+
+Things that bite:
+
+- `createBotRuntime`, `createMatchRuntime` and `createHardpoint` are factory functions. Never put
+  `export` inside one; return what outside code needs (this broke every e2e once).
+- The friends e2e takes about 4 minutes, and uses `dispatchEvent('click')` because software GL is
+  slower than the actionability timers. Do not put opacity-0 start states on CSS animations.
+- Registration is throttled to about 4 per IP window, so a script cannot make more than four accounts.
+- Nothing here has run on Cloudflare. Accounts and friends are tested against the local server only.
 
 ---
 

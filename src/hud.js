@@ -89,13 +89,13 @@ function showStreak(n, lost = 0) {
   const box = $('streak');
   if (!box) return;
   const num = $('streak-n'), lbl = $('streak-l');
-  box.classList.remove('pop', 'ended');
+  box.classList.remove('bump', 'ended');
   if (n > 0) {
     num.textContent = n;
     lbl.textContent = n >= 10 ? 'GODLIKE' : n >= 7 ? 'UNSTOPPABLE' : n >= 5 ? 'RAMPAGE' : 'KILL STREAK';
     box.classList.add('on');
     void box.offsetWidth;
-    box.classList.add('pop');
+    box.classList.add('bump');
   } else if (lost > 0) {
     num.textContent = lost;
     lbl.textContent = 'STREAK ENDED';

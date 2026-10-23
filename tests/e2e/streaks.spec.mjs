@@ -37,6 +37,10 @@ test('a streak shows on the HUD and pays rewards at 3, 5 and 7', async ({ page }
   await shoot(page, 0);
   await expect(page.locator('#streak')).toHaveClass(/\bon\b/);
   await expect(page.locator('#streak-n')).toHaveText('1');
+  // A class name shared with the menu popouts once stretched the counter over the whole screen.
+  const box = await page.locator('#streak').boundingBox();
+  expect(box.height).toBeLessThan(120);
+  expect(box.width).toBeLessThan(400);
 
   await shoot(page, 1);
   expect((await snap(page)).reserve).toBe(0);                       // not yet

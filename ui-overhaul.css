@@ -367,7 +367,7 @@ button { font: inherit; color: inherit; }
 
 #menu {
   position: fixed; inset: 0; z-index: 30;
-  display: grid; grid-template-columns: minmax(300px, 24vw) 1fr minmax(340px, 26vw);
+  display: grid; grid-template-columns: minmax(300px, 24vw) minmax(0, 1fr) minmax(340px, 26vw);
   grid-template-rows: auto 1fr; column-gap: clamp(16px, 2.4vw, 40px);
   padding: 0 clamp(18px, 3vw, 52px) clamp(14px, 3vh, 34px);
   /* The map shows through; it is only darkened where text has to be read. */
@@ -542,7 +542,7 @@ kbd {
 }
 
 /* Narrow windows: the operator column gives way and the play panel takes the width. */
-@media (max-width: 1000px) and (min-width: 761px) { #menu { grid-template-columns: minmax(230px, 26vw) 1fr minmax(300px, 34vw); } .tab { padding-left: 10px; padding-right: 10px; letter-spacing: 2px; } }
+@media (max-width: 1000px) and (min-width: 761px) { #menu { grid-template-columns: minmax(230px, 26vw) minmax(0, 1fr) minmax(300px, 34vw); } .tab { padding-left: 10px; padding-right: 10px; letter-spacing: 2px; } }
 @media (max-width: 760px) {
   #menu { grid-template-columns: 1fr; }
   #lobby-left, #operator, #keyhelp { display: none !important; }
@@ -847,3 +847,5 @@ body.killcam #pause { display: none !important; }
 .kc-lost { margin-top: 6px; font-size: clamp(12px, 2vh, 16px); font-weight: 700; letter-spacing: 4px; color: var(--enemy); }
 .kc-lost:empty { display: none; }
 body.killcam #hud > #streak { display: none !important; }
+
+@media (max-width: 900px) { #topnav .brand span { display: none; } }

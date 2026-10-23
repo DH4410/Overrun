@@ -163,53 +163,62 @@ button { font: inherit; color: inherit; }
 #hitflash { position: absolute; inset: 0; opacity: 0; transition: opacity .35s ease-out; background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(170, 0, 0, .38) 100%); }
 #lowhp { position: absolute; inset: 0; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(150, 0, 0, .45) 100%); }
 
-/* ---- vitals, bottom left: one big number and two bars, readable without looking ---- */
+/* ---- vitals, bottom left: armour over health, in one framed plate ---- */
 #vitals {
-  position: absolute; left: 28px; bottom: 26px; width: 300px;
+  position: absolute; left: 24px; bottom: 24px; width: 372px; padding: 12px 18px 12px 14px;
   text-shadow: var(--shadow); zoom: var(--hud-scale, 1);
+  --vc: #5fd37a;
 }
 #vitals::before {
-  content: ''; position: absolute; left: -22px; right: -30px; top: -22px; bottom: -22px; z-index: -1;
-  background: radial-gradient(ellipse at 30% 70%, rgba(0, 0, 0, .5), transparent 72%);
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, var(--vc) 0 3px, transparent 3px), linear-gradient(100deg, rgba(8, 12, 19, .84), rgba(8, 12, 19, .5));
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
 #vitals .name { display: none; }
-.vrow { display: flex; align-items: center; gap: 10px; }
-.vrow .vicon { width: 18px; height: 18px; flex: none; fill: currentColor; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .8)); }
-.vrow .vnum { font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; min-width: 50px; text-align: right; order: -1; }
-.vrow .vicon { order: 2; }
-.vrow .bar { order: 1; }
-.vrow.hp { color: #7fdc8c; margin-top: 4px; }
-.vrow.hp .vnum { font-size: 46px; min-width: 76px; }
+.vrow { display: grid; grid-template-columns: 30px 1fr 64px; align-items: center; gap: 10px; }
+.vrow .vicon { grid-column: 1; width: 30px; height: 30px; padding: 6px; fill: currentColor; background: rgba(255, 255, 255, .09);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.vrow .bar { grid-column: 2; }
+.vrow .vnum { grid-column: 3; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; text-align: right; }
+.vrow.hp { color: var(--vc); margin-top: 7px; }
+.vrow.hp .vnum { font-size: 44px; color: var(--ink); }
 .vrow.ap { color: var(--ap); }
-.vrow.ap .vnum { font-size: 22px; min-width: 76px; }
-.vrow.ap .vicon, .vrow.hp .vicon { display: none; }
-.bar { flex: 1; height: 14px; position: relative; overflow: hidden;
-  background: rgba(7, 10, 15, .66); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16);
-  clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 0 100%); }
-.vrow.ap .bar { height: 7px; clip-path: polygon(0 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.vrow.ap .vnum { font-size: 20px; color: var(--ink-2); }
+.vrow .bar { height: 20px; position: relative; overflow: hidden; background: rgba(0, 0, 0, .55);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+.vrow.ap .bar { height: 9px; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .bar > span { position: absolute; inset: 0; transform-origin: left center; }
 .bar > .fill { transition: transform .08s ease-out; }
 .bar > .chip { background: #fff4d6; transition: transform .45s ease-in .35s; }
-/* Quarter ticks, so "about half" reads at a glance. */
-.bar::after { content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(90deg, transparent calc(25% - 1px), rgba(0, 0, 0, .5) 0 25%, transparent 0 calc(50% - 1px), rgba(0, 0, 0, .5) 0 50%, transparent 0 calc(75% - 1px), rgba(0, 0, 0, .5) 0 75%, transparent 0); }
-#hpfill { background: linear-gradient(180deg, #a8f0b0, #4fc26a 55%, #3aa556); }
-#apfill { background: linear-gradient(180deg, #bfe0ff, #5aa8f5 55%, #3d8de0); }
-#vitals.noshield .vrow.ap { opacity: .4; }
-#vitals.low .vrow.hp { color: var(--hp-low); }
-#vitals.low #hpfill { background: linear-gradient(180deg, #ffb0a8, #ff5a4e 55%, #d8392e); animation: hpPulse .9s ease-in-out infinite; }
+/* Segments: a gap every tenth (every fifth on the thin shield bar), so damage reads in chunks. */
+.vrow .bar::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(5, 8, 12, .92) calc(10% - 2px) 10%); }
+.vrow.ap .bar::after { background: repeating-linear-gradient(90deg, transparent 0 calc(20% - 2px), rgba(5, 8, 12, .92) calc(20% - 2px) 20%); }
+#hpfill { background: linear-gradient(180deg, #b6f5bd, #5fd37a 50%, #38a653); }
+#apfill { background: linear-gradient(180deg, #c8e5ff, #62b0ff 50%, #3c8be0); }
+#vitals.mid { --vc: #f3b53f; }
+#vitals.mid #hpfill { background: linear-gradient(180deg, #ffe3a3, #f3b53f 50%, #d28d1a); }
+#vitals.noshield .vrow.ap { opacity: .35; }
+#vitals.low { --vc: var(--hp-low); animation: plateAlarm .9s ease-in-out infinite; }
+#vitals.low #hpfill { background: linear-gradient(180deg, #ffb7ae, #ff5a4e 50%, #d8392e); }
+#vitals.low .vrow.hp .vnum { color: #ffd3cf; }
 @keyframes hpPulse { 50% { opacity: .55; } }
+@keyframes plateAlarm { 50% { filter: brightness(1.35) saturate(1.2); } }
 
-/* ---- ammo, bottom right beside the map ---- */
+/* ---- ammo, bottom right beside the map: the gun, the count, the slots ---- */
 #ammo {
-  position: absolute; right: 222px; bottom: 26px; min-width: 170px; text-align: right;
+  position: absolute; right: 222px; bottom: 24px; width: 262px; padding: 10px 16px 12px; text-align: right;
   text-shadow: var(--shadow); zoom: var(--hud-scale, 1);
 }
 #ammo::before {
-  content: ''; position: absolute; left: -40px; right: -30px; top: -30px; bottom: -40px; z-index: -1;
-  background: radial-gradient(ellipse at 70% 70%, rgba(0, 0, 0, .5), transparent 70%);
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(270deg, var(--accent) 0 3px, transparent 3px), linear-gradient(260deg, rgba(8, 12, 19, .84), rgba(8, 12, 19, .5));
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
 }
-#ammo .wname { font-size: 13px; font-weight: 700; letter-spacing: 4px; color: var(--accent); }
+/* The gun is a picture; its name stays for screen readers. */
+#ammo .wname { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+#a-icon { display: block; margin: -2px 0 -6px auto; height: 46px; width: auto; max-width: 100%; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .7)); }
+#a-icon[hidden] { display: none; }
 #ammo .rounds { font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 #a-mag { font-size: 58px; color: var(--ink); }
 #ammo .rounds small { font-size: 22px; color: var(--ink-3); font-weight: 700; margin-left: 4px; }
@@ -218,10 +227,15 @@ button { font: inherit; color: inherit; }
 #ammo.low #a-mag { color: var(--warn); }
 #ammo.empty #a-mag { color: var(--enemy); animation: hpPulse .7s ease-in-out infinite; }
 #ammo.empty .reload { color: var(--enemy); }
-#slots { display: flex; gap: 5px; justify-content: flex-end; margin-top: 6px; }
-#slots div { min-width: 24px; padding: 2px 0 3px; text-align: center; font-size: 13px; font-weight: 700; color: var(--ink-3);
-  background: rgba(7, 10, 15, .6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+#slots { display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px; }
+#slots div { position: relative; min-width: 24px; height: 26px; padding: 0 5px; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); background: rgba(255, 255, 255, .07); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
+  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+#slots div b { font-size: 11px; font-weight: 700; line-height: 1; }
+#slots div img { height: 14px; width: auto; max-width: 42px; margin-left: 4px; opacity: .8; }
+#slots div:has(img) { min-width: 56px; }
 #slots div.on { color: var(--accent-ink); background: var(--accent); box-shadow: none; }
+#slots div.on img { opacity: 1; filter: brightness(.12); }
 #slots div.empty { opacity: .3; }
 
 /* ---- minimap: a round radar, drawn on its canvas by minimap.js ---- */
@@ -249,21 +263,33 @@ button { font: inherit; color: inherit; }
 #topbar .t { font-size: 19px; font-weight: 700; color: var(--ink); letter-spacing: 1px; min-width: 70px; text-align: center; font-variant-numeric: tabular-nums;
   padding: 0 6px; border-left: 1px solid rgba(255, 255, 255, .12); border-right: 1px solid rgba(255, 255, 255, .12); }
 
-/* ---- kill feed, top right ---- */
-#feed { position: absolute; top: 16px; right: 22px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+/* ---- kill feed, top right: KILLER  gun  VICTIM, striped by whose point it was ---- */
+#feed { position: absolute; top: 16px; right: 22px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .kf {
-  font-family: var(--f-display); font-size: 16px; font-weight: 600; letter-spacing: .5px;
-  padding: 3px 12px; white-space: nowrap; text-shadow: var(--shadow);
-  background: rgba(7, 10, 15, .66); box-shadow: inset 3px 0 0 rgba(255, 255, 255, .18);
+  --c: var(--enemy);
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--f-display); font-size: 16px; font-weight: 700; letter-spacing: .6px;
+  padding: 4px 12px 4px 14px; white-space: nowrap; text-shadow: var(--shadow);
+  background: linear-gradient(270deg, color-mix(in srgb, var(--c) 30%, transparent), rgba(7, 10, 15, .7) 55%);
+  box-shadow: inset -3px 0 0 var(--c);
   clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%);
   transition: opacity .6s linear;
+  animation: kfIn .18s ease-out;
 }
-.kf .arrow { color: var(--ink-3); margin: 0 8px; font-size: 13px; }
-.kf .arrow.hs { color: var(--accent); }
+@keyframes kfIn { from { transform: translateX(24px); } }
+.kf.good { --c: var(--ally); }
+.kf.bad { --c: var(--enemy); }
+.kf.tk { --c: var(--warn); }
+.kf .arrow { color: var(--ink-3); font-size: 14px; }
+.kf svg { width: 16px; height: 16px; fill: var(--ink-2); fill-rule: evenodd; stroke: none; }
+.kf svg.kf-hs { fill: var(--accent); stroke: var(--accent); stroke-width: 1.3; filter: drop-shadow(0 0 4px rgba(243, 181, 63, .7)); }
+.kf-gun { height: 19px; width: auto; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
 .kf .me { color: var(--self); }
 .kf .en { color: var(--enemy); }
 .kf .al { color: var(--ally); }
-.kf.mine { background: rgba(60, 44, 10, .72); box-shadow: inset 3px 0 0 var(--accent); }
+.kf.mine { background: linear-gradient(270deg, color-mix(in srgb, var(--accent) 36%, transparent), rgba(30, 22, 6, .78) 60%);
+  box-shadow: inset -3px 0 0 var(--accent), inset 0 0 0 1px rgba(243, 181, 63, .4); }
+.kf.died { box-shadow: inset -3px 0 0 var(--enemy), inset 0 0 0 1px rgba(255, 90, 78, .5); }
 
 /* ---- nameplates and ally markers (positions are the game's) ---- */
 #plates { position: absolute; inset: 0; overflow: hidden; }
@@ -293,17 +319,32 @@ button { font: inherit; color: inherit; }
 /* ---- scoreboard (Tab) ---- */
 #board { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4, 7, 12, .66); }
 #board.on { display: flex; }
-#board .card { width: min(680px, 92vw); padding: 20px 22px 14px; background: rgba(9, 14, 24, .94); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 3px 0 var(--accent);
+#board .card { width: min(700px, 94vw); padding: 18px 22px 14px; background: linear-gradient(180deg, rgba(14, 21, 34, .96), rgba(8, 12, 20, .96));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 3px 0 var(--accent);
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%); }
-#board h2 { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: 3px; line-height: 1; }
-#board .sub { font-size: 13px; font-weight: 700; letter-spacing: 3px; color: var(--ink-2); margin: 5px 0 14px; }
-#board table { width: 100%; border-collapse: collapse; font-family: var(--f-display); }
-#board th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: 3px; color: var(--ink-2); padding: 0 12px 8px; border-bottom: 1px solid var(--ink-4); }
+#board h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 5px; line-height: 1; color: var(--ink-3); }
+#board .sub { font-size: 26px; font-weight: 800; letter-spacing: 2px; color: var(--ink); margin: 6px 0 12px; }
+#board table { width: 100%; border-collapse: separate; border-spacing: 0 3px; font-family: var(--f-display); }
+#board th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: 3px; color: var(--ink-3); padding: 0 12px 4px; }
+#board th svg { width: 15px; height: 15px; fill: var(--ink-3); fill-rule: evenodd; stroke: var(--ink-3); stroke-width: 1.2; vertical-align: -2px; }
 #board th.num, #board td.num { text-align: right; font-variant-numeric: tabular-nums; }
-#board td { font-size: 19px; font-weight: 700; padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
-#board tr:nth-child(even) td { background: rgba(255, 255, 255, .03); }
-#board tr.self td { color: var(--accent); background: rgba(243, 181, 63, .14); }
-#board tr.self td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+#board td { font-size: 19px; font-weight: 700; padding: 7px 12px; background: rgba(255, 255, 255, .045); }
+/* A quiet bar behind each row sized by kills against the leader's, so the table reads as a ranking at a glance. */
+#board tr[style] td.nm { background: linear-gradient(90deg, rgba(255, 255, 255, .1) var(--w, 0%), rgba(255, 255, 255, .045) var(--w, 0%)); }
+#board td.rk { width: 38px; text-align: center; color: var(--ink-3); font-size: 16px; padding: 7px 0; }
+#board td.nm { display: table-cell; }
+#board td.nm em { margin-left: 10px; padding: 1px 6px; font-style: normal; font-size: 11px; letter-spacing: 2px; color: var(--accent-ink); background: var(--accent); vertical-align: 2px; }
+#board td.k { color: var(--ink); }
+#board td.d, #board td.kd { color: var(--ink-3); }
+#board tr:first-of-type td.rk, #board tr.team + tr td.rk { color: var(--accent); }
+#board tr.self td { color: var(--accent); background: rgba(243, 181, 63, .16); }
+#board tr.self td.nm { background: linear-gradient(90deg, rgba(243, 181, 63, .3) var(--w, 0%), rgba(243, 181, 63, .14) var(--w, 0%)); }
+#board tr.self td.d, #board tr.self td.kd { color: rgba(243, 181, 63, .7); }
+#board tr.down td { opacity: .55; }
+#board tr.team td { padding: 8px 12px 6px; background: none; border-bottom: 2px solid var(--tc, var(--ink-4)); font-size: 14px; letter-spacing: 4px; }
+#board tr.team td span { float: right; font-size: 24px; letter-spacing: 0; }
+#board tr.team.blue { --tc: var(--ally); color: var(--ally); }
+#board tr.team.red { --tc: var(--enemy); color: var(--enemy); }
 #board .tag { display: inline-block; width: 4px; height: 17px; margin-right: 12px; vertical-align: -3px; }
 
 /* ==========================================================================

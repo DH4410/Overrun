@@ -236,42 +236,70 @@ const CONSUMABLE_KINDS = {
   },
 };
 
-/** Potion-ish vial: tinted glass body, glowing core, floating ring. */
+/**
+ * What the two consumables look like. Health is a white first-aid case with a green cross on every
+ * face; shield is a blue armour plate with a white shield on both sides. Each hovers over a flat
+ * ring on the floor, so you can read "pickup spot" from across the map and the item still bobs.
+ *
+ * Opaque materials and no glow sprite, deliberately (see the note in git history: transparent or
+ * additive pickups cost milliseconds of overdraw per frame).
+ */
+const SHIELD_EMBLEM = (() => {
+  const sh = new THREE.Shape();
+  sh.moveTo(0, 0.17); sh.lineTo(0.13, 0.12); sh.lineTo(0.13, -0.01);
+  sh.quadraticCurveTo(0.12, -0.12, 0, -0.18); sh.quadraticCurveTo(-0.12, -0.12, -0.13, -0.01);
+  sh.lineTo(-0.13, 0.12); sh.closePath();
+  return new THREE.ShapeGeometry(sh);
+})();
+
 function buildConsumableMesh(kind) {
   const spec = CONSUMABLE_KINDS[kind];
   const g = new THREE.Group();
-  const glass = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.17, 0.21, 0.34, 12),
-    // Opaque, not transparent glass. Transparency here meant a blended pass with no early-z
-    // for 8 objects, measured at ~3 ms of a 4.9 ms frame at 400x300 — and that scales with
-    // resolution, so it is much worse on a real display. A strong emissive reads as "glowing
-    // vial" just as well and costs a normal opaque draw.
-    new THREE.MeshStandardMaterial({
-      color: spec.color, roughness: 0.25, metalness: 0.1,
-      emissive: spec.color, emissiveIntensity: 0.7,
-    }),
-  );
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.07, 0.09, 0.12, 10),
-    matte(0xdad6cc, 0.6, 0.2),
-  );
-  neck.position.y = 0.22;
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.10, 10, 8),
-    new THREE.MeshBasicMaterial({ color: spec.color }),
-  );
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.30, 0.018, 6, 22),
-    new THREE.MeshBasicMaterial({ color: spec.color }),
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = -0.16;
-  // No additive glow sprite here, deliberately. An earlier version had one and it was
-  // catastrophic: 8 pickups took a 400x300 frame from 1.8 ms to 77 ms, because a camera-facing
-  // additive sprite is pure overdraw and eight of them covered the screen several times over.
-  // The emissive core plus the light this pickup leases carry the same read for nothing.
-  g.add(glass, neck, core, ring);
-  g.userData.ring = ring;
+  const glow = new THREE.MeshBasicMaterial({ color: spec.color });
+  if (kind === 'health') {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.30, 0.32), matte(0xe9edf0, 0.5, 0.1));
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.016, 6, 12, Math.PI), matte(0x9aa3ab, 0.4, 0.5));
+    handle.position.y = 0.15;
+    const crossBars = [[0.2, 0.06, 0.012], [0.06, 0.2, 0.012]];
+    for (const [w, h, d] of crossBars) {
+      for (const z of [0.166, -0.166]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glow);
+        bar.position.set(0, 0, z);
+        g.add(bar);
+      }
+      const top = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.012, h * 0.9), glow);
+      top.position.set(0, 0.156, 0);
+      g.add(top);
+    }
+    g.add(body, handle);
+  } else {
+    const plate = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.27, 0.27, 0.09, 6),
+      new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.3, metalness: 0.4, emissive: spec.color, emissiveIntensity: 0.5 }),
+    );
+    plate.rotation.x = Math.PI / 2;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.014, 6, 6), matte(0xe9edf0, 0.4, 0.3));
+    rim.rotation.z = Math.PI / 6;
+    const white = new THREE.MeshBasicMaterial({ color: 0xf4f8ff, side: THREE.DoubleSide });
+    for (const z of [0.048, -0.048]) {
+      const emblem = new THREE.Mesh(SHIELD_EMBLEM, white);
+      emblem.position.z = z;
+      if (z < 0) emblem.rotation.y = Math.PI;
+      g.add(emblem);
+    }
+    g.add(plate, rim);
+  }
+  // The pad: a ring that stays on the floor while the item bobs above it (placed in updateConsumables).
+  const pad = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.56, 28), new THREE.MeshBasicMaterial({ color: spec.color, side: THREE.DoubleSide }));
+  pad.rotation.x = -Math.PI / 2;
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.36, 24), new THREE.MeshBasicMaterial({ color: spec.color, transparent: false }));
+  dot.material.color.multiplyScalar(0.35);
+  dot.rotation.x = -Math.PI / 2;
+  dot.position.y = -0.004;
+  pad.add(dot);
+  g.add(pad);
+  g.userData.pad = pad;
+  g.userData.ring = pad;
   return g;
 }
 
@@ -289,13 +317,14 @@ function spawnConsumables(entries, max = 8) {
     if (!_spRes.hasHit) continue;
     const spec = CONSUMABLE_KINDS[kind];
     const mesh = buildConsumableMesh(kind);
-    const baseY = _spRes.hitPointWorld.y + 0.5;
+    const floorY = _spRes.hitPointWorld.y;
+    const baseY = floorY + 0.62;
     mesh.position.set(x, baseY, z);
     scene.add(mesh);
     const emitter = addLightEmitter({
       x, y: baseY + 0.2, z, color: spec.color, intensity: 18, distance: 4.5, priority: 0,
     });
-    consumables.push({ kind, spec, mesh, baseY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
+    consumables.push({ kind, spec, mesh, baseY, floorY, cooldown: 0, phase: rand(0, Math.PI * 2), emitter });
   }
 }
 
@@ -315,7 +344,10 @@ function updateConsumables(dt, visualOnly = false) {
     if (!c.mesh.visible) continue;
     c.mesh.rotation.y += dt * 0.9;
     c.mesh.position.y = c.baseY + Math.sin(t * 2.0 + c.phase) * 0.14;
-    c.mesh.userData.ring.rotation.z += dt * 1.6;
+    // The pad stays flat on the floor under the bobbing item and counter-rotates so it does not spin with it.
+    const pad = c.mesh.userData.pad;
+    pad.position.y = c.floorY - c.mesh.position.y + 0.03;
+    pad.rotation.z = -c.mesh.rotation.y;
     c.emitter.y = c.mesh.position.y + 0.2;
 
     if (!player.alive || visualOnly) continue;

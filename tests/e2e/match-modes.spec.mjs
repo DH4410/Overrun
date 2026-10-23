@@ -67,5 +67,6 @@ test('Survival advances from wave one to wave two after the break', async ({ pag
     };
   });
 
-  expect(result).toEqual({ living: 6, total: 6, wave: 2 });
+  // Wave two is four hostiles, but only three walk in at once; the fourth trickles in later.
+  expect(result).toEqual({ living: 3, total: 3, wave: 2 });
 });

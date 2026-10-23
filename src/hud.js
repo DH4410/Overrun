@@ -4,6 +4,7 @@ import { CONFIG, HIP_FOV, TEAM, TEAM_COLOR } from './config.js';
 import { settings } from './settings.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
+import { hudIcons } from './gunicons.js';
 
 /** HUD presentation and runtime UI state, isolated from gameplay ownership. */
 export function createHud({
@@ -37,6 +38,34 @@ const el = {
 };
 
 let hitmarkerTimer = 0, toastTimer = 0;
+
+/**
+ * Weapon pictures for the kill feed and the slot strip. They are rendered from the real gun models
+ * (gunicons.js), once, a moment after boot so the cost never lands in a match. Until then (or with
+ * no WebGL to render them) a slot falls back to its number and a feed row to the gun's name.
+ */
+let iconsReady = false;
+function icons() {
+  if (!iconsReady) return {};
+  return hudIcons();
+}
+setTimeout(() => {
+  try { hudIcons(); iconsReady = true; updateAmmoHud(); } catch { /* no icons; the HUD falls back to text */ }
+}, 2500);
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function glyph(kind) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', `kf-${kind}`);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', kind === 'hs'
+    ? 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM8 0v3M8 13v3M0 8h3M13 8h3'
+    : 'M8 1C4.7 1 2.5 3.3 2.5 6.2c0 1.7.8 3 2 3.9V13h1.6v-1.4h1v1.4h1.8v-1.4h1v1.4h1.6v-2.9c1.2-.9 2-2.2 2-3.9C13.5 3.3 11.3 1 8 1zM5.8 5.2a1.3 1.3 0 110 2.6 1.3 1.3 0 010-2.6zm4.4 0a1.3 1.3 0 110 2.6 1.3 1.3 0 010-2.6z');
+  svg.appendChild(path);
+  return svg;
+}
+
 
 /**
  * The hitmarker, in three weights: a hit, a headshot, a kill. `kind` is 'body', 'head' or
@@ -299,6 +328,7 @@ function updatePlates(dt) {
 function updateVitals() {
   // Critical-health pulse is a class on the panel so the CSS animation owns the timing.
   el.vitals?.classList.toggle('low', player.alive && player.health < 35);
+  el.vitals?.classList.toggle('mid', player.alive && player.health >= 35 && player.health < 65);
   // The chip behind each fill follows it down late (a CSS transition delay), so the chunk a
   // hit took stays visible for a moment; on the way up it hides behind the fill.
   const hp = `scaleX(${clamp(player.health / CONFIG.MAX_HEALTH, 0, 1)})`;
@@ -315,6 +345,12 @@ function updateVitals() {
 function updateAmmoHud() {
   const w = currentWeapon();
   el.aname.textContent = w.name;
+  const ic = icons();
+  const big = $('a-icon');
+  if (big) {
+    big.hidden = !ic[w.id];
+    if (ic[w.id] && big.dataset.w !== w.id) { big.src = ic[w.id]; big.dataset.w = w.id; }
+  }
   if (w.thrown) {
     el.amag.textContent = player.fragCount;
     el.ares.textContent = '∞';
@@ -335,8 +371,14 @@ function updateAmmoHud() {
   [...player.loadout, 'frag'].forEach((id, i) => {
     const wp = WEAPONS.find((w) => w.id === id);
     const d = document.createElement('div');
-    d.textContent = i + 1;
     d.title = wp.name;
+    const n = Object.assign(document.createElement('b'), { textContent: i + 1 });
+    d.appendChild(n);
+    if (ic[wp.id]) {
+      const g = document.createElement('img');
+      g.alt = ''; g.src = ic[wp.id];
+      d.appendChild(g);
+    }
     if (wp.id === player.current) d.className = 'on';
     else if (wp.thrown ? player.fragCount <= 0 : player.ammo[wp.id].mag + player.ammo[wp.id].reserve <= 0) {
       d.className = 'empty';
@@ -360,16 +402,33 @@ function kfSpan(c, label) {
   return sp;
 }
 
-function addKillFeed(source, target, headshot) {
+/**
+ * One row: KILLER [gun] [headshot] VICTIM. Names are coloured by what they are to you (you, your
+ * team, the enemy) and the row's stripe says whose point it was, so in a team match you can tell
+ * "we got one" from "they got one" without reading a name.
+ */
+function addKillFeed(source, target, headshot, weaponId = null) {
   const row = document.createElement('div');
-  row.className = source === player || target === player ? 'kf mine' : 'kf';
-  const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
-    : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
-  const arrow = Object.assign(document.createElement('span'), {
-    className: headshot ? 'arrow hs' : 'arrow', textContent: headshot ? 'HEADSHOT' : '›',
-  });
-  const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
-  row.append(sSpan, arrow, tSpan);
+  const killer = source && source !== target ? feedClass(source) : null;     // me | al | en | null (the world)
+  const side = killer === 'me' || killer === 'al' ? 'good' : 'bad';
+  const teamKill = killer && player.team !== TEAM.SOLO && source.team === target.team;
+  row.className = `kf ${teamKill ? 'tk' : side}${source === player || target === player ? ' mine' : ''}${target === player ? ' died' : ''}`;
+  const parts = [];
+  if (killer) parts.push(kfSpan(source, source === player ? 'YOU' : source.name));
+  const wId = weaponId ?? (source === player ? player.current : source?.weaponId);
+  const img = killer && icons()[wId];
+  if (img) {
+    const gun = document.createElement('img');
+    gun.className = 'kf-gun'; gun.alt = ''; gun.src = img;
+    parts.push(gun);
+  } else if (killer) {
+    parts.push(Object.assign(document.createElement('span'), { className: 'arrow', textContent: '›' }));
+  } else {
+    parts.push(glyph('skull'));
+  }
+  if (headshot) parts.push(glyph('hs'));
+  parts.push(kfSpan(target, target === player ? 'YOU' : target.name));
+  row.append(...parts);
   el.feed.appendChild(row);
   while (el.feed.children.length > 5) el.feed.firstChild.remove();
   setTimeout(() => { row.style.opacity = '0'; }, 4200);
@@ -381,24 +440,45 @@ function addKillFeed(source, target, headshot) {
 function showBoard(on) { el.board.classList.toggle('on', !!on); if (on) refreshBoard(); }
 
 function refreshBoard() {
-  const rows = [player, ...bots].slice();
-  rows.sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  const order = (list) => list.slice().sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  const everyone = [player, ...bots];
+  const hex = (team) => `#${TEAM_COLOR[team].toString(16).padStart(6, '0')}`;
+  const top = Math.max(1, ...everyone.map((c) => c.kills));
   el.bBody.innerHTML = '';
-  for (const c of rows) {
+
+  const addRow = (c, rank) => {
     const tr = document.createElement('tr');
-    if (c === player) tr.className = 'self';
-    const color = `#${TEAM_COLOR[c.team].toString(16).padStart(6, '0')}`;
+    tr.className = `${c === player ? 'self' : ''}${c.alive ? '' : ' down'}`.trim();
+    tr.style.setProperty('--w', `${Math.round((c.kills / top) * 100)}%`);
     const kd = c.deaths === 0 ? c.kills.toFixed(2) : (c.kills / c.deaths).toFixed(2);
     // Use DOM construction so player names never execute as HTML.
+    const tdRank = Object.assign(document.createElement('td'), { className: 'rk', textContent: rank });
     const tag = Object.assign(document.createElement('span'), { className: 'tag' });
-    tag.style.background = color;
+    tag.style.background = hex(c.team);
     const tdName = document.createElement('td');
+    tdName.className = 'nm';
     tdName.append(tag, c === player ? player.name : c.name);
-    const tdK = Object.assign(document.createElement('td'), { className: 'num', textContent: c.kills });
-    const tdD = Object.assign(document.createElement('td'), { className: 'num', textContent: c.deaths });
-    const tdKD = Object.assign(document.createElement('td'), { className: 'num', textContent: kd });
-    tr.append(tdName, tdK, tdD, tdKD);
+    if (c === player) tdName.appendChild(Object.assign(document.createElement('em'), { textContent: 'YOU' }));
+    const cell = (text, extra = '') => Object.assign(document.createElement('td'), { className: `num ${extra}`.trim(), textContent: text });
+    tr.append(tdRank, tdName, cell(c.kills, 'k'), cell(c.deaths, 'd'), cell(kd, 'kd'));
     el.bBody.appendChild(tr);
+  };
+
+  if (match.mode === 'tdm') {
+    // Two blocks, yours first, each headed by its colour and its score.
+    for (const team of [TEAM.BLUE, TEAM.RED]) {
+      const members = order(everyone.filter((c) => c.team === team));
+      const hdr = document.createElement('tr');
+      hdr.className = `team ${team === TEAM.BLUE ? 'blue' : 'red'}`;
+      const th = Object.assign(document.createElement('td'), { colSpan: 5 });
+      th.append(Object.assign(document.createElement('b'), { textContent: team === TEAM.BLUE ? 'YOUR TEAM' : 'ENEMY TEAM' }),
+        Object.assign(document.createElement('span'), { textContent: team === TEAM.BLUE ? match.scoreA : match.scoreB }));
+      hdr.appendChild(th);
+      el.bBody.appendChild(hdr);
+      members.forEach((c, i) => addRow(c, i + 1));
+    }
+  } else {
+    order(everyone).forEach((c, i) => addRow(c, i + 1));
   }
   el.bSub.textContent = match.mode === 'sv'
     ? `WAVE ${match.wave} · ${match.kills} KILLS`

@@ -42,16 +42,16 @@
   </div>
 
   <div id="ammo">
-    <div class="wname" id="a-name">PISTOL</div>
+    <div class="wname" id="a-name">PISTOL</div><img id="a-icon" alt="" hidden />
     <div class="rounds"><span id="a-mag">15</span><small>/ <span id="a-res">90</span></small></div>
     <div class="reload" id="a-reload"></div>
     <div id="slots"></div>
   </div>
 
   <div id="mapframe"><canvas id="minimap"></canvas></div><div id="dmgnums"></div>
-  <div id="ammo-prompt"><span id="ammo-prompt-label">AMMO</span><small>walk in to collect</small></div><div id="toast"></div>
+  <div id="ammo-prompt"><span id="ammo-prompt-label">AMMO</span></div><div id="toast"></div>
 
-  <div id="board"><div class="card"><h2 id="b-title">SCOREBOARD</h2><div class="sub" id="b-sub"></div><table><thead><tr><th>PLAYER</th><th class="num">K</th><th class="num">D</th><th class="num">K/D</th></tr></thead><tbody id="b-body"></tbody></table></div></div>
+  <div id="board"><div class="card"><h2 id="b-title">SCOREBOARD</h2><div class="sub" id="b-sub"></div><table><thead><tr><th class="rk"></th><th>PLAYER</th><th class="num" title="Eliminations"><svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM8 0v3M8 13v3M0 8h3M13 8h3"/></svg></th><th class="num" title="Deaths"><svg viewBox="0 0 16 16"><path d="M8 1C4.7 1 2.5 3.3 2.5 6.2c0 1.7.8 3 2 3.9V13h1.6v-1.4h1v1.4h1.8v-1.4h1v1.4h1.6v-2.9c1.2-.9 2-2.2 2-3.9C13.5 3.3 11.3 1 8 1z"/></svg></th><th class="num" title="Kill / death ratio">K/D</th></tr></thead><tbody id="b-body"></tbody></table></div></div>
 </div>
 
 <div id="killcam"><div class="kc-bar top"></div><div class="kc-bar bot"></div><div class="kc-rec"><i></i><span id="kc-who">ELIMINATED BY</span></div><div class="kc-card"><div class="kc-name" id="kc-name"></div><div class="kc-weapon" id="kc-weapon"></div><div class="kc-lost" id="kc-lost"></div></div><div class="kc-prog"><i id="kc-progress"></i></div><div class="kc-skip">CLICK TO SKIP</div><div class="kc-static"></div></div>

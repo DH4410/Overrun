@@ -138,7 +138,7 @@ function resetPlayerAmmo() {
  * Route damage through armour, then health. Handles kill bookkeeping for whoever fired.
  * Used by bullets and by explosions, for the player and for bots alike.
  */
-function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
+function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', weaponId = null) {
   if (!target.alive || !match.running) return;
   // Spawn protection. Gated here as well as in Bot.canSee, because bullets already in flight
   // and grenades already thrown do not go back through target acquisition.
@@ -183,7 +183,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body') {
 
   if (target.health <= 0) {
     target.health = 0;
-    killCombatant(target, source, headshot);
+    killCombatant(target, source, headshot, weaponId);
     if (source === player) {
       showHitMarker('kill', headshot);
       showKillBanner(target, headshot, match.medal, match.tags);

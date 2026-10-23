@@ -360,7 +360,7 @@ function explode(pos, owner) {
     // Cover matters: no line of sight to the blast means no damage.
     if (!losClear(pos.x, pos.y, pos.z, c.pos.x, c.pos.y, c.pos.z)) continue;
     const dmg = CONFIG.FRAG_DAMAGE * (1 - d / CONFIG.FRAG_RADIUS);
-    if (dmg > 1) applyDamage(c, dmg, owner, _v1, false);
+    if (dmg > 1) applyDamage(c, dmg, owner, _v1, false, 'body', 'frag');
   }
 
   for (const body of world.bodies) {

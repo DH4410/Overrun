@@ -13,6 +13,20 @@ import {
 } from './config.js';
 
 export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL' };
+/**
+ * Survival is meant to be a power fantasy you can lose, not a wall. Waves are small, hostiles walk
+ * in a few at a time instead of all at once, the early waves are the easy tier whatever the lobby
+ * says, and clearing a wave patches you up.
+ */
+const SV_ORDER = ['easy', 'medium', 'hard'];
+export const svWaveSize = (wave) => Math.min(14, 1 + Math.ceil(wave * 1.5));
+export const svWaveCap = (wave) => Math.min(6, 2 + Math.ceil(wave / 2));
+export function svWaveTier(wave, baseKey) {
+  const cap = wave <= 3 ? 0 : wave <= 6 ? 1 : 2;
+  return SV_ORDER[Math.min(Math.max(0, SV_ORDER.indexOf(baseKey)), cap)];
+}
+const SV_TRICKLE = 2.5;
+const SV_HEAL = 60;
 export const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
 
 export function createMatchState() {
@@ -27,6 +41,9 @@ export function createMatchState() {
     kills: 0,
     wave: 1,
     waveBreak: 0,
+    svQueue: 0,
+    svTimer: 0,
+    svBase: 'medium',
     // Duel only. roundsA is the player's, roundsB the bot's; roundReset counts down the
     // interval between rounds and is <= 0 whenever a round is actually being played.
     roundsA: 0,
@@ -99,6 +116,17 @@ function addBot(team, weaponId = null) {
   return b;
 }
 
+/** Bring in `wave`: swap the bot tier, place the first few, queue the rest. */
+function startSurvivalWave() {
+  clearBots();
+  match.diff = DIFFICULTY[svWaveTier(match.wave, match.svBase)];
+  const total = svWaveSize(match.wave);
+  const first = Math.min(total, svWaveCap(match.wave));
+  for (let i = 0; i < first; i++) addBot(TEAM.RED);
+  match.svQueue = total - first;
+  match.svTimer = SV_TRICKLE;
+}
+
 function clearBots() {
   for (const [, m] of allyMarks) m.root.remove();
   allyMarks.clear();
@@ -119,6 +147,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   // The duel is the elite bot's mode — the menu difficulty does not apply to it. Note that
   // a tier also carries `bots`, the DM headcount, so elite must specify bots: 1.
   match.diff = mode === 'duel' ? DIFFICULTY.elite : DIFFICULTY[diffKey];
+  match.svBase = DIFFICULTY[diffKey] ? diffKey : 'medium';
   match.running = true;
   setAppState(APP_STATE.PLAYING);
   match.time = 0;
@@ -166,7 +195,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId()) {
   } else if (mode === 'duel') {
     addBot(TEAM.RED, CONFIG.DUEL_WEAPON);
   } else {
-    for (let i = 0; i < 4; i++) addBot(TEAM.RED);
+    startSurvivalWave();
   }
 
   const playerBlipColor = TEAM_COLOR[player.team];
@@ -482,7 +511,7 @@ function giveStreakReward(kind) {
 }
 
 /** The single place a death is booked, for the player and for bots alike. */
-function killCombatant(target, source, headshot) {
+function killCombatant(target, source, headshot, weaponId = null) {
   if (source && source !== target) {
     source.kills++;
     if (match.mode === 'tdm') {
@@ -540,7 +569,7 @@ function killCombatant(target, source, headshot) {
     const by = $id('p-killer');
     if (by) by.textContent = source && source !== player && source.name ? `KILLED BY ${source.name}${WEAPON_BY_ID[source.weaponId] ? ` · ${WEAPON_BY_ID[source.weaponId].name}` : ''}` : '';
   }
-  addKillFeed(source, target, headshot);
+  addKillFeed(source, target, headshot, weaponId);
 
   if (target === player) {
     player.alive = false;
@@ -601,20 +630,31 @@ function updateMatch(dt, realDt = dt) {
       if (match.roundTime <= 0) { match.roundTime = 0; endDuelRound(null); }
     }
   } else if (match.mode === 'sv') {
-    // Endless waves: 4 -> 6 -> 8 ... with a short breather between them.
-    const anyAlive = bots.some((b) => b.alive);
-    if (!anyAlive) {
+    const alive = bots.reduce((n, b) => n + (b.alive ? 1 : 0), 0);
+    if (match.svQueue > 0) {
+      match.svTimer -= dt;
+      if (match.svTimer <= 0 && alive < svWaveCap(match.wave)) {
+        addBot(TEAM.RED);
+        match.svQueue--;
+        match.svTimer = SV_TRICKLE;
+      }
+    } else if (alive === 0) {
       if (match.waveBreak <= 0) {
-        match.waveBreak = 3.0;
+        match.waveBreak = 4.0;
+        if (player.alive) {
+          player.health = Math.min(CONFIG.MAX_HEALTH, player.health + SV_HEAL);
+          player.armor = Math.min(CONFIG.MAX_ARMOR, player.armor + 25);
+          resetPlayerAmmo();
+          updateVitals();
+          updateAmmoHud();
+        }
         showToast(`WAVE ${match.wave} CLEARED`);
       } else {
         match.waveBreak -= dt;
         if (match.waveBreak <= 0) {
           match.wave++;
-          clearBots();
-          const n = 2 + match.wave * 2;
-          for (let i = 0; i < n; i++) addBot(TEAM.RED);
-          showToast(`WAVE ${match.wave} — ${n} HOSTILES`);
+          startSurvivalWave();
+          showToast(`WAVE ${match.wave}`);
           match.waveBreak = 0;
         }
       }

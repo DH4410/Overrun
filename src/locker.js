@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
+import { gunIcons } from './gunicons.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
 import { clamp } from './utils.js';
 import { SKINS, skinInfo } from './rewards.js';
@@ -15,57 +16,6 @@ export const GUN_CARD = {
   sniper: { cls: 'MARKSMAN', tier: 'legendary' },
   frag: { cls: 'THROWABLE', tier: 'rare' },
 };
-
-/**
- * Side-on portraits of the procedural guns, rendered once into images with a throwaway WebGL
- * context. The same models as the first-person view, so the locker shows the gun you get.
- */
-const iconCache = new Map();
-function gunIcons(skinId = 'stock') {
-  if (iconCache.has(skinId)) return iconCache.get(skinId);
-  const icons = {};
-  iconCache.set(skinId, icons);
-  let r;
-  try {
-    r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  } catch {
-    return icons;
-  }
-  const W = 320, H = 140;
-  r.setPixelRatio(1);
-  r.setSize(W, H, false);
-  const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, 2.4));
-  const key = new THREE.DirectionalLight(0xffffff, 2.6);
-  key.position.set(2, 3, 1.5);
-  scene.add(key);
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
-  const box = new THREE.Box3(), size = new THREE.Vector3(), centre = new THREE.Vector3();
-  for (const id of [...GUN_IDS, 'frag']) {
-    const m = buildGunModel(id);
-    applyGunSkin(m, skinInfo(skinId));
-    m.rotation.y = -0.32;                      // a touch of three-quarter, barrel to the right
-    m.updateMatrixWorld(true);
-    box.setFromObject(m).getSize(size);
-    box.getCenter(centre);
-    m.position.sub(centre);
-    const half = Math.max(size.z, size.x) * 0.56;
-    const halfW = Math.max(half, size.y * 0.62 * (W / H));
-    cam.left = -halfW; cam.right = halfW;
-    cam.top = halfW * (H / W); cam.bottom = -halfW * (H / W);
-    cam.position.set(6, 0.4, 0);
-    cam.lookAt(0, 0, 0);
-    cam.updateProjectionMatrix();
-    scene.add(m);
-    r.render(scene, cam);
-    icons[id] = r.domElement.toDataURL('image/png');
-    scene.remove(m);
-    m.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
-  }
-  r.dispose();
-  r.forceContextLoss?.();
-  return icons;
-}
 
 /**
  * A slowly turning 3D view of one gun, drawn on its own canvas while the locker is open. It is the

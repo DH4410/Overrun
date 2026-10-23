@@ -17,6 +17,12 @@ OVERRUN is a browser-based first-person shooter where you fight AI bots in fast 
   and a crosshair that opens to match your live firing cone
 - **Gunplay**: standing taps are pinpoint; moving, jumping and spraying each widen the cone
   on their own terms, and each weapon has a learnable recoil pattern
+- **Career**: XP, levels and ranks saved in the browser, a player card in the lobby, an XP breakdown
+  on the podium, and kill medals (double/triple/quad/mega, and 3/5/7/10 kill streaks)
+- **Kill cam**: when a bot kills you, the view zooms onto them in slow motion, rewinds, and replays
+  the last few seconds from behind them. `Space`, `Enter` or a click skips it.
+- **Streaks**: a live counter, rewards at 3/5/7/10 (resupply, armour, medkit, full kit), a revenge tag
+  for killing whoever last killed you, and a kill sound that rises with the streak
 - **Offline support**: service worker caches core files and assets
 
 ## Controls

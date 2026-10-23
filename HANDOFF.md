@@ -15,7 +15,8 @@ throws, bot height, per-gun crosshairs, minimap, health bars, win screen, lobby,
 music, and emotes. See "Session 6". Session 7 (2026-09-30) was the maps: the three old
 procedural maps are gone, replaced by **DESERT** and **SNOW**, both modelled in Blender like
 PORT, and clicking back in from the pause screen no longer leaves it over the game. See
-"Session 7".
+"Session 7". Session 8 (2026-10-23) added career progression, the kill cam, streaks, a rebuilt
+lobby and HUD, and accounts with unlockable rewards. See "Session 8".
 
 ---
 
@@ -23,34 +24,76 @@ PORT, and clicking back in from the pause screen no longer leaves it over the ga
 
 | | |
 |---|---|
-| Branch | `claude/game-improvements-ai-modes-9f6246` |
-| Worktree | `C:\Users\dimah\shooting-game\.claude\worktrees\game-improvements-ai-modes-9f6246` |
-| Pushed? | Sessions 1-5 were merged to master by PR DH4410/Overrun#7. **Sessions 6 and 7 were pushed straight to master on 2026-10-01, with no PR.** |
-| Tests | 98/98 Playwright, 19/19 unit, lint 0 errors (12 warnings, all pre-existing) |
+| Branch | `claude/overrun-game-repo-check-955578`: career progression, kill cam, streaks (session 8). Pushed. |
+| Also open | `claude/lobby-ui-rework` (new lobby and HUD) and `claude/accounts-and-rewards` (accounts, unlocks), stacked in that order on this branch. See "Session 8" below. |
+| Service worker cache | `overrun-v22` here, `v24` on the accounts branch. Bump it whenever a precached file changes; `tests/unit/sw-precache.test.mjs` fails if a `src/*.js` file is missing from the list. |
+| Tests | Unit: 44 here, 73 on the accounts branch, lint 0 errors. E2E (`CI=1 npm run test:e2e`, 112 specs here): see "Session 8: test status". |
 
 ```bash
 npm ci && npx playwright install chromium
 npm run lint && npm test && CI=1 npm run test:e2e
 ```
 
-**The duel spec flaked once in session 2** (`duel.spec.mjs:12`, passed on retry, cause not
-captured) and did not recur in any of the four full runs in session 3. Still worth a look if
-it comes back.
-
 **Always run e2e with `CI=1`.** The Playwright config sets `reuseExistingServer: !CI`, and
-there are other checkouts of this repo on this machine — without `CI=1` a stale server on
-`:4173` can serve a different tree and give a false green.
+a stale server on `:4173` can serve a different tree and give a false green. For the same reason, do
+not run two e2e runs at once: they share that port.
 
 ---
 
-## Next session — start here
+## Next session: start here
 
-1. **Playtest sessions 6 and 7** in a real browser (`node scripts/serve-tests.mjs`, then
-   http://localhost:4173, Ctrl+Shift+R once — the cache is now `overrun-v17`). Sound and music
-   in particular were only checked for "runs without errors": nobody has listened to them.
-   DESERT and SNOW were checked from headless screenshots and the specs, not played.
-2. Map tweaks are a script edit and one Blender run away — see "Changing PORT" below; DESERT
-   and SNOW work the same way with `build_desert.py` and `build_snow.py`.
+1. **Playtest in a real browser** (`node scripts/serve-tests.mjs`, then http://localhost:4173,
+   Ctrl+Shift+R once). Sound, music, the kill cam's feel and the new lobby have only been seen in
+   headless software rendering. Nobody has heard the streak sound rising.
+2. **Decide the branches**: the UI and accounts branches are not merged. The owner reviews the lobby
+   screenshots first.
+3. **Deploy accounts** if wanted: `ACCOUNTS.md` says what it needs (a Cloudflare login) and the one
+   thing that could not be tried (PBKDF2 CPU time on the free plan).
+4. Not started: private multiplayer rooms by code (needs a decision on cost, see Session 8), Mixamo
+   animation clips (needs a signed-in Mixamo session: unarmed idle, hit reactions, jump/fall, grenade
+   throw, reload), a kill cam and XP for online play.
+
+---
+
+## Session 8: progression, kill cam, streaks, new lobby, accounts
+
+What was built, by branch.
+
+**`claude/overrun-game-repo-check-955578`**
+- **Career**: XP, levels, ranks, the lobby player card, XP breakdown on the podium, kill medals
+  (double/triple/quad/mega, and 3/5/7/10 streaks). `src/profile.js`, `src/playercard.js`.
+- **Kill cam** (`src/killcam.js`): killed by a bot, the view zooms onto them in slow motion, rewinds
+  (`Audio.rewind`), and replays the last ~3 s at real speed from a recording of what was drawn: their
+  posed skeleton and gun, you, their shots. Space, Enter or a click skips it after 0.9 s. The world
+  runs at 0.3x during the zoom and freezes during the replay; the respawn wait runs on real time.
+  Not in duels, not online. `tests/e2e/killcam.spec.mjs`.
+- **Streaks and reactions**: a counter under the score, "STREAK ENDED" in red until you respawn, the
+  streak lost shown on the kill cam and death screen, rewards at 3/5/7/10 (resupply, armour, medkit,
+  full kit), a REVENGE tag for killing whoever last killed you, XP for double/triple/quad/mega kills and
+  revenges, a kill sound that rises a tone per kill (capped), and a headshot-kill ring, flash and thump.
+  `tests/e2e/streaks.spec.mjs`, `tests/unit/profile.test.mjs`.
+- Smoother screen shake (setting: Screen shake) and a 4 degree FOV kick while sprinting.
+- A bug found on the way: the streak counter reused the class name `pop`, which the menu popouts own,
+  and stretched over the screen. Fixed on the UI branch (class `bump`); `READMEFORUI.md` warns about it.
+
+**`claude/lobby-ui-rework`** (research in `docs/LOBBY_RESEARCH.md`)
+- New lobby: top bar, operator centre-stage on a pad with the chosen map orbiting behind, player card
+  left, next match and one big DEPLOY right. The operator picker, the OPERATORS view, and a map preview
+  that follows the map you pick are wired. Menu renders at 30 fps.
+- HUD v2: health bottom-left, ammo and slot chips bottom-right, a slim score strip, chamfered feed,
+  toast and pause buttons.
+
+**`claude/accounts-and-rewards`** (`ACCOUNTS.md`)
+- Accounts (username and optional email, recovery code instead of email reset), a server-saved career,
+  a sign-in card, throttling, `AccountsDO` for Cloudflare, a JSON-file store for `server/node.js`.
+- Rewards (`src/rewards.js`): operators and gun finishes by level, titles by stats; the career screen,
+  a next-unlock card, finishes in the locker and on the first-person guns.
+
+**Headless screenshots lie in one way**: `tests/e2e/helpers/game.mjs` answers the Poly Haven texture
+requests with a 1x1 near-black PNG, so every ground surface renders black in a headless screenshot.
+That is the harness, not a game bug. Serve a grey texture instead if you need to look at a map.
+
+**Not built**: private rooms, online kill cam/XP, Mixamo clips.
 
 ---
 

@@ -258,6 +258,7 @@ export class Accounts {
       if (!cur || typeof password !== 'string' || !(await checkSecret(password, cur.pw))) throw new AccountError(401, 'credentials', 'Wrong password.');
       await this.endSessions(cur);
       await this.store.delete(`u:${cur.usernameLc}`);
+      await this.store.delete(`f:${cur.usernameLc}`);
       if (cur.email) await this.store.delete(`e:${cur.email}`);
     });
   }

@@ -1144,3 +1144,66 @@ body.intro #hud > *:not(#smokeveil):not(#lowhp) { animation: hud-in .9s ease-out
 #hp-chip[data-state="mine"] { color: var(--self); border-bottom-color: var(--self); }
 #hp-chip[data-state="theirs"] { color: var(--enemy); border-bottom-color: var(--enemy); }
 #hp-chip[data-state="contested"] { color: #ffc233; border-bottom-color: #ffc233; }
+
+/* ==========================================================================
+   Friends: a button beside the account chip, a drawer, and an invite banner.
+   Icons carry the meaning; the only words are the names.
+   ========================================================================== */
+
+#friends-btn { position: relative; pointer-events: auto; cursor: pointer; border: 0; display: grid; place-items: center; width: 40px; height: 36px; color: var(--ink-2);
+  background: rgba(9, 14, 24, .88); -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+#friends-btn[hidden] { display: none; }
+#friends-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#friends-btn:hover, #friends-btn.hot { color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+#fr-badge { position: absolute; top: 1px; right: 5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-style: normal; font-size: 11px; font-weight: 800; line-height: 16px; text-align: center; background: var(--enemy); color: #fff; }
+#fr-badge[hidden] { display: none; }
+
+#friends { position: absolute; z-index: 30; top: 72px; right: 14px; bottom: 14px; width: min(320px, 92vw); display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  background: #070a0f; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 3px 0 var(--accent); pointer-events: auto;
+  transform: translateX(calc(100% + 24px)); visibility: hidden; transition: transform .22s ease, visibility 0s .22s; }
+#friends.on { transform: none; visibility: visible; transition: transform .22s ease; }
+.fr-head { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-size: 22px; font-weight: 800; letter-spacing: 4px; color: var(--ink); }
+.fr-head svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; }
+.fr-x { margin-left: auto; pointer-events: auto; cursor: pointer; border: 0; background: none; color: var(--ink-3); font-size: 26px; line-height: 1; }
+.fr-x:hover { color: var(--ink); }
+#fr-add { display: flex; gap: 6px; }
+#fr-add input { flex: 1; min-width: 0; user-select: text; pointer-events: auto; padding: 9px 11px; border: 0; border-bottom: 2px solid var(--ink-4); background: rgba(255, 255, 255, .06); color: var(--ink); font: inherit; font-size: 15px; }
+#fr-add input:focus { outline: 0; border-bottom-color: var(--accent); background: rgba(255, 255, 255, .1); }
+#fr-add button { pointer-events: auto; cursor: pointer; width: 40px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+#fr-add button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+#fr-msg { min-height: 16px; font-size: 13px; color: var(--enemy); }
+#fr-msg.ok { color: var(--self); }
+#fr-msg:empty { min-height: 0; }
+#fr-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.fr-sec { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--ink-3); }
+.fr-sec svg { width: 14px; height: 14px; fill: currentColor; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.fr-sec em { font-style: normal; }
+.fr-sec::after { content: ''; flex: 1; height: 1px; background: var(--ink-4); }
+.fr-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; background: rgba(255, 255, 255, .04); }
+.fr-row:hover { background: rgba(255, 255, 255, .08); }
+.fr-row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--f-display); font-size: 17px; letter-spacing: 1.5px; color: var(--ink); }
+.fr-row.off b, .fr-row.out b { color: var(--ink-3); }
+.fr-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--ink-4); }
+.fr-dot.online { background: #4d9dff; box-shadow: 0 0 8px #4d9dff; }
+.fr-dot.lobby { background: var(--self); }
+.fr-dot.solo { background: #ffc233; }
+.fr-row.invite, .fr-row.req { box-shadow: inset 3px 0 0 var(--accent); }
+.fr-acts { display: flex; gap: 4px; }
+.fr-b { pointer-events: auto; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: rgba(255, 255, 255, .08); color: var(--ink-2); }
+.fr-b svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fr-b.go svg { fill: currentColor; stroke: none; }
+.fr-b.go:hover, .fr-b.inv:hover { background: var(--accent); color: var(--accent-ink); }
+.fr-b.go.chk svg { fill: none; stroke: currentColor; stroke-width: 2.2; }
+.fr-b.no:hover { background: var(--enemy); color: #fff; }
+.fr-b.no.armed { background: var(--enemy); color: #fff; }
+.fr-b.inv.sent { color: var(--self); }
+.fr-empty { display: grid; place-items: center; flex: 1; color: var(--ink-4); }
+.fr-empty svg { width: 64px; height: 64px; fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; }
+
+#fr-invite { position: absolute; z-index: 31; left: 50%; bottom: 28px; transform: translateX(-50%); display: none; align-items: center; gap: 12px; padding: 10px 14px 10px 10px;
+  background: rgba(7, 10, 15, .96); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12), inset 0 3px 0 var(--accent); pointer-events: auto; }
+#fr-invite.on { display: flex; }
+#fr-invite i { width: 36px; height: 36px; display: grid; place-items: center; font-style: normal; font-family: var(--f-display); font-size: 20px; font-weight: 800; background: var(--accent); color: var(--accent-ink); }
+#fr-invite b { font-family: var(--f-display); font-size: 20px; letter-spacing: 2px; color: var(--ink); }
+#fr-invite .fr-b { width: 34px; height: 34px; }

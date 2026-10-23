@@ -37,6 +37,7 @@ import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
 import { createHardpoint } from './hardpoint.js';
 import { createAccount } from './account.js';
+import { createFriends } from './friends.js';
 import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
 import { createOnlineLobby } from './online.js';
@@ -1319,6 +1320,14 @@ const account = createAccount({
   onChange: (p) => { renderPlayerCard(p); applyWornSkin(); lobby.refresh(); },
 });
 addEventListener('overrun:profile', () => account.profileSaved());
+const friends = createFriends({
+  getElement: $,
+  account,
+  getStatus: () => (net?.active ? 'online' : match.running ? 'solo' : 'lobby'),
+  // An invite or a friend in the room both mean the same thing: be in the shared room too.
+  onJoin: () => { if (match.running || net?.active) return; setPlayPane('online'); net.join({ spectate: false }); },
+});
+friends.init();
 const career = createCareer({
   getProfile: loadProfile,
   onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
@@ -1571,7 +1580,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    hardpoint, predictThrow, updateThrowPreview, grenades, net, killcam, lobby, account, worn, applyDamage,
+    hardpoint, friends, predictThrow, updateThrowPreview, grenades, net, killcam, lobby, account, worn, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

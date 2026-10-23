@@ -49,6 +49,8 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
     const tip = state.available === false ? 'Accounts need the online server' : state.user ? 'Your account' : 'Sign in or create an account';
     chip.title = tip;
     if (chipName) chipName.textContent = state.available === false ? 'GUEST' : state.user ? state.user.username.toUpperCase() : 'SIGN IN';
+    // Whatever needs to know who is signed in (the friends drawer) listens for this.
+    globalThis.dispatchEvent(new CustomEvent('overrun:auth', { detail: { user: state.user?.username ?? null } }));
   }
 
   function applyCloud(data) {
@@ -209,5 +211,5 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
     if (r.data.user) applyCloud(r.data); else paintChip();
   }
 
-  return { init, open, close, profileSaved, push, state };
+  return { init, open, close, profileSaved, push, state, api };
 }

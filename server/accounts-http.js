@@ -1,4 +1,5 @@
 import { AccountError, Throttle } from './accounts.js';
+import { Friends } from './friends.js';
 
 /**
  * The /api/* routes for accounts, on web-standard Request and Response so the same code serves
@@ -12,6 +13,9 @@ import { AccountError, Throttle } from './accounts.js';
  *   POST   /api/password   { current, password }
  *   POST   /api/recover    { login, recoveryCode, password }        -> signs in, issues a new recovery code
  *   DELETE /api/account    { password }
+ *   GET    /api/friends                                             -> friends (with presence), requests, invites
+ *   POST   /api/presence   { status }                               -> check in ('lobby' | 'solo' | 'online'), answers like GET /api/friends
+ *   POST   /api/friends/{request|accept|decline|remove|invite|dismiss}  { name }  -> the new panel
  *
  * The session is an HttpOnly, SameSite=Lax cookie, so page scripts never see it. State-changing
  * calls must be JSON and, when the browser says where they came from, must come from this site.
@@ -42,7 +46,7 @@ async function body(request) {
   try { const v = JSON.parse(text || '{}'); return v && typeof v === 'object' ? v : {}; } catch { throw new AccountError(400, 'json', 'That request was not valid JSON.'); }
 }
 
-export function createAccountApi({ accounts, throttle = new Throttle(), getIp = (r) => r.headers.get('cf-connecting-ip') ?? 'local' }) {
+export function createAccountApi({ accounts, friends = new Friends({ store: accounts.store, accounts, now: accounts.now }), throttle = new Throttle(), getIp = (r) => r.headers.get('cf-connecting-ip') ?? 'local' }) {
   async function route(request, url, secure, ip) {
     const method = request.method;
     const path = url.pathname;
@@ -120,6 +124,16 @@ export function createAccountApi({ accounts, throttle = new Throttle(), getIp = 
       const b = await body(request);
       await guarded(u.username, () => accounts.deleteAccount(u, b));
       return json(200, { ok: true }, { 'set-cookie': clearedCookie(secure) });
+    }
+    if (path === '/api/friends' && method === 'GET') return json(200, await friends.list(u));
+    if (path === '/api/presence' && method === 'POST') {
+      const b = await body(request);
+      return json(200, await friends.heartbeat(u, b.status));
+    }
+    const fm = /^\/api\/friends\/(request|accept|decline|remove|invite|dismiss)$/.exec(path);
+    if (fm && method === 'POST') {
+      const b = await body(request);
+      return json(200, await friends[fm[1]](u, b.name));
     }
     throw new AccountError(404, 'not_found', 'No such account call.');
   }

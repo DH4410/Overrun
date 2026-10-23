@@ -127,9 +127,17 @@
     </div>
     <div class="nav-right">
     <div id="wallet" title="Credits: earned in matches, spent in the locker"><i class="coin"></i><b id="wallet-n">0</b></div>
+      <button id="friends-btn" type="button" title="Friends" aria-label="Friends" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-4 2.7-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c3 .2 5 2 5 5.8"/></svg><i id="fr-badge" hidden>0</i></button>
       <button id="account" type="button" title="Sign in"><i class="ac-dot"></i><span id="ac-name">GUEST</span></button>
     </div>
   </nav>
+
+  <aside id="friends" aria-label="Friends">
+    <div class="fr-head"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-4 2.7-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c3 .2 5 2 5 5.8"/></svg><b>FRIENDS</b><button id="fr-close" type="button" class="fr-x" aria-label="Close">&times;</button></div>
+    <form id="fr-add" autocomplete="off"><input id="fr-name" maxlength="12" placeholder="Add by username" aria-label="Username to add"><button type="submit" title="Send friend request" aria-label="Send friend request"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button></form>
+    <div id="fr-msg" role="status"></div>
+    <div id="fr-list"></div>
+  </aside>
 
   <aside id="lobby-left">
     <div id="menuresult"></div>

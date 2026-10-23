@@ -16,7 +16,7 @@ const PORT = 8797;
 const BASE = `http://127.0.0.1:${PORT}`;
 const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlXUAAAAASUVORK5CYII=', 'base64');
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'serial', timeout: 240_000 });   // software GL boots slowly, and a test opens up to two pages
 
 let server = null;
 test.beforeAll(async () => { server = await startServer({ port: PORT, accountsFile: null, accountIterations: 1000, budgetFile: path.join(repoRoot, 'test-results', 'acct-budget.json'), log: () => {} }); });
@@ -112,7 +112,7 @@ test('the career follows the account to a second device, and sign-out stops sync
   await a.locator('#account').click();
   await a.locator('#acct-out').click();
   await expect(chip(a)).toHaveText('SIGN IN');
-  expect(await a.evaluate(() => fetch('/api/me').then((r) => r.status))).toBe(401);
+  expect((await a.evaluate(() => fetch('/api/me').then((r) => r.json()))).user).toBeNull();
   await a.context().close();
   await b.context().close();
 });

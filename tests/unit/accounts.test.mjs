@@ -175,7 +175,9 @@ test('over HTTP: sign up sets an HttpOnly cookie, /api/me reads it, logout clear
   const me = await c.call('GET', '/api/me');
   assert.equal(me.data.user.username, 'Viper');
   await c.call('POST', '/api/logout', {});
-  assert.equal((await c.call('GET', '/api/me')).res.status, 401);
+  const out = await c.call('GET', '/api/me');
+  assert.equal(out.res.status, 200, 'signed out is a quiet 200, not a console-logged 401');
+  assert.equal(out.data.user, null);
 });
 
 test('over HTTP: https gets a Secure cookie', async () => {

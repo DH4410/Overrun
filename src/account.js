@@ -203,9 +203,10 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
   async function init() {
     bind();
     const r = await api('GET', '/api/me');
-    if (!r || (r.status !== 200 && r.status !== 401)) { state.available = false; paintChip(); return; }
+    // `offline` is what the plain static test server answers; a missing server is a 404 or no answer at all.
+    if (!r || r.status !== 200 || r.data?.offline) { state.available = false; paintChip(); return; }
     state.available = true;
-    if (r.status === 200) applyCloud(r.data); else paintChip();
+    if (r.data.user) applyCloud(r.data); else paintChip();
   }
 
   return { init, open, close, profileSaved, push, state };

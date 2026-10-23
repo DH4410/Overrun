@@ -7,7 +7,7 @@ import { AccountError, Throttle } from './accounts.js';
  *   POST   /api/register   { username, email?, password }          -> account, career, recovery code
  *   POST   /api/login      { login, password }                      -> account, career
  *   POST   /api/logout                                              -> clears the session
- *   GET    /api/me                                                  -> account, career (401 if signed out)
+ *   GET    /api/me                                                  -> account, career; { user: null } if signed out
  *   PUT    /api/profile    { profile, rev }                         -> the saved career
  *   POST   /api/password   { current, password }
  *   POST   /api/recover    { login, recoveryCode, password }        -> signs in, issues a new recovery code
@@ -56,7 +56,8 @@ export function createAccountApi({ accounts, throttle = new Throttle(), getIp = 
 
     if (path === '/api/me' && method === 'GET') {
       const u = await accounts.session(tokenIn);
-      if (!u) return json(401, { error: 'signed_out' }, tokenIn ? { 'set-cookie': clearedCookie(secure) } : {});
+      // Signed out is a normal answer, not an error: a 401 here would be logged in every visitor's console.
+      if (!u) return json(200, { user: null }, tokenIn ? { 'set-cookie': clearedCookie(secure) } : {});
       return json(200, { user: accounts.publicUser(u), ...accounts.snapshot(u) });
     }
 

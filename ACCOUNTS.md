@@ -46,7 +46,7 @@ having no mail server; adding one (Cloudflare Email Service, or any SMTP relay) 
 | `POST /api/register` | `{ username, email?, password }` | account, career, recovery code; sets the cookie |
 | `POST /api/login` | `{ login, password }` (login is a username or email) | account, career; sets the cookie |
 | `POST /api/logout` | | clears the cookie |
-| `GET /api/me` | | account and career, or 401 |
+| `GET /api/me` | | account and career, or `{ "user": null }` when signed out (always a 200, so it never shows up as a console error) |
 | `PUT /api/profile` | `{ profile, rev }` | the saved career. 409 if `rev` is stale (another device saved first) |
 | `POST /api/password` | `{ current, password }` | signs every other device out |
 | `POST /api/recover` | `{ login, recoveryCode, password }` | signs in, issues a new recovery code |

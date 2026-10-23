@@ -912,7 +912,7 @@ body.killcam #hud > #streak { display: none !important; }
 @media (max-height: 700px) { #nextreward { display: none; } }
 
 #career { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center; pointer-events: auto;
-  background: radial-gradient(ellipse at 50% 20%, rgba(28, 34, 44, .96), rgba(4, 6, 9, .98) 70%); }
+  background: radial-gradient(ellipse at 50% 20%, rgba(28, 34, 44, .99), rgba(4, 6, 9, 1) 70%); }
 #career.hidden { display: none; }
 .cr-card { width: min(1100px, 94vw); max-height: 96vh; display: flex; flex-direction: column; gap: clamp(8px, 2vh, 18px); font-family: var(--f-display); }
 .cr-head { display: flex; align-items: center; gap: 18px; }

@@ -27,6 +27,13 @@ function resolveRequestPath(requestUrl) {
   return insideRoot ? candidate : null;
 }
 const server = createServer(async (request, response) => {
+  // The page asks /api/me at boot to find out whether accounts exist. This server has none; say so
+  // with a 200 (a 404 would be logged as a console error, which the boot specs reject).
+  if (request.method === 'GET' && request.url === '/api/me') {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end('{"user":null,"offline":true}');
+    return;
+  }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405, { Allow: 'GET, HEAD' }).end();
     return;

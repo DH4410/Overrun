@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS = {
   crosshairColor: '#00ff87',
   crosshairGap: 8,
   showDamageNumbers: true,
+  highContrast: false,
   showEnemyHealth: false,
   masterVolume: 0.8,
   musicVolume: 0.6,

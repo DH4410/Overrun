@@ -380,6 +380,7 @@ function respawnPlayer(immediate = false, at = null) {
   player.respawnTimer = 0;
   getKillcam()?.reset();
   const lost = $id('p-lost'); if (lost) lost.textContent = '';
+  const by = $id('p-killer'); if (by) by.textContent = '';
   showStreak?.(0);
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
   clearAlertsOn(player);               // and drop any lock they already had
@@ -536,6 +537,8 @@ function killCombatant(target, source, headshot) {
     showStreak?.(0, match.lostStreak);
     const lost = $id('p-lost');
     if (lost) lost.textContent = match.lostStreak ? `STREAK LOST · ${match.lostStreak} KILLS` : '';
+    const by = $id('p-killer');
+    if (by) by.textContent = source && source !== player && source.name ? `KILLED BY ${source.name}${WEAPON_BY_ID[source.weaponId] ? ` · ${WEAPON_BY_ID[source.weaponId].name}` : ''}` : '';
   }
   addKillFeed(source, target, headshot);
 

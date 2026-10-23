@@ -55,7 +55,7 @@
 </div>
 
 <div id="killcam"><div class="kc-bar top"></div><div class="kc-bar bot"></div><div class="kc-rec"><i></i><span id="kc-who">ELIMINATED BY</span></div><div class="kc-card"><div class="kc-name" id="kc-name"></div><div class="kc-weapon" id="kc-weapon"></div><div class="kc-lost" id="kc-lost"></div></div><div class="kc-prog"><i id="kc-progress"></i></div><div class="kc-skip">CLICK TO SKIP</div><div class="kc-static"></div></div>
-<div id="pause"><div class="big" id="p-big">PAUSED</div><div class="sm" id="p-sm"></div><div class="lost" id="p-lost"></div><div id="p-board"></div><div class="cta" id="p-cta">CLICK TO RESUME</div><div class="pause-btns"><button id="locker-open-pause">LOCKER</button><button id="settings-open-pause">SETTINGS</button><button id="quit-match">LEAVE MATCH</button></div></div>
+<div id="pause"><div class="big" id="p-big">PAUSED</div><div class="sm" id="p-sm"></div><div class="killer" id="p-killer"></div><div class="lost" id="p-lost"></div><div id="p-board"></div><div class="cta" id="p-cta">CLICK TO RESUME</div><div class="pause-btns"><button id="locker-open-pause">LOCKER</button><button id="settings-open-pause">SETTINGS</button><button id="quit-match">LEAVE MATCH</button></div><div id="keyhelp"><span><kbd>WASD</kbd> Move</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span><span><kbd>1</kbd>–<kbd>5</kbd> Weapons</span><span><kbd>G</kbd> Frag</span><span><kbd>F</kbd> Smoke</span><span><kbd>Tab</kbd> Scores</span><span><kbd>B</kbd> Emote</span></div></div>
 <div id="acct" class="pop" role="dialog" aria-modal="true" aria-label="Account">
   <div class="pop-card acct-card">
     <div class="pop-head"><h2 id="acct-title">ACCOUNT</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
@@ -109,7 +109,7 @@
     </div>
   </div>
 </div>
-<div id="settings" class="hidden"><div class="set-card"><div class="set-head"><h2>SETTINGS</h2><div class="set-actions"><button id="settings-reset">RESET</button><button id="settings-close">DONE</button></div></div><div id="settings-body"></div></div></div>
+<div id="settings" class="hidden"><div class="set-card"><div class="set-top"><div class="set-head"><h2>SETTINGS</h2><div class="set-actions"><button id="settings-reset">RESET</button><button id="settings-close">DONE</button></div></div><nav id="set-nav" aria-label="Settings sections"></nav></div><div id="settings-body"></div></div></div>
 
 <div id="outro"><div class="o-rays"></div><div class="o-kicker" id="o-kicker"></div><div class="o-title" id="o-title"></div><div class="o-sub" id="o-sub"></div></div>
 <div id="podium"><div class="pd-card"><div class="pd-kicker" id="pd-kicker"></div><h2 class="pd-title" id="pd-title"></h2><div class="pd-sub" id="pd-sub"></div><div class="pd-stands" id="pd-stands"></div><div class="pd-rest" id="pd-rest"></div><div id="pd-xp"><div class="xp-lines" id="pd-xplines"></div><div class="xp-bar"><i id="pd-xpfill"></i></div><div class="xp-lvl" id="pd-xplvl"></div></div><button id="podium-close" type="button">CONTINUE</button></div></div>
@@ -148,22 +148,36 @@
   </section>
 
   <aside id="lobby-right">
-    <div class="rp-head">NEXT MATCH</div>
-    <section class="grp">
-      <div class="glbl">Mode</div>
-      <button id="mode-card" class="sel-card" type="button"><span class="sc-name" id="mode-name">Deathmatch</span><span class="sc-desc" id="mode-desc"></span><span class="sc-change">CHANGE</span></button>
-    </section>
-    <section class="grp">
-      <div class="glbl">Map</div>
-      <button id="map-card" class="sel-card" type="button"><span class="sc-name" id="map-name">Port</span><span class="sc-desc" id="map-blurb"></span><span class="sc-change">CHANGE</span></button>
-    </section>
-    <section class="grp" id="diffgrp">
-      <div class="glbl">Bot difficulty</div>
-      <div id="diffs"><button class="pill" data-diff="easy">Easy</button><button class="pill active" data-diff="medium">Medium</button><button class="pill" data-diff="hard">Hard</button></div>
-      <div id="diff-locked">The duel always runs the elite opponent.</div>
-    </section>
-    <div class="rp-loadout"><span>LOADOUT</span><b id="locker-sum"></b></div>
-    <div class="actions"><button id="play" disabled>LOADING</button><div class="mp-row"><button id="mp-play" disabled>MULTIPLAYER</button><button id="mp-watch" class="ghost-btn" disabled>Spectate</button></div></div>
+    <div class="seg" id="play-tabs" role="tablist"><button id="ptab-solo" class="on" type="button" role="tab">SOLO</button><button id="ptab-online" type="button" role="tab">ONLINE</button></div>
+    <div class="pane on" id="pane-solo">
+      <section class="grp">
+        <div class="glbl">Mode</div>
+        <button id="mode-card" class="sel-card" type="button"><span class="sc-name" id="mode-name">Deathmatch</span><span class="sc-desc" id="mode-desc"></span><span class="sc-change">CHANGE</span></button>
+      </section>
+      <section class="grp">
+        <div class="glbl">Map</div>
+        <button id="map-card" class="sel-card" type="button"><span class="sc-name" id="map-name">Port</span><span class="sc-desc" id="map-blurb"></span><span class="sc-change">CHANGE</span></button>
+      </section>
+      <section class="grp" id="diffgrp">
+        <div class="glbl">Bot difficulty</div>
+        <div id="diffs"><button class="pill" data-diff="easy">Easy</button><button class="pill active" data-diff="medium">Medium</button><button class="pill" data-diff="hard">Hard</button></div>
+        <div id="diff-locked">The duel always runs the elite opponent.</div>
+      </section>
+      <div class="rp-loadout"><span>LOADOUT</span><b id="locker-sum"></b></div>
+      <div class="actions"><button id="play" disabled>LOADING</button></div>
+    </div>
+    <div class="pane" id="pane-online" data-state="offline">
+      <div class="ol-status"><i id="ol-dot"></i><b id="ol-state">CHECKING…</b><span id="ol-ping"></span></div>
+      <div class="ol-rows">
+        <div class="ol-row"><span>PLAYERS</span><b id="ol-players">–</b></div>
+        <div class="ol-row"><span>NOW PLAYING</span><b id="ol-now">–</b></div>
+        <div class="ol-row"><span>ROUND</span><b id="ol-phase">–</b></div>
+      </div>
+      <div class="glbl">In the room</div>
+      <ul id="ol-roster"></ul>
+      <p id="ol-note"></p>
+      <div class="actions"><button id="mp-play" disabled>JOIN MATCH</button><button id="mp-watch" class="ghost-btn" disabled>Spectate</button></div>
+    </div>
     <div id="loading">Preparing arena…</div>
   </aside>
 <div id="mode-pop" class="pop"><div class="pop-card"><div class="pop-head"><h2>GAME MODE</h2><button class="pop-x" type="button" aria-label="Close">&#x2715;</button></div>
@@ -179,7 +193,6 @@
       <button class="tile map-tile" data-map="desert"><span class="ti-art art-desert"></span><span class="mt">Desert</span><span class="md"></span></button>
       <button class="tile map-tile" data-map="snow"><span class="ti-art art-snow"></span><span class="mt">Snow</span><span class="md"></span></button>
     </div></div></div>
-  <div id="keyhelp"><span><kbd>WASD</kbd> Move</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span><span><kbd>1</kbd>–<kbd>5</kbd> Weapons</span><span><kbd>G</kbd> Frag</span><span><kbd>F</kbd> Smoke</span><span><kbd>Tab</kbd> Scores</span><span><kbd>B</kbd> Emote</span></div>
 </div>
 <script>if('serviceWorker' in navigator&&location.protocol.startsWith('http')){addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}</script>
 <script type="module" src="./game.js"></script>

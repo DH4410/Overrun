@@ -151,6 +151,8 @@ const SETTINGS_SCHEMA = [
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
   { key: 'showDamageNumbers', type: 'toggle', label: 'Floating damage numbers' },
+  { key: 'highContrast', type: 'toggle', label: 'High-contrast text and panels',
+    hint: 'Brighter secondary text, solid panels and heavier shadows, for bright rooms, small screens or tired eyes.' },
   { key: 'showEnemyHealth', type: 'toggle', label: 'Show enemy health bars',
     hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
   { group: 'AUDIO' },
@@ -163,12 +165,26 @@ function buildSettingsPanel() {
   if (!host) return;
   host.innerHTML = '';
 
+  const nav = $('set-nav');
+  if (nav) nav.textContent = '';
   for (const row of SETTINGS_SCHEMA) {
     if (row.group) {
       const h = document.createElement('div');
       h.className = 'set-group';
       h.textContent = row.group;
       host.appendChild(h);
+      // A tab per section, so a long list is a jump away rather than a scroll.
+      if (nav) {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.textContent = row.group;
+        tab.addEventListener('click', () => {
+          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          nav.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === tab));
+        });
+        nav.appendChild(tab);
+        h._tab = tab;
+      }
       continue;
     }
 
@@ -235,6 +251,23 @@ function buildSettingsPanel() {
   }
 }
 
+/** Marks the nav tab of the section nearest the top of the panel. */
+function trackSettingsScroll() {
+  const panel = $('settings');
+  const groups = [...document.querySelectorAll('#settings-body .set-group')];
+  if (!panel || !groups.length) return;
+  const paint = () => {
+    const top = panel.getBoundingClientRect().top + 130;
+    let cur = groups[0];
+    for (const g of groups) if (g.getBoundingClientRect().top <= top) cur = g;
+    // The last sections are short: at the very bottom the final one is the one being read.
+    if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 4) cur = groups[groups.length - 1];
+    for (const g of groups) g._tab?.classList.toggle('on', g === cur);
+  };
+  panel.onscroll = paint;
+  paint();
+}
+
 function showSettings(on) {
   const panel = $('settings');
   if (!panel) return;
@@ -243,7 +276,7 @@ function showSettings(on) {
     if (match.running) setAppState(settingsState);
   }
   panel.classList.toggle('hidden', !on);
-  if (on) document.exitPointerLock?.();
+  if (on) { document.exitPointerLock?.(); trackSettingsScroll(); }
 }
 
 function bindSettings() {

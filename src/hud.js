@@ -322,7 +322,14 @@ function updateAmmoHud() {
     const a = player.ammo[w.id];
     el.amag.textContent = a.mag;
     el.ares.textContent = a.reserve;
+    // The count warns you before the click: amber at under a third of the magazine, red and pulsing at none.
+    const box = $('ammo');
+    if (box) {
+      box.classList.toggle('low', a.mag > 0 && a.mag <= Math.max(1, Math.ceil(w.mag * 0.3)));
+      box.classList.toggle('empty', a.mag === 0);
+    }
   }
+  if (w.thrown) $('ammo')?.classList.remove('low', 'empty');
   // Slot strip.
   el.slots.innerHTML = '';
   [...player.loadout, 'frag'].forEach((id, i) => {
@@ -415,13 +422,18 @@ function updateHudTimers(dt) {
   if (player.reloading > 0) {
     const p = Math.round((1 - player.reloading / player.reloadTotal) * 100);
     el.areload.textContent = `RELOADING ${p}%`;
+    el.areload.classList.add('bar');
+    el.areload.style.setProperty('--p', `${p}%`);
   } else if (player.cooking) {
     const pct = Math.round(clamp(player.chargeTime / CONFIG.THROW_CHARGE_TIME, 0, 1) * 100);
     el.areload.textContent = `${player.cooking.toUpperCase()} POWER ${pct}%`;
+    el.areload.classList.add('bar');
+    el.areload.style.setProperty('--p', `${pct}%`);
   } else {
     const w = currentWeapon();
     const a = !w.thrown && player.ammo[w.id];
     el.areload.textContent = (a && a.mag === 0) ? 'PRESS R' : '';
+    el.areload.classList.remove('bar');
   }
   updateCrosshairSpread();
   updateVitals();

@@ -21,7 +21,7 @@ export function renderPlayerCard(profile) {
   const stats = $('pc-stats');
   if (stats) {
     stats.textContent = '';
-    for (const [k, v] of [['K/D', kd], ['WINS', profile.wins], ['HEADSHOTS', profile.headshots], ['BEST STREAK', profile.bestStreak]]) {
+    for (const [k, v] of [['K/D', kd], ['WINS', profile.wins], ['HEADSHOTS', profile.headshots], ['STREAK', profile.bestStreak]]) {
       const d = document.createElement('div');
       const b = document.createElement('b'); b.textContent = String(v);
       const s = document.createElement('span'); s.textContent = k;

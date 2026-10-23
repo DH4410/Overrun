@@ -38,6 +38,7 @@ import { AFTER_TIME, createKillcam } from './killcam.js';
 import { createAccount } from './account.js';
 import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
+import { createOnlineLobby } from './online.js';
 import { createHud } from './hud.js';
 import { createMapController, createMapRuntime } from './maps.js';
 import {
@@ -507,6 +508,7 @@ function warmUpShaders() {
  */
 function applySettings() {
   const q = QUALITY[settings.quality];
+  document.body.classList.toggle('hc', !!settings.highContrast);
 
   renderer.shadowMap.enabled = q.shadows;
   rigSun.castShadow = q.shadows;
@@ -1047,6 +1049,7 @@ function frameBudget() {
 }
 
 let framesDrawn = 0;
+let lobbyWasUp = false;
 let shadowFrame = 0;
 const MENU_FPS = 30;                // the lobby animates (operator, orbiting map), but 30 is plenty for it
 const OUTRO_TIME_SCALE = 0.3;
@@ -1065,6 +1068,7 @@ function frame() {
   // The lobby scene (operator on his pad, map orbiting) shows behind the menu and its settings panel.
   const lobbyUp = !net.active && !match.running && (appState === APP_STATE.MENU || appState === APP_STATE.SETTINGS);
   lobby.setShown(lobbyUp);
+  if (lobbyUp !== lobbyWasUp) { lobbyWasUp = lobbyUp; if (!lobbyUp) online.hide(); else if (onlineTab) online.show(); }
 
   const now = performance.now() / 1000;
   const budget = frameBudget();
@@ -1319,6 +1323,19 @@ function setLobbyTab(tab) {
   $('tab-operators').classList.toggle('active', ops);
   lobby.setFocus(ops);
 }
+const online = createOnlineLobby({ getElement: $ });
+let onlineTab = false;
+/** SOLO and ONLINE are two panes of the right-hand panel: bots on a map you pick, or the shared room. */
+function setPlayPane(which) {
+  onlineTab = which === 'online';
+  $('ptab-solo').classList.toggle('on', !onlineTab);
+  $('ptab-online').classList.toggle('on', onlineTab);
+  $('pane-solo').classList.toggle('on', !onlineTab);
+  $('pane-online').classList.toggle('on', onlineTab);
+  if (onlineTab) online.show(); else online.hide();
+}
+$('ptab-solo')?.addEventListener('click', () => setPlayPane('solo'));
+$('ptab-online')?.addEventListener('click', () => setPlayPane('online'));
 $('tab-play')?.addEventListener('click', () => setLobbyTab('play'));
 $('tab-operators')?.addEventListener('click', () => setLobbyTab('operators'));
 killcam = createKillcam({

@@ -544,7 +544,8 @@ kbd {
 }
 
 /* Narrow windows: the operator column gives way and the play panel takes the width. */
-@media (max-width: 1000px) {
+@media (max-width: 1000px) and (min-width: 761px) { #menu { grid-template-columns: minmax(230px, 26vw) 1fr minmax(300px, 34vw); } .tab { padding-left: 10px; padding-right: 10px; letter-spacing: 2px; } }
+@media (max-width: 760px) {
   #menu { grid-template-columns: 1fr; }
   #lobby-left, #operator, #keyhelp { display: none !important; }
   #topnav { grid-template-columns: 1fr auto; }

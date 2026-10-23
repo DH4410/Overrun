@@ -50,6 +50,8 @@ test('a bot kill runs zoom, rewind and replay, then the death screen, then respa
 
   expect(await phase(page)).toBe('zoom');
   await expect(page.locator('body')).toHaveClass(/\bkillcam\b/);
+  await pumpFrames(page, 3);
+  await expect(page.locator('#pause')).toBeHidden();       // the cam owns the screen; the death screen waits
   await expect(page.locator('#kc-name')).not.toHaveText('');
   await expect(page.locator('#kc-weapon')).toContainText('HEADSHOT');
   const total = await page.evaluate(() => globalThis.__game.player.respawnTimer);

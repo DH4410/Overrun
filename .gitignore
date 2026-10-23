@@ -6,3 +6,5 @@ test-results/
 .wrangler/
 server/.mp-budget.json
 .cf-public/
+server/.accounts.json
+server/.accounts.json.tmp

@@ -27,7 +27,7 @@ export function levelFromXp(totalXp) {
 const RANKS = ['ROOKIE', 'RECRUIT', 'OPERATIVE', 'SPECIALIST', 'VETERAN', 'ELITE', 'LEGEND'];
 export function rankTitle(level) { return RANKS[Math.min(RANKS.length - 1, Math.floor((level - 1) / 4))]; }
 
-const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak'];
+export const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak'];
 /** What is worn: operator, gun finish and title. Names only; src/rewards.js says whether they are earned. */
 export const EMPTY_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '' });
 export const EMPTY_PROFILE = Object.freeze({
@@ -49,6 +49,17 @@ export function clean(v) {
       }
     }
   }
+  return out;
+}
+
+/**
+ * Two careers become one: the one with more XP is kept as it is (including what it wears), and no
+ * lifetime counter ever goes down. Used when a guest signs in, and when two devices disagree.
+ */
+export function mergeProfiles(a, b) {
+  const [hi, lo] = a.xp >= b.xp ? [a, b] : [b, a];
+  const out = clean(hi);
+  for (const k of COUNTERS) out[k] = Math.max(out[k], clean(lo)[k]);
   return out;
 }
 

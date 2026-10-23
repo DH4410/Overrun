@@ -7,6 +7,9 @@ import { performance } from 'node:perf_hooks';
 import { WebSocketServer } from 'ws';
 
 import { MAP_IDS } from '../src/sim/mapData.js';
+import { Accounts } from './accounts.js';
+import { createAccountApi } from './accounts-http.js';
+import { fileStore, memoryStore } from './accounts-file.js';
 import { Governor } from './governor.js';
 import { Room } from './room.js';
 
@@ -14,6 +17,7 @@ import { Room } from './room.js';
  * Local multiplayer server: the game's static files, the room on /ws and its numbers on /stats,
  * all on one port. `node server/node.js [port]` (default 8790, or $PORT).
  *
+ * Accounts (/api/*) are kept in server/.accounts.json, or in memory if `accountsFile` is null.
  * The budget counter persists to .mp-budget.json next to this file; MP_BUDGET_LIMIT overrides
  * the daily limit (tests use it to walk the governor's tiers) and MP_BUDGET_FILE the file.
  */
@@ -26,14 +30,21 @@ const TYPES = {
   '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.woff2': 'font/woff2', '.hdr': 'application/octet-stream',
 };
 /** Never served: the server, the tests, the tooling. */
-const PRIVATE = /^(server|tests|node_modules|scripts|spike|\.git|\.claude|\.wrangler)(\/|$)|^\.mp-budget/;
+const PRIVATE = /^(server|tests|node_modules|scripts|spike|\.git|\.claude|\.wrangler)(\/|$)|^\.mp-budget|^\.accounts/;
 
-export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile = join(ROOT, 'server', '.mp-budget.json'), log = console.log } = {}) {
+export function startServer({
+  port = 8790, host = '127.0.0.1', limit, budgetFile = join(ROOT, 'server', '.mp-budget.json'),
+  // Where accounts are kept. `null` keeps them in memory (tests); the default is a file beside the budget.
+  accountsFile = join(ROOT, 'server', '.accounts.json'), accountIterations = 100_000, log = console.log,
+} = {}) {
   const colliders = Object.fromEntries(MAP_IDS.map((id) => [id, JSON.parse(readFileSync(join(ROOT, 'assets', 'maps', `${id}.json`), 'utf8'))]));
   let saved = null;
   try { saved = JSON.parse(readFileSync(budgetFile, 'utf8')); } catch { /* first run */ }
   const governor = new Governor({ limit, saved, save: (s) => writeFile(budgetFile, JSON.stringify(s)).catch(() => {}) });
   const room = new Room({ colliders, governor, log });
+
+  const accountStore = accountsFile ? fileStore(accountsFile) : memoryStore();
+  const accountApi = createAccountApi({ accounts: new Accounts({ store: accountStore, iterations: accountIterations }) });
 
   let timer = null;
   const loop = () => {
@@ -54,6 +65,19 @@ export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile
     if (url.pathname === '/stats') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify(room.report(), null, 1));
+      return;
+    }
+    if (url.pathname.startsWith('/api/')) {
+      // Accounts speak web-standard Request/Response; carry the Node request across.
+      const chunks = [];
+      let size = 0;
+      for await (const c of req) { size += c.length; if (size > 64 * 1024) break; chunks.push(c); }
+      const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+      const out = await accountApi(new Request(new URL(req.url, `http://${req.headers.host || 'localhost'}`), {
+        method: req.method, headers: req.headers, body: hasBody ? Buffer.concat(chunks) : undefined,
+      }), { ip: req.socket.remoteAddress });
+      res.writeHead(out.status, Object.fromEntries(out.headers));
+      res.end(Buffer.from(await out.arrayBuffer()));
       return;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
@@ -92,8 +116,10 @@ export function startServer({ port = 8790, host = '127.0.0.1', limit, budgetFile
       log(`OVERRUN multiplayer on http://${host}:${port}  (stats: /stats)`);
       done({
         room, http, port,
+        accounts: accountStore,
         stop: () => new Promise((r) => {
           clearInterval(timer); timer = null;
+          accountStore.flush?.();
           for (const c of wss.clients) c.terminate();
           wss.close();
           http.close(() => r());

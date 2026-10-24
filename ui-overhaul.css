@@ -1886,3 +1886,48 @@ body:has(#menu:not(.hidden)) .lk-bal { display: none; }
   .nav-right { gap: 6px; }
 }
 @media (max-width: 900px) { #topnav .brand b { font-size: 20px; letter-spacing: 2px; } .tab { padding: 0 7px; font-size: 14px; letter-spacing: 1px; } }
+
+/* Text buttons with an underline on hover or when chosen: the line sits a clear step below the words. */
+.set-choice button, .set-actions button, .mpe-leave, #career-close, .ghost-btn { padding-block: 4px 9px; }
+/* Small badges laid over pictures (level, price, equipped): a little air above and below the text. */
+.ops-lv { padding: 3px 7px; }
+.lk-price { padding: 3px 8px; }
+.lk-equipped { padding: 3px 8px 3px 6px; }
+
+/* ---- Very short windows (a phone held sideways, a docked browser): trade pictures for room ---- */
+@media (max-height: 520px) {
+  /* Career: every reward on two rows, no picture, nothing cut off */
+  .cr-card { gap: 8px; }
+  .cr-badge { width: 44px; height: 44px; } .cr-badge span { font-size: 22px; } .cr-badge small { font-size: 8px; }
+  .cr-who h2 { font-size: 24px; } .cr-xp { margin-top: 5px; } .cr-xpt { margin-top: 3px; font-size: 10px; letter-spacing: 2px; }
+  .cr-label { font-size: 11px; }
+  .cr-track { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 5px; }
+  .cr-node { padding: 6px 5px 7px; gap: 4px; }
+  .cr-lvl { font-size: 10px; letter-spacing: 1px; }
+  .cr-lvl svg { width: 11px; height: 11px; }
+  .cr-item img { width: 24px; height: 24px; }
+  .cr-item b { font-size: 9.5px; letter-spacing: .3px; }
+  .cr-item.skin { display: none; }
+  /* Operators: names fit their tile */
+  .ops-tile b { font-size: 10.5px; letter-spacing: .4px; left: 5px; right: 5px; }
+  .ops-lv { font-size: 10px; padding: 2px 5px; }
+  /* Locker: names and numbers only in the lists, the gun picture and the bars stay */
+  .lk-head h2 { font-size: 22px; }
+  .lk-body { grid-template-columns: minmax(130px, 19%) minmax(0, 1fr) minmax(210px, 33%); gap: 10px; }
+  .lk-label { font-size: 10px; letter-spacing: 2px; }
+  .lk-slots { gap: 4px; }
+  .lk-slots .lk-img, .lk-armory .lk-img { display: none; }
+  .lk-slots .lk-gun { padding: 3px 8px; gap: 8px; }
+  .lk-key { font-size: 15px; width: 12px; }
+  .lk-name, .lk-armory .lk-name { font-size: 12px; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lk-armory { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .lk-armory .lk-gun { padding: 4px 8px; justify-content: center; }
+  .lk-price, .lk-equipped { position: static; align-self: flex-start; font-size: 10px; padding: 2px 6px; }
+  .lk-name-row h3 { font-size: 20px; } .lk-name-row small { display: none; }
+  .lk-facts { gap: 4px 10px; }
+  .lk-stat i { font-size: 9px; letter-spacing: 1px; } .lk-stat u { font-size: 11px; min-width: 0; }
+  .lk-view { min-height: 70px; }
+  .lk-tag { display: none; }
+}
+/* The locker keeps its three columns on narrow windows too: wrapping the armory underneath pushed it over the paint row. */
+@media (max-width: 980px) { .lk-body { grid-template-columns: minmax(130px, 19%) minmax(0, 1fr) minmax(210px, 33%); } .lk-right { grid-column: auto; } }

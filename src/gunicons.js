@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
-import { gunSkinInfo } from './gunskins.js';
+import { GUN_SKINS, gunSkinInfo } from './gunskins.js';
 import { skinInfo } from './rewards.js';
 import { WEAPONS } from './sim/weaponData.js';
 
@@ -87,6 +87,10 @@ export const hudIcons = () => render('hud', { flat: true });
  * One gun in several skins at once, for the store and the crate: `{ skinId: image }`. Each picture is
  * kept, so reopening the store draws nothing new.
  */
+export function forgetSkinShots() {
+  for (const k of [...iconCache.keys()]) if (GUN_SKINS.some((s) => k.endsWith(`:${s.id}`))) iconCache.delete(k);
+}
+
 export function skinShots(gunId, skinIds) {
   const out = {};
   const missing = skinIds.filter((s) => !iconCache.has(`${gunId}:${s}`));

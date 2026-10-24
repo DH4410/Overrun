@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+import { buildCrate } from './crateModel.js';
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
 import { RARITY, RARITY_ORDER } from './gunskins.js';
-import { patternTexture } from './gunTextures.js';
+import { freshPattern } from './gunTextures.js';
 
 /**
  * The SUPPLY DROP: opening a skin crate. A full-screen window of its own, over the store.
@@ -217,9 +217,8 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     scene.add(new THREE.Points(starGeo, mat(new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.09, transparent: true, opacity: 0.8, map: dot, depthWrite: false }))));
 
     // Ground: a dark hex floor under a pool of light
-    const hex = track(patternTexture('hex').clone());
+    const hex = track(freshPattern('hex'));
     hex.repeat.set(9, 9);
-    hex.needsUpdate = true;
     const floor = new THREE.Mesh(track(new THREE.CircleGeometry(7, 64)), mat(new THREE.MeshStandardMaterial({ map: hex, color: 0x141c2c, roughness: 0.6, metalness: 0.45 })));
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
@@ -231,36 +230,9 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     scene.add(ring);
 
     // The crate
-    const crate = new THREE.Group();
-    const hull = mat(new THREE.MeshStandardMaterial({ color: 0x35404f, roughness: 0.5, metalness: 0.65 }));
-    const frame = mat(new THREE.MeshStandardMaterial({ color: 0x9aa8bb, roughness: 0.32, metalness: 0.95 }));
-    const stripeMap = track(patternTexture('hazard').clone());
-    stripeMap.repeat.set(3, 1); stripeMap.needsUpdate = true;
-    const stripe = mat(new THREE.MeshStandardMaterial({ map: stripeMap, color: 0xffc21a, roughness: 0.6, metalness: 0.2 }));
-    const body = new THREE.Mesh(track(new RoundedBoxGeometry(1.5, 0.9, 1.05, 4, 0.045)), hull);
-    body.position.y = 0.45;
-    crate.add(body);
-    for (const sz of [0.535, -0.535]) {
-      const band = new THREE.Mesh(track(new THREE.BoxGeometry(1.2, 0.14, 0.02)), stripe);
-      band.position.set(0, 0.45, sz);
-      crate.add(band);
-    }
-    for (const sx of [-0.76, 0.76]) for (const sz of [-0.53, 0.53]) {
-      const post = new THREE.Mesh(track(new THREE.BoxGeometry(0.1, 0.96, 0.1)), frame);
-      post.position.set(sx, 0.48, sz);
-      crate.add(post);
-    }
-    const seamMat = mat(new THREE.MeshBasicMaterial({ color: 0x59657a, toneMapped: false }));
-    const seam = new THREE.Mesh(track(new THREE.BoxGeometry(1.46, 0.045, 1.01)), seamMat);
-    seam.position.y = 0.915;
-    crate.add(seam);
-    const lid = new THREE.Group();
-    const lidTop = new THREE.Mesh(track(new RoundedBoxGeometry(1.58, 0.17, 1.13, 3, 0.04)), frame);
-    lidTop.position.y = 1.02;
-    const handle = new THREE.Mesh(track(new THREE.TorusGeometry(0.2, 0.035, 8, 20, Math.PI)), frame);
-    handle.position.y = 1.1;
-    lid.add(lidTop, handle);
-    crate.add(lid);
+    const built = buildCrate();
+    track({ dispose: built.dispose });
+    const { crate, lid, seamMat } = built;
     crate.position.y = START_Y;
     scene.add(crate);
 
@@ -423,7 +395,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     if (t >= BURST && !fired.burst) {
       fired.burst = true;
       crate.position.set(0, 0, 0); crate.rotation.z = 0;
-      S.lidV.set((Math.random() - 0.5) * 3, 7.5 + top, (Math.random() - 0.3) * 3);
+      S.lidV.set((Math.random() < 0.5 ? -1 : 1) * (1 + Math.random()), 7.5 + top, -2.5 - Math.random() * 1.5);   // up and away from the camera
       S.lidSpin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
       S.shake = quiet ? 0 : [0.05, 0.1, 0.17, 0.3][top];
       if (!quiet) emit([90, 140, 230, 400][top], { speed: 4.4 + top, up: 6 + top * 1.5, spread: 1, from: [0, 1, 0], life: 1.5, white: 0.5 });
@@ -438,7 +410,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       S.lidV.y -= 16 * dt;
       lid.position.addScaledVector(S.lidV, dt);
       lid.rotation.x += S.lidSpin.x * dt; lid.rotation.y += S.lidSpin.y * dt; lid.rotation.z += S.lidSpin.z * dt;
-      lid.visible = lid.position.y > -4;
+      lid.visible = S.lidT < 1.1;
       // Beam: shoots up, settles to a steady glow
       const grow = ease.out(clamp01(b / 0.35));
             // A flash of light that eases to a faint haze, so the gun is what you look at.

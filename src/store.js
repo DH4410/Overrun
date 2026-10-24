@@ -1,5 +1,7 @@
 import { createDrop } from './crateDrop.js';
-import { skinShots } from './gunicons.js';
+import { crateStill } from './crateModel.js';
+import { forgetSkinShots, skinShots } from './gunicons.js';
+import { texturesPending, texturesReady } from './gunTextures.js';
 import {
   CRATE_PRICE, CRATE_SKINS, GUN_SKINS, RARITY, RARITY_ORDER, dailyShop, gunSkinInfo, shopEndsAt, skinGradient,
 } from './gunskins.js';
@@ -43,7 +45,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
           <section class="st-crate" id="st-crate">
             <div class="st-label">SKIN CRATE</div>
             <div class="st-stage" id="st-stage">
-              <div class="st-art" id="st-art">${CRATE_ART}</div>
+              <div class="st-art" id="st-art"></div>
             </div>
             <div class="st-odds" id="st-odds"></div>
             <button id="st-open" type="button"><i class="coin"></i><b>${CRATE_PRICE}</b><span>OPEN CRATE</span></button>
@@ -65,6 +67,13 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
   function art(skin) {
     const img = shots[skin.id];
     return `<span class="st-pic" style="--rc:${RARITY[skin.rarity].color}">${img ? `<img alt="" src="${img}">` : `<i style="background:${skinGradient(skin)}"></i>`}</span>`;
+  }
+
+  /** The crate's picture: a rendered one when WebGL allows, the drawn outline otherwise. */
+  function paintCrate() {
+    const slot = root.querySelector('#st-art');
+    const put = (url) => { slot.innerHTML = url ? `<img alt="" src="${url}">` : CRATE_ART; };
+    put(crateStill(put));
   }
 
   function renderShop() {
@@ -149,7 +158,11 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     busy = false;
     root.classList.remove('hidden');
     // The pictures of the day's skins and the crate's: drawn once, kept.
-    shots = skinShots(SHOWCASE_GUN, [...dailyShop(now()).map((k) => k.id), ...CRATE_SKINS.map((k) => k.id)]);
+    const draw = () => skinShots(SHOWCASE_GUN, [...dailyShop(now()).map((k) => k.id), ...CRATE_SKINS.map((k) => k.id)]);
+    shots = draw();
+    // The pattern files load on first use; once they are in, draw the pictures again with them.
+    if (texturesPending()) texturesReady().then(() => { forgetSkinShots(); if (isOpen()) { shots = draw(); render(); } });
+    paintCrate();
     render();
     tickTimer();
     clearInterval(timer);

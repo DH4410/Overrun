@@ -1795,9 +1795,9 @@ body:has(#menu:not(.hidden)) .lk-bal { display: none; }
 .st-crate, .st-shop { display: flex; flex-direction: column; gap: var(--u); min-width: 0; padding: calc(var(--pad) + 4px); background: rgba(255, 255, 255, .045); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); }
 .st-stage { position: relative; flex: 1 1 auto; min-height: clamp(150px, 31vh, 270px); display: flex; align-items: center; justify-content: center; overflow: hidden;
   background: radial-gradient(ellipse at 50% 60%, rgba(243, 181, 63, .16), rgba(0, 0, 0, .3) 70%); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
-.st-art { height: clamp(80px, 22vh, 190px); filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .5)); animation: st-float 3.4s ease-in-out infinite; }
+.st-art { height: clamp(96px, 32vh, 300px); filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .5)); animation: st-float 3.4s ease-in-out infinite; }
 .st-art[hidden] { display: none; }
-.st-art svg { height: 100%; width: auto; display: block; }
+.st-art svg, .st-art img { height: 100%; width: auto; max-width: 100%; object-fit: contain; display: block; }
 @keyframes st-float { 50% { transform: translateY(-5px); } }
 
 .st-pic { display: block; }

@@ -6,7 +6,8 @@
     "test": "node --test tests/unit/**/*.test.mjs",
     "test:e2e": "playwright test",
     "test:mp": "node tests/mp/swarm.mjs",
-    "lint": "eslint src/**/*.js game.js tests/**/*.mjs scripts/**/*.mjs server/**/*.js",
+    "lint": "eslint src/**/*.js game.js tests/**/*.mjs scripts/**/*.mjs server/**/*.js tools/**/*.js",
+    "bake:textures": "node scripts/bake-gun-textures.mjs",
     "test:ci": "npm run lint && npm test && npm run test:e2e"
   },
   "devDependencies": {

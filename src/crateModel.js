@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -17,8 +18,50 @@ function crateTexture(name, onLoad) {
   return t;
 }
 
-/** `{ crate, lid, seamMat, dispose }`. `onLoad` runs when a texture has arrived (a still may want to redraw). */
+const GLB = 'assets/models/crate/supply-crate.glb';
+let glb = null, glbWait = null;
+/** Starts fetching the modelled crate; resolves to it, or null if it cannot load (the coded crate is the fallback). */
+export function preloadCrate() {
+  glbWait ??= new Promise((res) => new GLTFLoader().load(GLB, (g) => { glb = g; res(g); }, undefined, () => res(null)));
+  return glbWait;
+}
+
+/** An instance of the modelled crate, or null while it has not arrived. */
+function buildModelled(onLoad) {
+  if (!glb) { preloadCrate().then((g) => g && onLoad?.()); return null; }
+  const root = glb.scene.clone(true);
+  const own = [];
+  let seamMat = null;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    own.push(o.material);
+    if (o.material.name === 'seam') {
+      // The seam is flat colour that ignores the lights, driven per rarity by the drop
+      const m = new THREE.MeshBasicMaterial({ color: 0x59657a, toneMapped: false });
+      own.push(m); seamMat = m; o.material = m;
+    }
+  });
+  const crate = new THREE.Group();   // the drop moves this; the clips move the model inside it
+  crate.add(root);
+  const mixer = new THREE.AnimationMixer(root);
+  const actions = {};
+  for (const clip of glb.animations) {
+    const a = mixer.clipAction(clip);
+    if (clip.name === 'land' || clip.name === 'open') { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+    actions[clip.name] = a;
+  }
+  const lid = root.getObjectByName('lid');
+  if (!lid || !seamMat) return null;
+  return { crate, lid, seamMat, mixer, actions, dispose: () => { mixer.stopAllAction(); while (own.length) own.pop().dispose?.(); } };
+}
+
+/** `{ crate, lid, seamMat, dispose }` (plus `mixer` and `actions` for the modelled crate). `onLoad` runs when more has arrived (a still may want to redraw). */
 export function buildCrate(onLoad) {
+  return buildModelled(onLoad) ?? buildProceduralCrate(onLoad);
+}
+
+function buildProceduralCrate(onLoad) {
   const own = [];
   const track = (o) => { own.push(o); return o; };
   const mat = track;
@@ -148,10 +191,21 @@ export function crateStill(onUpdate) {
     return r.domElement.toDataURL('image/png');
   };
   let settled = false;
-  built = buildCrate(() => { if (settled) return; still = draw(); onUpdate?.(still); });
-  built.crate.rotation.y = -0.5;
-  scene.add(built.crate);
-  still = draw();
+  // Drawn at once with the coded crate; redrawn with the model (or its textures) as they arrive
+  const redraw = () => { if (!settled) { still = draw(); onUpdate?.(still); } };
+  const place = () => {
+    if (settled) return;
+    if (built) { scene.remove(built.crate); built.dispose(); }
+    built = buildCrate(redraw);
+    built.mixer?.setTime(0);
+    built.crate.rotation.y = -0.5;
+    scene.add(built.crate);
+    const first = !still;
+    still = draw();
+    if (!first) onUpdate?.(still);
+  };
+  place();
+  preloadCrate().then(place);
   setTimeout(() => { settled = true; }, 15000);
   return still;
 }

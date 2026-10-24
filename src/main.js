@@ -68,11 +68,13 @@ import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
 import { saveSkin } from './skins.js';
-import { balance, buyGun, ownsGun } from './shop.js';
+import { balance, buyGun, buyShopSkin, openCrate, ownsGun } from './shop.js';
+import { RARITY_ORDER, gunSkinInfo, skinIdOf } from './gunskins.js';
+import { createStore } from './store.js';
 import { applyGunSkin } from './gunmodels.js';
 import { renderPlayerCard } from './playercard.js';
 import { loadProfile, saveProfile, withEquipped } from './profile.js';
-import { isUnlocked, sanitizeEquipped, skinInfo } from './rewards.js';
+import { isUnlocked, sanitizeEquipped, skinForGun, skinInfo } from './rewards.js';
 import { createMinimap } from './minimap.js';
 import { createEmoteMusic } from './emoteMusic.js';
 import { createEmotes } from './emotes.js';
@@ -1400,6 +1402,18 @@ const locker = createLocker({
   setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
   skinLevel: (id) => skinInfo(id)?.level ?? 1,
   skinOwned: (id) => isUnlocked(loadProfile(), 'skin', id),
+  getPaintId: (gun) => skinForGun(worn(), gun)?.id ?? 'stock',
+  getGunSkin: (gun) => worn().guns?.[gun] ?? '',
+  setGunSkin: (gun, id) => {
+    const guns = { ...worn().guns };
+    if (id) guns[gun] = id; else delete guns[gun];
+    wear({ guns });
+    applyWornSkin();
+  },
+  ownedSkins: () => loadProfile().owned.map(skinIdOf).filter(Boolean).map(gunSkinInfo).filter(Boolean)
+    .sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)),
+  canShop: () => !match.running,
+  openStore: () => store.open(),
   gunOwned: (id) => ownsGun(loadProfile(), id),
   getBalance: () => balance(loadProfile()),
   buyGun: (id) => {
@@ -1426,8 +1440,8 @@ async function wearOperator(id) {
 }
 /** The first-person guns take the worn finish. */
 function applyWornSkin() {
-  const skin = skinInfo(worn().skin);
-  for (const m of Object.values(vmModels)) applyGunSkin(m, skin);
+  const eq = worn();
+  for (const [id, m] of Object.entries(vmModels)) applyGunSkin(m, skinForGun(eq, id));
 }
 applyWornSkin();
 /**
@@ -1469,7 +1483,41 @@ const career = createCareer({
   onClose: () => markNav(lobbyPage),
   onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
 });
-$('tab-career')?.addEventListener('click', () => { locker.close(); $('settings-close')?.click(); career.open(); });
+$('tab-career')?.addEventListener('click', () => { locker.close(); store.close(); $('settings-close')?.click(); career.open(); });
+/** The crate and the daily shop: the credits are spent here, the skins are worn in the locker. */
+const store = createStore({
+  getProfile: loadProfile,
+  openCrate: () => {
+    const res = openCrate(loadProfile());
+    if (!res) return null;
+    saveProfile(res.profile);
+    renderPlayerCard(res.profile);
+    return res;
+  },
+  buySkin: (id) => {
+    const next = buyShopSkin(loadProfile(), id);
+    if (!next) return false;
+    saveProfile(next);
+    renderPlayerCard(next);
+    store.refresh();
+    return true;
+  },
+  openLocker: () => { career.close(); locker.open(); },
+  onOpen: () => markNav('store'),
+  onClose: () => markNav(lobbyPage),
+  sfx: (kind, rarity) => {
+    Audio.init();
+    if (kind === 'spin') {
+      // Ticks that slow down with the reel: close together at first, then wider as it settles.
+      let at = 0;
+      for (let i = 0; i < 38; i++) { Audio.tone({ f0: 1500, f1: 900, dur: 0.035, gain: 0.12, type: 'square', delay: at }); at += 0.04 + (i / 38) ** 2.4 * 0.32; }
+    } else if (kind === 'reveal') {
+      const top = RARITY_ORDER.indexOf(rarity);
+      [523, 659, 784, 1046].slice(0, 1 + top).forEach((f, i) => Audio.tone({ f0: f, f1: f, dur: 0.5 + top * 0.25, gain: 0.2, type: 'triangle', delay: i * 0.09 }));
+      if (top >= 2) Audio.burst({ dur: 0.6, gain: 0.3, type: 'highpass', freq: 3000, decay: 0.6 });
+    }
+  },
+});
 /** Building the picked map now, rather than at DEPLOY, is what puts it behind the lobby. */
 function previewMap(id) {
   if (match.running || net.active) return;
@@ -1477,7 +1525,7 @@ function previewMap(id) {
   backdrop.setExtent(currentPlan()?.extent ?? 46);
 }
 /** The five top tabs are always on screen; this marks the one whose page is up. */
-const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', locker: 'locker-open', settings: 'settings-open' };
+const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', store: 'tab-store', locker: 'locker-open', settings: 'settings-open' };
 let lobbyPage = 'play';                      // the page under any overlay: play or operators
 function markNav(active) { for (const [key, id] of Object.entries(NAV)) $(id)?.classList.toggle('active', key === active); }
 const operatorsPage = createOperators({
@@ -1496,10 +1544,10 @@ function setLobbyTab(tab) {
   if (ops) operatorsPage.show(); else operatorsPage.hide();
 }
 // Settings belongs to ui.js; its tab follows the panel.
-new MutationObserver(() => { if (career.isOpen() || locker.isOpen()) return; markNav($('settings').classList.contains('hidden') ? lobbyPage : 'settings'); })
+new MutationObserver(() => { if (career.isOpen() || locker.isOpen() || store.isOpen()) return; markNav($('settings').classList.contains('hidden') ? lobbyPage : 'settings'); })
   .observe($('settings'), { attributes: true, attributeFilter: ['class'] });
 /** A tab click first puts away whatever overlay is open, so every tab works from every page. */
-function leaveOverlays() { career.close(); locker.close(); }
+function leaveOverlays() { career.close(); locker.close(); store.close(); }
 $('settings-open')?.addEventListener('click', leaveOverlays);
 const online = createOnlineLobby({ getElement: $ });
 let onlineTab = false;
@@ -1598,7 +1646,8 @@ net = createNetClient({
   },
 });
 addEventListener('keyup', (e) => { if (canon(e.code) === 'KeyB') emotes.closeWheel(true); });
-$('locker-open')?.addEventListener('click', () => { career.close(); locker.open(); });
+$('locker-open')?.addEventListener('click', () => { career.close(); store.close(); locker.open(); });
+$('tab-store')?.addEventListener('click', () => { career.close(); locker.close(); $('settings-close')?.click(); store.open(); });
 $('locker-open-pause')?.addEventListener('click', () => locker.open());
 
 /**

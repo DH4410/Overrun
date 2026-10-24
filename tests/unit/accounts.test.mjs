@@ -100,7 +100,7 @@ test('a career cannot wear what it has not earned', async () => {
   const { token } = await a.register({ username: 'Viper', password: GOOD });
   const u = await a.session(token);
   const r = await a.saveProfile(u, { profile: { ...EMPTY_PROFILE, xp: 10, equipped: { operator: 'steve', skin: 'gold', title: 'champion' } }, rev: 0 });
-  assert.deepEqual(r.profile.equipped, { operator: 'swat', skin: 'stock', title: '' });
+  assert.deepEqual(r.profile.equipped, { operator: 'swat', skin: 'stock', title: '', guns: {} });
 });
 
 test('lost password: the recovery code resets it once, and issues a new code', async () => {

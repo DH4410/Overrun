@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { EMPTY_PROFILE, clean, withEquipped, xpToNext } from '../../src/profile.js';
 import {
-  DEFAULT_EQUIPPED, OPERATORS, SKINS, TITLES, TRACK_END, isUnlocked, levelRewards, nextReward, sanitizeEquipped,
+  DEFAULT_EQUIPPED, OPERATORS, SKINS, TITLES, TRACK_END, isUnlocked, levelRewards, nextReward, sanitizeEquipped, skinForGun,
 } from '../../src/rewards.js';
 
 /** A profile that has just reached `level`. */
@@ -65,7 +65,7 @@ test('sanitizeEquipped falls back for anything not earned or not real', () => {
   assert.deepEqual(sanitizeEquipped(p, { operator: 'steve', skin: 'gold', title: 'champion' }), DEFAULT_EQUIPPED);
   assert.deepEqual(sanitizeEquipped(p, null), DEFAULT_EQUIPPED);
   const rich = atLevel(20, { wins: 25 });
-  assert.deepEqual(sanitizeEquipped(rich, { operator: 'steve', skin: 'gold', title: 'champion' }), { operator: 'steve', skin: 'gold', title: 'champion' });
+  assert.deepEqual(sanitizeEquipped(rich, { operator: 'steve', skin: 'gold', title: 'champion' }), { operator: 'steve', skin: 'gold', title: 'champion', guns: {} });
 });
 
 test('every skin names only the material roles the guns actually have', () => {
@@ -89,4 +89,13 @@ test('every operator on the pass is a character the game can load, with a portra
     assert.ok(existsSync(new URL(`../../assets/skins/${o.id}.jpg`, import.meta.url)), `${o.id} has no portrait`);
   }
   assert.equal(new Set(OPERATORS.map((o) => o.id)).size, OPERATORS.length, 'operator ids are unique');
+});
+
+test('a gun skin is worn only while it is in the collection, and it beats the finish worn on every gun', () => {
+  const have = { ...atLevel(1), owned: ['skin:cobalt'] };
+  const eq = sanitizeEquipped(have, { skin: 'stock', guns: { ar: 'cobalt', smg: 'magma' } });
+  assert.deepEqual(eq.guns, { ar: 'cobalt' }, 'magma is not owned');
+  assert.equal(skinForGun(eq, 'ar').id, 'cobalt');
+  assert.equal(skinForGun(eq, 'smg').id, 'stock', 'a gun with no skin takes the finish');
+  assert.equal(skinForGun({ skin: 'nope', guns: {} }, 'ar'), null);
 });

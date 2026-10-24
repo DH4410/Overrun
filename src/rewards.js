@@ -1,5 +1,6 @@
 import { levelFromXp } from './profile.js';
 import { ownsGun } from './shop.js';
+import { gunSkinInfo, skinKey } from './gunskins.js';
 
 /**
  * What the career unlocks. Pure data and functions, no DOM: the lobby, the locker, the career
@@ -69,7 +70,7 @@ export const TITLES = [
   { id: 'champion', name: 'CHAMPION', need: { wins: 25 } },
 ];
 
-export const DEFAULT_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '' });
+export const DEFAULT_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '', guns: Object.freeze({}) });
 
 const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
 const OPERATOR_BY_ID = byId(OPERATORS), SKIN_BY_ID = byId(SKINS), TITLE_BY_ID = byId(TITLES);
@@ -128,5 +129,17 @@ export function sanitizeEquipped(profile, equipped) {
     operator: isUnlocked(profile, 'operator', e.operator) ? e.operator : DEFAULT_EQUIPPED.operator,
     skin: isUnlocked(profile, 'skin', e.skin) ? e.skin : DEFAULT_EQUIPPED.skin,
     title: e.title && isUnlocked(profile, 'title', e.title) ? e.title : DEFAULT_EQUIPPED.title,
+    // A gun skin is worn only while it is in the collection.
+    guns: Object.fromEntries(Object.entries(e.guns && typeof e.guns === 'object' ? e.guns : {})
+      .filter(([, sk]) => (profile?.owned ?? []).includes(skinKey(sk)))),
   };
+}
+
+/**
+ * The paint a gun wears: the collection skin set for that gun if it is owned, else the finish worn
+ * on every gun. `equipped` is a sanitized set (see sanitizeEquipped).
+ */
+export function skinForGun(equipped, gunId) {
+  const own = equipped?.guns?.[gunId];
+  return (own && gunSkinInfo(own)) || skinInfo(equipped?.skin) || null;
 }

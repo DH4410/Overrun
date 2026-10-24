@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
+import { gunSkinInfo } from './gunskins.js';
 import { skinInfo } from './rewards.js';
 import { WEAPONS } from './sim/weaponData.js';
 
@@ -14,16 +15,10 @@ import { WEAPONS } from './sim/weaponData.js';
 const iconCache = new Map();
 const FLAT = { color: 0xeef2f6, roughness: 0.9, metalness: 0 };
 
-function render(key, style) {
-  if (iconCache.has(key)) return iconCache.get(key);
-  const icons = {};
-  iconCache.set(key, icons);
+/** One throwaway renderer with the light rig and camera the icons share. */
+function rig(style) {
   let r;
-  try {
-    r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  } catch {
-    return icons;
-  }
+  try { r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); } catch { return null; }
   const W = 320, H = 140;
   r.setPixelRatio(1);
   r.setSize(W, H, false);
@@ -35,10 +30,11 @@ function render(key, style) {
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
   const box = new THREE.Box3(), size = new THREE.Vector3(), centre = new THREE.Vector3();
   const flatMat = style.flat ? new THREE.MeshStandardMaterial(FLAT) : null;
-  for (const { id } of WEAPONS) {
+  /** Draw gun `id` in `skin` (a finish or a collection skin) and return the picture. */
+  function shoot(id, skin) {
     const m = buildGunModel(id);
     if (flatMat) m.traverse((o) => { if (o.isMesh) o.material = flatMat; });
-    else applyGunSkin(m, skinInfo(style.skin));
+    else applyGunSkin(m, skin);
     m.rotation.y = style.flat ? 0 : -0.32;      // the HUD wants a clean side view; the locker a touch of three-quarter
     m.updateMatrixWorld(true);
     box.setFromObject(m).getSize(size);
@@ -53,14 +49,46 @@ function render(key, style) {
     cam.updateProjectionMatrix();
     scene.add(m);
     r.render(scene, cam);
-    icons[id] = r.domElement.toDataURL('image/png');
+    const url = r.domElement.toDataURL('image/png');
     scene.remove(m);
     m.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    return url;
   }
-  r.dispose();
-  r.forceContextLoss?.();
+  const done = () => { r.dispose(); r.forceContextLoss?.(); };
+  return { shoot, done };
+}
+
+/** A finish by id, from the level finishes or the collection. */
+const paintOf = (id) => skinInfo(id) ?? gunSkinInfo(id);
+
+function render(key, style) {
+  if (iconCache.has(key)) return iconCache.get(key);
+  const icons = {};
+  iconCache.set(key, icons);
+  const g = rig(style);
+  if (!g) return icons;
+  for (const { id } of WEAPONS) icons[id] = g.shoot(id, style.skin ? paintOf(style.skin) : null);
+  g.done();
   return icons;
 }
 
 export const gunIcons = (skinId = 'stock') => render(`skin:${skinId}`, { skin: skinId });
 export const hudIcons = () => render('hud', { flat: true });
+
+/**
+ * One gun in several skins at once, for the store and the crate: `{ skinId: image }`. Each picture is
+ * kept, so reopening the store draws nothing new.
+ */
+export function skinShots(gunId, skinIds) {
+  const out = {};
+  const missing = skinIds.filter((s) => !iconCache.has(`${gunId}:${s}`));
+  if (missing.length) {
+    const g = rig({});
+    if (g) {
+      for (const s of missing) iconCache.set(`${gunId}:${s}`, g.shoot(gunId, paintOf(s)));
+      g.done();
+    }
+  }
+  for (const s of skinIds) out[s] = iconCache.get(`${gunId}:${s}`) ?? '';
+  return out;
+}

@@ -31,7 +31,8 @@ export function rankTitle(level) { return RANKS[Math.min(RANKS.length - 1, Math.
 
 export const COUNTERS = ['xp', 'kills', 'deaths', 'headshots', 'wins', 'losses', 'draws', 'matches', 'bestStreak', 'credits', 'spent'];
 /** What is worn: operator, gun finish and title. Names only; src/rewards.js says whether they are earned. */
-export const EMPTY_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '' });
+export const EMPTY_EQUIPPED = Object.freeze({ operator: 'swat', skin: 'stock', title: '', guns: Object.freeze({}) });
+const NAME_OK = (s) => typeof s === 'string' && s.length > 0 && s.length <= 24 && /^[a-z0-9_-]+$/.test(s);
 export const EMPTY_PROFILE = Object.freeze({
   xp: 0, kills: 0, deaths: 0, headshots: 0, wins: 0, losses: 0, draws: 0, matches: 0, bestStreak: 0,
   credits: 0, spent: 0, owned: Object.freeze([]),
@@ -48,8 +49,14 @@ export function clean(v) {
     if (Array.isArray(v.owned)) out.owned = [...new Set(v.owned.filter((k) => typeof k === 'string' && isShopKey(k)))];
     const e = v.equipped;
     if (e && typeof e === 'object') {
-      for (const k of Object.keys(EMPTY_EQUIPPED)) {
+      for (const k of ['operator', 'skin', 'title']) {
         if (typeof e[k] === 'string' && e[k].length <= 24 && /^[a-z0-9_-]*$/.test(e[k])) out.equipped[k] = e[k];
+      }
+      // The skin each gun wears: { gunId: skinId }. Whether it is owned is src/rewards.js's call.
+      if (e.guns && typeof e.guns === 'object') {
+        const guns = {};
+        for (const [g, sk] of Object.entries(e.guns).slice(0, 32)) if (NAME_OK(g) && NAME_OK(sk)) guns[g] = sk;
+        out.equipped.guns = guns;
       }
     }
   }

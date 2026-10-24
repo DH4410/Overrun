@@ -5,10 +5,12 @@ import { gunIcons } from './gunicons.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
 import { clamp } from './utils.js';
 import { SKINS, skinInfo } from './rewards.js';
+import { GUN_SKINS, RARITY, gunSkinInfo, skinGradient } from './gunskins.js';
 import { gunPrice } from './shop.js';
 import { WEAPON_BY_ID } from './weapons.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+const paintOf = (id) => skinInfo(id) ?? gunSkinInfo(id);
 const TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 /** How each gun is labelled in the locker: its class and a rarity colour. */
@@ -145,6 +147,9 @@ export function createLocker({
   getLoadout, setLoadout, onOpen = () => {}, onClose = () => {},
   // Finishes: which is worn, how to wear another, and whether a given one is earned (and at what level).
   getSkin = () => 'stock', setSkin = () => {}, skinLevel = () => 1, skinOwned = () => true,
+  // The collection: paint for the gun shown (a finish or an owned skin), the skin id set on a gun ('' for none),
+  // how to set it, which skins are owned, and how to open the store.
+  getPaintId = () => getSkin(), getGunSkin = () => '', setGunSkin = () => {}, ownedSkins = () => [], openStore = () => {}, canShop = () => true,
   // Credits: whether a gun is yours, the balance, and how to pay for one.
   gunOwned = () => true, getBalance = () => 0, buyGun = () => false,
 }) {
@@ -167,7 +172,10 @@ export function createLocker({
             <div class="lk-view"><canvas id="lk-canvas"></canvas><div class="lk-tag" id="lk-tag"></div></div>
             <div class="lk-name-row"><h3 id="lk-gname"></h3><span id="lk-gcls"></span><button id="lk-buy" type="button" hidden><i class="coin"></i><b></b></button></div>
             <div class="lk-facts" id="lk-facts"></div>
-            <div class="lk-finish"><div class="lk-label">FINISH <b id="lk-fname"></b></div><div class="lk-skins" id="lk-skins"></div></div>
+            <div class="lk-finish">
+              <div class="lk-label">PAINT <b id="lk-fname"></b><span class="lk-count" id="lk-count"></span></div>
+              <div class="lk-skins" id="lk-skins"></div>
+            </div>
           </section>
           <section class="lk-col lk-right"><div class="lk-label">ARMORY</div><div class="lk-armory" id="lk-armory"></div></section>
         </div>
@@ -199,7 +207,7 @@ export function createLocker({
     el.type = 'button';
     el.className = `lk-gun tier-${meta.tier}`;
     el.dataset.gun = id;
-    const img = gunIcons(getSkin())[id];
+    const img = gunIcons(getPaintId(id))[id];
     const owned = id === 'frag' || gunOwned(id);
     el.classList.toggle('locked', !owned);
     el.innerHTML = `
@@ -246,7 +254,7 @@ export function createLocker({
     } else {
       facts.insertAdjacentHTML('beforeend', '<div class="lk-note">HOLD G TO COOK</div>');
     }
-    preview?.show(id, skinInfo(getSkin()), { keepAngle: id === previewed });   // a new finish keeps the angle you turned it to
+    preview?.show(id, paintOf(getPaintId(id)), { keepAngle: id === previewed });   // a new finish keeps the angle you turned it to
     previewed = id;
   }
 
@@ -274,23 +282,49 @@ export function createLocker({
 
     const skins = root.querySelector('#lk-skins');
     skins.innerHTML = '';
+    const mine = ownedSkins();
+    const wornSkin = getGunSkin(shown);
+    // Finishes paint every gun; clicking one also clears the skin on the gun you are looking at, so what you click is what you see.
     for (const sk of SKINS) {
       const owned = skinOwned(sk.id);
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'lk-skin';
-      b.classList.toggle('on', getSkin() === sk.id);
+      b.classList.toggle('on', !wornSkin && getSkin() === sk.id);
       b.classList.toggle('locked', !owned);
       b.dataset.skin = sk.id;
       b.title = owned ? sk.name : `${sk.name} - reach level ${skinLevel(sk.id)}`;
       b.setAttribute('aria-label', owned ? sk.name : `${sk.name}, reach level ${skinLevel(sk.id)}`);
-      b.innerHTML = `<i style="background:${sk.swatch}"></i>${owned ? '' : `<small>LVL ${skinLevel(sk.id)}</small>`}`;
+      b.innerHTML = `<i style="background:${sk.swatch}"></i>`;
       b.disabled = !owned;
-      b.addEventListener('click', () => { setSkin(sk.id); showGun(shown); render(); });
+      b.addEventListener('click', () => { setGunSkin(shown, ''); setSkin(sk.id); render(); showGun(shown); });
       skins.appendChild(b);
     }
+    // The collection paints one gun: the one on show. Clicking the one it wears takes it off again.
+    for (const sk of mine) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `lk-skin lk-coll r-${sk.rarity}`;
+      b.classList.toggle('on', wornSkin === sk.id);
+      b.dataset.gunskin = sk.id;
+      b.title = `${sk.name} · ${RARITY[sk.rarity].name}`;
+      b.setAttribute('aria-label', `${sk.name}, ${RARITY[sk.rarity].name}`);
+      b.innerHTML = `<i style="background:${skinGradient(sk)}"></i>`;
+      b.addEventListener('click', () => { setGunSkin(shown, wornSkin === sk.id ? '' : sk.id); render(); showGun(shown); });
+      skins.appendChild(b);
+    }
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'lk-skin lk-more';
+    more.title = 'Get more skins in the store';
+    more.setAttribute('aria-label', 'Get more skins in the store');
+    more.innerHTML = '<i>+</i>';
+    more.addEventListener('click', () => { close(); openStore(); });
+    if (canShop()) skins.appendChild(more);
 
-    root.querySelector('#lk-fname').textContent = skinInfo(getSkin())?.name ?? '';
+    const wornPaint = paintOf(getPaintId(shown));
+    root.querySelector('#lk-fname').textContent = wornPaint?.name ?? '';
+    root.querySelector('#lk-count').textContent = `${mine.length} / ${GUN_SKINS.length} SKINS`;
 
     const armory = root.querySelector('#lk-armory');
     armory.innerHTML = '';

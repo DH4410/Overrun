@@ -52,7 +52,7 @@ export function gunMaterials() {
 
 /**
  * Repaint a gun (or a whole viewmodel) with a finish from src/rewards.js. `skin.slots` maps a role
- * to [colour, roughness, metalness]; a null `slots` (the stock finish), or a role it leaves out,
+ * to [colour, roughness, metalness, glow?]; a null `slots` (the stock finish), or a role it leaves out,
  * goes back to the gun's own colours. Safe to call again and again.
  */
 export function applyGunSkin(root, skin) {
@@ -63,10 +63,11 @@ export function applyGunSkin(root, skin) {
       const role = mat?.userData?.skinRole;
       if (!role || seen.has(mat)) continue;
       seen.add(mat);
-      const [hex, rough, metal] = skin?.slots?.[role] ?? mat.userData.stock;
+      const [hex, rough, metal, glow = 0] = skin?.slots?.[role] ?? mat.userData.stock;
       mat.color.setHex(hex);
       mat.roughness = rough;
       mat.metalness = metal;
+      mat.emissive.setHex(glow);              // a rare skin can light up; every other one is unlit
     }
   });
 }

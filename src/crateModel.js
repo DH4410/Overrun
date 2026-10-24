@@ -27,7 +27,7 @@ export function preloadCrate() {
 }
 
 /** An instance of the modelled crate, or null while it has not arrived. */
-function buildModelled(onLoad) {
+function buildModelled(onLoad, premium) {
   if (!glb) { preloadCrate().then((g) => g && onLoad?.()); return null; }
   const root = glb.scene.clone(true);
   const own = [];
@@ -36,6 +36,8 @@ function buildModelled(onLoad) {
     if (!o.isMesh) return;
     o.material = o.material.clone();
     own.push(o.material);
+    if (premium && o.material.name === 'hull') o.material.color.set(0x5a4a1c);          // a legendary-only crate: dark bronze body, gold trim
+    if (premium && o.material.name === 'frame') o.material.color.set(0xffc94a);
     if (o.material.name === 'seam') {
       // The seam is flat colour that ignores the lights, driven per rarity by the drop
       const m = new THREE.MeshBasicMaterial({ color: 0x59657a, toneMapped: false });
@@ -57,8 +59,8 @@ function buildModelled(onLoad) {
 }
 
 /** `{ crate, lid, seamMat, dispose }` (plus `mixer` and `actions` for the modelled crate). `onLoad` runs when more has arrived (a still may want to redraw). */
-export function buildCrate(onLoad) {
-  return buildModelled(onLoad) ?? buildProceduralCrate(onLoad);
+export function buildCrate(onLoad, { premium = false } = {}) {
+  return buildModelled(onLoad, premium) ?? buildProceduralCrate(onLoad);
 }
 
 function buildProceduralCrate(onLoad) {

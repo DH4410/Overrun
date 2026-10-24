@@ -84,6 +84,9 @@ test('while you wait to respawn, the standings show your place', async ({ page }
     g.player.kills = 2;
     g.player.health = 0;
     g.killCombatant(g.player, g.bots[0], false);
+    // A bot's kill plays the kill cam first (see killcam.spec.mjs); this test is about the screen after it.
+    g.killcam.reset();
+    g.player.respawnTimer = 2;
   });
   await pumpFrames(page, 3);
   await expect(page.locator('#pause')).toHaveClass(/\bdead\b/);

@@ -33,7 +33,7 @@ const DEADZONE = 6, REACH = 36;   // px of mouse travel to pick a slice, and how
 
 const TAP_MS = 280;               // a press of B shorter than this, with nothing pointed at, repeats the last emote
 
-export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel, Audio, music = null }) {
+export function createEmotes({ scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId = () => null, wheel, Audio, music = null }) {
   const clips = {};
   let loading = null;
   let avatar = null, avatarId = null, action = null, active = null;
@@ -84,7 +84,7 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
 
   function makeAvatar() {
     const ids = loadedCharacters();
-    const id = [savedSkin(), 'swat', 'soldier', ...ids].find((c) => ids.includes(c));
+    const id = [getOperatorId() || savedSkin(), 'swat', 'soldier', ...ids].find((c) => ids.includes(c));
     const g = id ? buildCharacterMesh(id) : null;
     if (!g) return null;
     avatarId = id;

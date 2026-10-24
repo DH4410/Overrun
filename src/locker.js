@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 
-import { buildGunModel } from './gunmodels.js';
+import { applyGunSkin, buildGunModel } from './gunmodels.js';
+import { gunIcons } from './gunicons.js';
 import { assignSlot, DEFAULT_LOADOUT, GUN_IDS, LOADOUT_SIZE } from './loadout.js';
-import { SKINS } from './skins.js';
 import { clamp } from './utils.js';
+import { SKINS, skinInfo } from './rewards.js';
+import { gunPrice } from './shop.js';
 import { WEAPON_BY_ID } from './weapons.js';
 
 /** How each gun is labelled in the locker: its class and a rarity colour. */
@@ -13,77 +15,101 @@ export const GUN_CARD = {
   ar: { cls: 'ASSAULT', tier: 'rare' },
   shotgun: { cls: 'SHOTGUN', tier: 'epic' },
   sniper: { cls: 'MARKSMAN', tier: 'legendary' },
+  revolver: { cls: 'HAND CANNON', tier: 'rare' },
+  mp: { cls: 'AUTO PISTOL', tier: 'uncommon' },
+  lmg: { cls: 'SUPPORT', tier: 'epic' },
+  ashotgun: { cls: 'AUTO SHOTGUN', tier: 'epic' },
+  dmr: { cls: 'DMR', tier: 'legendary' },
   frag: { cls: 'THROWABLE', tier: 'rare' },
 };
 
-/** Stat bars, 0..1, read off the tuning table so they cannot drift from how the guns play. */
-function gunStats(w) {
+/**
+ * A slowly turning 3D view of one gun, drawn on its own canvas while the locker is open. It is the
+ * same procedural model the first-person view and the bots use, in the finish you are wearing.
+ */
+function createPreview(canvas) {
+  let r;
+  try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch { return null; }
+  r.setPixelRatio(1);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, 2.2));
+  const key = new THREE.DirectionalLight(0xffffff, 2.8);
+  key.position.set(2.5, 3, 2);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x8fb4ff, 1.4);
+  rim.position.set(-3, 1.2, -2.5);
+  scene.add(rim);
+  const cam = new THREE.PerspectiveCamera(28, 1, 0.05, 30);
+  const pivot = new THREE.Group();
+  scene.add(pivot);
+  let model = null, raf = 0, last = 0, frame = 0;
+
+  function fit() {
+    const w = canvas.clientWidth || 600, h = canvas.clientHeight || 300;
+    if (canvas.width !== w || canvas.height !== h) { r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+  }
+
+  function show(id, skin) {
+    if (model) { pivot.remove(model); model.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); }
+    model = buildGunModel(id);
+    applyGunSkin(model, skin);
+    model.rotation.y = 0;
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+    model.position.sub(mid);
+    pivot.add(model);
+    fit();
+    // Far enough that the whole gun, barrel to stock, fits across the view with a margin.
+    const half = Math.max(size.z, size.y * 2.2, 0.15) / 2;
+    const dist = (half / (Math.tan((cam.fov * Math.PI) / 360) * cam.aspect)) * 1.5;
+    cam.position.set(dist, size.y * 0.08, 0);
+    cam.lookAt(0, 0, 0);
+  }
+
+  function loop(t) {
+    raf = requestAnimationFrame(loop);
+    if ((frame++ & 1) === 1) return;                   // 30 fps is plenty for a turntable
+    const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+    last = t;
+    fit();
+    // Sweeps through a side-on view rather than spinning all the way round, which hides the profile.
+    pivot.rotation.y = -0.5 + Math.sin(t / 2600) * 0.55 + dt * 0;
+    r.render(scene, cam);
+  }
+  function start() { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(loop); }
+  function stop() { cancelAnimationFrame(raf); raf = 0; }
+  function dispose() { stop(); r.dispose(); r.forceContextLoss?.(); }
+  return { show, start, stop, dispose };
+}
+
+/** The numbers under the preview: a bar for how it feels and the figure behind it. */
+function gunFacts(w) {
+  const rpm = Math.round(60 / w.cooldown);
+  const perShot = w.pellets > 1 ? `${w.damage} × ${w.pellets}` : `${w.damage}`;
   return [
-    ['DAMAGE', clamp((w.damage * w.pellets) / 160, 0.04, 1)],
-    ['FIRE RATE', clamp(1 / w.cooldown / 16, 0.04, 1)],
-    ['ACCURACY', clamp(1 - w.rest / 0.085, 0.04, 1)],
-    ['MOBILITY', clamp(1 - w.move / 0.034, 0.04, 1)],
-    ['MAGAZINE', clamp(w.mag / 30, 0.04, 1)],
+    ['DAMAGE', clamp((w.damage * w.pellets) / 110, 0.04, 1), perShot],
+    ['FIRE RATE', clamp(1 / w.cooldown / 16, 0.04, 1), `${rpm} RPM`],
+    ['ACCURACY', clamp(1 - w.rest / 0.085, 0.04, 1), ''],
+    ['MOBILITY', clamp(1 - w.move / 0.034, 0.04, 1), ''],
+    ['MAGAZINE', clamp(w.mag / 30, 0.04, 1), `${w.mag} / ${w.reserve}`],
+    ['RELOAD', clamp(1 - w.reload / 3.2, 0.04, 1), `${w.reload.toFixed(1)} S`],
   ];
 }
 
 /**
- * Side-on portraits of the procedural guns, rendered once into images with a throwaway WebGL
- * context. The same models as the first-person view, so the locker shows the gun you get.
+ * The locker. Left: your four guns and the frag, as slots. Centre: the gun you are looking at,
+ * turning, with its numbers and the finishes. Right: the armory. Pick a slot, then a gun (or drag
+ * a gun onto a slot); a gun already carried swaps places. Hovering a gun previews it. Every change
+ * is applied and saved at once, so there is nothing to confirm.
  */
-let icons = null;
-function gunIcons() {
-  if (icons) return icons;
-  icons = {};
-  let r;
-  try {
-    r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  } catch {
-    return icons;
-  }
-  const W = 320, H = 140;
-  r.setPixelRatio(1);
-  r.setSize(W, H, false);
-  const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, 2.4));
-  const key = new THREE.DirectionalLight(0xffffff, 2.6);
-  key.position.set(2, 3, 1.5);
-  scene.add(key);
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
-  const box = new THREE.Box3(), size = new THREE.Vector3(), centre = new THREE.Vector3();
-  for (const id of [...GUN_IDS, 'frag']) {
-    const m = buildGunModel(id);
-    m.rotation.y = -0.32;                      // a touch of three-quarter, barrel to the right
-    m.updateMatrixWorld(true);
-    box.setFromObject(m).getSize(size);
-    box.getCenter(centre);
-    m.position.sub(centre);
-    const half = Math.max(size.z, size.x) * 0.56;
-    const halfW = Math.max(half, size.y * 0.62 * (W / H));
-    cam.left = -halfW; cam.right = halfW;
-    cam.top = halfW * (H / W); cam.bottom = -halfW * (H / W);
-    cam.position.set(6, 0.4, 0);
-    cam.lookAt(0, 0, 0);
-    cam.updateProjectionMatrix();
-    scene.add(m);
-    r.render(scene, cam);
-    icons[id] = r.domElement.toDataURL('image/png');
-    scene.remove(m);
-    m.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
-  }
-  r.dispose();
-  r.forceContextLoss?.();
-  return icons;
-}
-
-/**
- * The locker. WEAPONS: four gun slots and the frag slot along the top, the armory below. Pick a
- * slot, then a gun (or drag a gun onto a slot); a gun already carried swaps places. SKINS: every
- * character, all unlocked; the one you wear is what other players see. Every change is applied
- * and saved at once, so there is nothing to confirm.
- */
-export function createLocker({ getLoadout, setLoadout, getSkin, setSkin, onOpen = () => {}, onClose = () => {} }) {
-  let root = null, sel = 0, tab = 'gear';
+export function createLocker({
+  getLoadout, setLoadout, onOpen = () => {}, onClose = () => {},
+  // Finishes: which is worn, how to wear another, and whether a given one is earned (and at what level).
+  getSkin = () => 'stock', setSkin = () => {}, skinLevel = () => 1, skinOwned = () => true,
+  // Credits: whether a gun is yours, the balance, and how to pay for one.
+  gunOwned = () => true, getBalance = () => 0, buyGun = () => false,
+}) {
+  let root = null, sel = 0, shown = 'pistol', preview = null;
 
   function build() {
     root = document.createElement('div');
@@ -92,96 +118,137 @@ export function createLocker({ getLoadout, setLoadout, getSkin, setSkin, onOpen 
     root.innerHTML = `
       <div class="lk-card">
         <div class="lk-head">
-          <div><h2>LOCKER</h2><div class="lk-sub" id="lk-sub"></div></div>
-          <div class="lk-tabs"><button type="button" data-tab="gear">WEAPONS</button><button type="button" data-tab="skins">SKINS</button></div>
+          <div><h2>LOCKER</h2></div>
+          <div class="lk-bal" title="Credits"><i class="coin"></i><b id="lk-bal">0</b></div>
           <div class="set-actions"><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
         </div>
-        <div id="lk-gear" class="lk-panel">
-          <div class="lk-slots" id="lk-slots"></div>
-          <div class="lk-label">ARMORY <span>pick a slot above, then a weapon, or drag one onto a slot</span></div>
-          <div class="lk-armory" id="lk-armory"></div>
+        <div class="lk-body">
+          <section class="lk-col lk-left"><div class="lk-label">LOADOUT</div><div class="lk-slots" id="lk-slots"></div></section>
+          <section class="lk-col lk-stage">
+            <div class="lk-view"><canvas id="lk-canvas"></canvas><div class="lk-tag" id="lk-tag"></div></div>
+            <div class="lk-name-row"><h3 id="lk-gname"></h3><span id="lk-gcls"></span><button id="lk-buy" type="button" hidden><i class="coin"></i><b></b></button></div>
+            <div class="lk-facts" id="lk-facts"></div>
+            <div class="lk-label">FINISH</div>
+            <div class="lk-skins" id="lk-skins"></div>
+          </section>
+          <section class="lk-col lk-right"><div class="lk-label">ARMORY</div><div class="lk-armory" id="lk-armory"></div></section>
         </div>
-        <div id="lk-skins" class="lk-panel"><div class="lk-wear" id="lk-wear"></div><div class="lk-wardrobe" id="lk-wardrobe"></div></div>
       </div>`;
-    for (const b of root.querySelectorAll('.lk-tabs button')) b.addEventListener('click', () => { tab = b.dataset.tab; render(); });
     document.body.appendChild(root);
     root.querySelector('#locker-close').addEventListener('click', close);
-    root.querySelector('#locker-reset').addEventListener('click', () => { apply([...DEFAULT_LOADOUT]); sel = 0; render(); });
-    root.addEventListener('keydown', (e) => { if (e.code === 'Escape') { e.stopPropagation(); close(); } });
+    root.querySelector('#lk-buy').addEventListener('click', () => {
+      if (!buyGun(shown)) return;
+      apply(assignSlot(getLoadout(), sel, shown));      // a gun you just paid for goes straight into your slot
+      render(); showGun(shown);
+    });
+    root.querySelector('#locker-reset').addEventListener('click', () => { apply([...DEFAULT_LOADOUT]); sel = 0; shown = getLoadout()[0]; render(); });
+    addEventListener('keydown', (e) => {
+      if (!isOpen()) return;
+      if (e.code === 'Escape') { e.stopPropagation(); close(); return; }
+      const n = /^Digit([1-4])$/.exec(e.code);
+      if (n) { sel = Number(n[1]) - 1; showGun(getLoadout()[sel]); render(); }
+    });
   }
 
+  const isOpen = () => !!root && !root.classList.contains('hidden');
   function apply(list) { setLoadout(list); }
 
-  function card(id, { slot = null, compact = false } = {}) {
+  /** A small card: used for the slots and the armory. */
+  function card(id, { slot = null } = {}) {
     const w = WEAPON_BY_ID[id];
     const meta = GUN_CARD[id] ?? { cls: '', tier: 'common' };
     const el = document.createElement('button');
     el.type = 'button';
     el.className = `lk-gun tier-${meta.tier}`;
     el.dataset.gun = id;
-    const img = gunIcons()[id];
+    const img = gunIcons(getSkin())[id];
+    const owned = id === 'frag' || gunOwned(id);
+    el.classList.toggle('locked', !owned);
     el.innerHTML = `
       ${slot !== null ? `<span class="lk-key">${slot}</span>` : ''}
+      ${owned ? '' : `<span class="lk-price"><i class="coin"></i>${gunPrice(id)}</span>`}
       <span class="lk-img">${img ? `<img alt="" src="${img}">` : ''}</span>
-      <span class="lk-name">${w.name}</span>
-      <span class="lk-cls">${meta.cls}</span>`;
-    if (!compact && !w.thrown) {
-      const bars = document.createElement('span');
-      bars.className = 'lk-stats';
-      for (const [label, v] of gunStats(w)) {
-        bars.insertAdjacentHTML('beforeend', `<span class="lk-stat"><i>${label}</i><b><em style="width:${Math.round(v * 100)}%"></em></b></span>`);
-      }
-      el.appendChild(bars);
-    }
+      <span class="lk-meta"><span class="lk-name">${w.name}</span><span class="lk-cls">${meta.cls}</span></span>`;
     return el;
   }
 
-  function renderSkins() {
-    const wearing = getSkin();
-    const now = SKINS.find((s) => s.id === wearing) ?? SKINS[0];
-    root.querySelector('#lk-wear').innerHTML = `<span>WEARING</span><b>${now.name}</b><i>${now.tag}</i>`;
-    const wardrobe = root.querySelector('#lk-wardrobe');
-    wardrobe.innerHTML = '';
-    for (const s of SKINS) {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = `lk-skin${s.id === wearing ? ' worn' : ''}`;
-      el.dataset.skin = s.id;
-      el.innerHTML = `<span class="lk-pic"><img alt="" loading="lazy" src="./assets/skins/${s.id}.jpg"></span><span class="lk-name">${s.name}</span><span class="lk-cls">${s.tag}</span>`;
-      el.addEventListener('click', async () => { await setSkin(s.id); render(); });
-      wardrobe.appendChild(el);
+  const tagFor = (id) => id === 'frag' ? 'ALWAYS ON KEY 5'
+    : !gunOwned(id) ? 'LOCKED'
+    : getLoadout().includes(id) ? `EQUIPPED · SLOT ${getLoadout().indexOf(id) + 1}` : 'IN THE LOCKER';
+
+  /** The buy button shows for the gun you are looking at while it is not yours; dim when you cannot afford it. */
+  function syncBuy() {
+    const b = root.querySelector('#lk-buy');
+    const price = gunPrice(shown);
+    const show = shown !== 'frag' && !gunOwned(shown) && price > 0;
+    b.hidden = !show;
+    b.querySelector('b').textContent = String(price);
+    b.classList.toggle('poor', show && getBalance() < price);
+    b.disabled = show && getBalance() < price;
+    b.title = b.disabled ? `${price - getBalance()} more credits needed` : 'Buy';
+    root.querySelector('#lk-bal').textContent = String(getBalance());
+  }
+
+  function showGun(id) {
+    shown = id;
+    const w = WEAPON_BY_ID[id];
+    const meta = GUN_CARD[id] ?? { cls: '', tier: 'common' };
+    root.querySelector('#lk-gname').textContent = w.name;
+    const cls = root.querySelector('#lk-gcls');
+    cls.textContent = meta.cls;
+    cls.className = `tier-${meta.tier}`;
+    root.querySelector('#lk-tag').textContent = tagFor(id);
+    syncBuy();
+    const facts = root.querySelector('#lk-facts');
+    facts.textContent = '';
+    if (!w.thrown) {
+      for (const [label, v, text] of gunFacts(w)) {
+        facts.insertAdjacentHTML('beforeend', `<div class="lk-stat"><i>${label}</i><b><em style="width:${Math.round(v * 100)}%"></em></b><u>${text}</u></div>`);
+      }
+    } else {
+      facts.insertAdjacentHTML('beforeend', '<div class="lk-note">Cook it with G to set the fuse; a longer hold throws it further.</div>');
     }
+    preview?.show(id, skinInfo(getSkin()));
   }
 
   function render() {
-    for (const b of root.querySelectorAll('.lk-tabs button')) b.classList.toggle('on', b.dataset.tab === tab);
-    root.querySelector('#lk-gear').hidden = tab !== 'gear';
-    root.querySelector('#lk-skins').hidden = tab !== 'skins';
-    root.querySelector('#locker-reset').hidden = tab !== 'gear';
-    root.querySelector('#lk-sub').textContent = tab === 'gear'
-      ? 'Your loadout. Keys 1-4 follow the slots; 5 is always the frag.'
-      : 'Every skin is unlocked. The one you wear is what other players see.';
-    if (tab === 'skins') { renderSkins(); return; }
     const loadout = getLoadout();
     const slots = root.querySelector('#lk-slots');
     slots.innerHTML = '';
     loadout.forEach((id, i) => {
-      const c = card(id, { slot: i + 1, compact: true });
+      const c = card(id, { slot: i + 1 });
       c.classList.add('lk-slot');
       c.classList.toggle('sel', i === sel);
-      c.addEventListener('click', () => { sel = i; render(); });
+      c.addEventListener('click', () => { sel = i; showGun(id); render(); });
       c.addEventListener('dragover', (e) => e.preventDefault());
       c.addEventListener('drop', (e) => {
         e.preventDefault();
         const gun = e.dataTransfer.getData('text/plain');
-        if (GUN_IDS.includes(gun)) { sel = i; apply(assignSlot(getLoadout(), i, gun)); render(); }
+        if (GUN_IDS.includes(gun) && gunOwned(gun)) { sel = i; apply(assignSlot(getLoadout(), i, gun)); showGun(gun); render(); }
       });
       slots.appendChild(c);
     });
-    const frag = card('frag', { slot: LOADOUT_SIZE + 1, compact: true });
+    const frag = card('frag', { slot: LOADOUT_SIZE + 1 });
     frag.classList.add('lk-slot', 'fixed');
-    frag.disabled = true;
+    frag.addEventListener('click', () => showGun('frag'));
     slots.appendChild(frag);
+
+    const skins = root.querySelector('#lk-skins');
+    skins.innerHTML = '';
+    for (const sk of SKINS) {
+      const owned = skinOwned(sk.id);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lk-skin';
+      b.classList.toggle('on', getSkin() === sk.id);
+      b.classList.toggle('locked', !owned);
+      b.dataset.skin = sk.id;
+      b.title = owned ? sk.name : `${sk.name} - reach level ${skinLevel(sk.id)}`;
+      b.innerHTML = `<i style="background:${sk.swatch}"></i><span>${sk.name}</span>${owned ? '' : `<small>LVL ${skinLevel(sk.id)}</small>`}`;
+      b.disabled = !owned;
+      b.addEventListener('click', () => { setSkin(sk.id); showGun(shown); render(); });
+      skins.appendChild(b);
+    }
 
     const armory = root.querySelector('#lk-armory');
     armory.innerHTML = '';
@@ -190,26 +257,42 @@ export function createLocker({ getLoadout, setLoadout, getSkin, setSkin, onOpen 
       const at = loadout.indexOf(id);
       if (at >= 0) c.insertAdjacentHTML('afterbegin', `<span class="lk-equipped">SLOT ${at + 1}</span>`);
       c.classList.toggle('in-slot', at === sel);
-      c.draggable = true;
+      c.classList.toggle('looking', id === shown);
+      c.draggable = gunOwned(id);
       c.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', id));
-      c.addEventListener('click', () => { apply(assignSlot(getLoadout(), sel, id)); render(); });
+      c.addEventListener('mouseenter', () => { if (shown !== id) { showGun(id); armory.querySelectorAll('.lk-gun').forEach((x) => x.classList.toggle('looking', x === c)); } });
+      c.addEventListener('click', () => {
+        if (gunOwned(id)) apply(assignSlot(getLoadout(), sel, id));   // a locked gun is only looked at
+        showGun(id); render();
+      });
       armory.appendChild(c);
     }
+    // After a hover has moved the preview off your slot, the facts still describe what is shown.
+    root.querySelector('#lk-tag').textContent = tagFor(shown);
+    syncBuy();
   }
 
   function open() {
     if (!root) build();
-    render();
+    sel = Math.min(sel, LOADOUT_SIZE - 1);
+    shown = getLoadout()[sel];
     root.classList.remove('hidden');
+    preview?.dispose();
+    preview = createPreview(root.querySelector('#lk-canvas'));
+    render();
+    showGun(shown);
+    preview?.start();
     root.querySelector('#locker-close').focus({ preventScroll: true });
     onOpen();
   }
 
   function close() {
-    if (!root || root.classList.contains('hidden')) return;
+    if (!root || !isOpen()) return;
     root.classList.add('hidden');
+    preview?.dispose();
+    preview = null;
     onClose();
   }
 
-  return { open, close, isOpen: () => !!root && !root.classList.contains('hidden') };
+  return { open, close, isOpen };
 }

@@ -52,6 +52,7 @@ async function open(browser, name, { routeMap = null } = {}) {
   await page.goto(`${BASE}/`);
   await expect(page.locator('#mp-play')).toBeEnabled({ timeout: 45_000 });
   await page.fill('#nameinput', name);
+  await page.click('#ptab-online');      // multiplayer lives on the lobby's ONLINE tab
   return page;
 }
 

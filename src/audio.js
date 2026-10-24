@@ -14,10 +14,15 @@ const RELOAD_STEPS = {
   smg:     [[0.12, 'magOut'], [0.5, 'magIn'], [0.84, 'charge']],
   shotgun: [[0.18, 'shell'], [0.34, 'shell'], [0.5, 'shell'], [0.66, 'shell'], [0.9, 'pump']],
   sniper:  [[0.1, 'boltUp'], [0.28, 'magOut'], [0.6, 'magIn'], [0.88, 'boltDown']],
+  revolver: [[0.1, 'magOut'], [0.3, 'shell'], [0.42, 'shell'], [0.54, 'shell'], [0.66, 'shell'], [0.9, 'slide']],
+  mp:      [[0.14, 'magOut'], [0.55, 'magIn'], [0.86, 'slide']],
+  lmg:     [[0.08, 'boltUp'], [0.26, 'magOut'], [0.62, 'magIn'], [0.9, 'charge']],
+  ashotgun: [[0.14, 'magOut'], [0.5, 'magIn'], [0.86, 'charge']],
+  dmr:     [[0.12, 'magOut'], [0.55, 'magIn'], [0.88, 'charge']],
 };
 
 /** Hit-marker pitch per gun, so a sniper hit lands heavier than an SMG graze. */
-const HIT_PITCH = { pistol: 1500, ar: 1400, smg: 1700, shotgun: 1100, sniper: 950 };
+const HIT_PITCH = { pistol: 1500, ar: 1400, smg: 1700, shotgun: 1100, sniper: 950, revolver: 1000, mp: 1750, lmg: 1250, ashotgun: 1150, dmr: 1050 };
 
 // The four chords every song here walks through: Am, F, C, G.
 const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];
@@ -276,6 +281,30 @@ export function createAudio({ getCamera }) {
           this.burst({ dur: 0.6, gain: 0.24, type: 'lowpass', freq: 420, decay: 0.55, delay: 0.04, ...P });
           if (!pos) { this.foley('boltUp', 0.55); this.foley('boltDown', 0.78); }
           break;
+        case 'revolver':
+          this.burst({ dur: 0.14, gain: 0.5, type: 'highpass', freq: 1800, decay: 0.09, ...P });
+          this.tone({ f0: 360, f1: 50, dur: 0.22, gain: 0.46, type: 'square', ...P });
+          this.burst({ dur: 0.38, gain: 0.26, type: 'lowpass', freq: 520, decay: 0.32, delay: 0.02, ...P });
+          break;
+        case 'mp':
+          this.burst({ dur: 0.07, gain: 0.3, type: 'highpass', freq: 2000, decay: 0.05, ...P });
+          this.tone({ f0: 360, f1: 100, dur: 0.06, gain: 0.2, type: 'square', ...P });
+          break;
+        case 'lmg':
+          this.burst({ dur: 0.16, gain: 0.4, type: 'bandpass', freq: 800, q: 0.7, decay: 0.12, ...P });
+          this.tone({ f0: 180, f1: 42, dur: 0.15, gain: 0.36, type: 'sawtooth', ...P });
+          this.tone({ f0: 90, f1: 34, dur: 0.16, gain: 0.34, type: 'sine', ...P });
+          break;
+        case 'ashotgun':
+          this.burst({ dur: 0.26, gain: 0.5, type: 'lowpass', freq: 1100, decay: 0.2, ...P });
+          this.tone({ f0: 170, f1: 38, dur: 0.2, gain: 0.4, type: 'sine', ...P });
+          this.burst({ dur: 0.05, gain: 0.28, type: 'highpass', freq: 2600, decay: 0.04, ...P });
+          break;
+        case 'dmr':
+          this.burst({ dur: 0.1, gain: 0.5, type: 'highpass', freq: 2200, decay: 0.06, ...P });
+          this.tone({ f0: 380, f1: 52, dur: 0.22, gain: 0.44, type: 'square', ...P });
+          this.burst({ dur: 0.4, gain: 0.2, type: 'lowpass', freq: 460, decay: 0.34, delay: 0.03, ...P });
+          break;
       }
     },
 
@@ -348,6 +377,12 @@ export function createAudio({ getCamera }) {
     step(pos = null) {
       this.burst({ dur: 0.07, gain: pos ? 0.16 : 0.09, type: 'lowpass', freq: 420, decay: 0.06, out: this._out(pos) });
     },
+    /** The rewind into a kill-cam replay: a falling whirr and a tape click. */
+    rewind() {
+      this.tone({ f0: 1400, f1: 180, dur: 0.45, gain: 0.12, type: 'sawtooth' });
+      this.burst({ dur: 0.4, gain: 0.1, type: 'bandpass', freq: 2600, q: 1.2, decay: 0.38 });
+      this.tone({ f0: 90, f1: 40, dur: 0.18, gain: 0.3, type: 'sine', delay: 0.4 });
+    },
     slide()     { this.burst({ dur: 0.45, gain: 0.12, type: 'bandpass', freq: 900, q: 0.7, decay: 0.42 }); },
 
     /* ------------------------------ hits ------------------------------ */
@@ -383,8 +418,32 @@ export function createAudio({ getCamera }) {
     },
     hurt()      { this.burst({ dur: 0.14, gain: 0.3, type: 'lowpass', freq: 500, decay: 0.12 });
                   this.tone({ f0: 160, f1: 70, dur: 0.16, gain: 0.2, type: 'sine' }); },
-    kill()      { this.tone({ f0: 880, f1: 880, dur: 0.09, gain: 0.22, type: 'triangle' });
-                  this.tone({ f0: 1320, f1: 1320, dur: 0.16, gain: 0.2, type: 'triangle', delay: 0.07 }); },
+    /**
+     * The kill confirmation. Each kill in a row without dying lifts it a whole tone (capped at
+     * eight), so a streak can be heard building without looking at the counter.
+     */
+    kill(streak = 0) {
+      const k = 2 ** (Math.min(Math.max(streak - 1, 0), 7) * 2 / 12);
+      this.tone({ f0: 880 * k, f1: 880 * k, dur: 0.09, gain: 0.22, type: 'triangle' });
+      this.tone({ f0: 1320 * k, f1: 1320 * k, dur: 0.16, gain: 0.2, type: 'triangle', delay: 0.07 });
+      if (streak >= 3) this.tone({ f0: 1760 * k, f1: 1760 * k, dur: 0.2, gain: 0.1, type: 'sine', delay: 0.13 });
+    },
+    /** A headshot kill, on top of kill(): a bone-crack thump under a bright ring. */
+    headshotKill() {
+      this.tone({ f0: 3200, f1: 2600, dur: 0.07, gain: 0.2, type: 'triangle' });
+      this.burst({ dur: 0.03, gain: 0.16, type: 'highpass', freq: 5000, decay: 0.025 });
+      this.tone({ f0: 140, f1: 55, dur: 0.14, gain: 0.34, type: 'sine' });
+      this.tone({ f0: 2400, f1: 2400, dur: 0.3, gain: 0.07, type: 'sine', delay: 0.05 });
+    },
+    /** A streak reward arriving: three rising notes. */
+    streakReward() {
+      [523, 659, 784, 1047].forEach((f, i) => this.tone({ f0: f, f1: f, dur: 0.14, gain: 0.14, type: 'triangle', delay: i * 0.07 }));
+    },
+    /** Killing whoever killed you: a low stab and a falling sting. */
+    revenge() {
+      this.tone({ f0: 196, f1: 98, dur: 0.22, gain: 0.3, type: 'sawtooth' });
+      this.tone({ f0: 1568, f1: 784, dur: 0.18, gain: 0.1, type: 'triangle', delay: 0.04 });
+    },
     /** A heartbeat while you are low; call every frame. */
     heartbeat(dt, low) {
       if (!low) { this._heart = 0; return; }

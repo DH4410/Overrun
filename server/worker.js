@@ -11,6 +11,8 @@ import metro from '../assets/maps/metro.json';
 import { Governor } from './governor.js';
 import { Room } from './room.js';
 
+export { AccountsDO } from './accounts-do.js';
+
 /**
  * Cloudflare deployment: the Worker serves the game's static files (wrangler.jsonc, "assets")
  * and hands /ws and /stats to one Durable Object, GameRoom "main", which runs the same Room as
@@ -73,6 +75,8 @@ export default {
   fetch(req, env) {
     const { pathname } = new URL(req.url);
     if (pathname === '/ws' || pathname === '/stats') return env.ROOM.getByName('main').fetch(req);
+    // Accounts: one Durable Object holds them all (server/accounts-do.js).
+    if (pathname.startsWith('/api/')) return env.ACCOUNTS.getByName('main').fetch(req);
     return env.ASSETS.fetch(req);
   },
 };

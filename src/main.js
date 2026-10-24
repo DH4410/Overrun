@@ -34,6 +34,14 @@ import {
   createBotRuntime,
 } from './bots.js';
 import { createEffects } from './effects.js';
+import { AFTER_TIME, createKillcam } from './killcam.js';
+import { createHardpoint } from './hardpoint.js';
+import { createAccount } from './account.js';
+import { createFriends } from './friends.js';
+import { hudIcons } from './gunicons.js';
+import { createCareer } from './career.js';
+import { createLobby } from './lobby.js';
+import { createOnlineLobby } from './online.js';
 import { createHud } from './hud.js';
 import { canon, loadKeybinds } from './keybinds.js';
 import { createMapController, createMapRuntime } from './maps.js';
@@ -57,7 +65,12 @@ import { createPickupRuntime } from './pickups.js';
 import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
-import { saveSkin, savedSkin, SKINS } from './skins.js';
+import { saveSkin } from './skins.js';
+import { balance, buyGun, ownsGun } from './shop.js';
+import { applyGunSkin } from './gunmodels.js';
+import { renderPlayerCard } from './playercard.js';
+import { loadProfile, saveProfile, withEquipped } from './profile.js';
+import { isUnlocked, sanitizeEquipped, skinInfo } from './rewards.js';
 import { createMinimap } from './minimap.js';
 import { createEmoteMusic } from './emoteMusic.js';
 import { createEmotes } from './emotes.js';
@@ -394,6 +407,9 @@ const {
 const player = createPlayerState();
 combatants.push(player);
 
+// Created after the emotes (it borrows the character builder); the runtimes reach it late-bound.
+let killcam = null;
+
 const {
   bullets,
   clearBullets,
@@ -421,6 +437,7 @@ const {
   losClear,
   addShake: (...args) => addShake(...args),
   spawnSmoke: (...args) => spawnSmoke(...args),
+  onShot: (...args) => killcam?.noteShot(...args),
 });
 
 
@@ -437,6 +454,7 @@ const {
   botClipNames,
   buildBotGun,
   alertBots,
+  setPatrolFocus,
 } = createBotRuntime({
   scene,
   camera,
@@ -539,6 +557,7 @@ async function warmScene(tick = async () => {}) {
  */
 function applySettings() {
   const q = QUALITY[settings.quality];
+  document.body.classList.toggle('hc', !!settings.highContrast);
   // The battery saver (manual, or automatic while unplugged) only ever lowers these.
   const t = tuning();
 
@@ -672,6 +691,7 @@ const {
   addShake,
   updateShake,
   shakeOffset: _shakeOff,
+  shakeRoll: _shakeRoll,
 } = createEffects({
   scene,
   audio: Audio,
@@ -790,6 +810,7 @@ const {
   el,
   showHitMarker,
   showKillBanner,
+  showStreak,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,
@@ -884,8 +905,11 @@ const {
   throwGrenade,
   showThrowArc,
   getNet: () => net,
+  onPlayerHit: (...args) => killcam?.noteHit(...args),
 });
 
+
+const hardpoint = createHardpoint({ scene, waypoints, setPatrolFocus, hud: document.getElementById('hud'), player, camera });
 
 const {
   addBot,
@@ -902,6 +926,7 @@ const {
   updateOutro,
   formatTime,
 } = createMatchRuntime({
+  hardpoint,
   match,
   player,
   bots,
@@ -933,6 +958,8 @@ const {
   clearAlertsOn,
   stopFiring,
   isPointerLocked,
+  getKillcam: () => killcam,
+  showStreak,
   elements: el,
 });
 
@@ -1083,7 +1110,7 @@ function updateCamera(dt) {
   _camPos.set(_renderBody.x, camBodyY + camEye - dip, _renderBody.z);
   _camPos.add(_shakeOff);
 
-  _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');
+  _camE.set(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, _shakeRoll.v, 'YXZ');
   camera.quaternion.setFromEuler(_camE);
   // Sway nudges the eye laterally by at most +/- 0.02 m in camera space.
   _v1.set(player.sway.x * 0.02, player.sway.y * 0.02, 0).applyQuaternion(camera.quaternion);
@@ -1111,6 +1138,7 @@ function updateCamera(dt) {
  */
 function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
+  if (appState === APP_STATE.MENU && !net.active) return 1 / MENU_FPS;
   if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
   if (net.inLobby) return 1 / LOBBY_FPS;   // a character standing on a podium needs no more than this
   const cap = tuning().frameCap;
@@ -1118,11 +1146,25 @@ function frameBudget() {
 }
 
 let framesDrawn = 0;
+let lobbyWasUp = false;
 let shadowFrame = 0;
+const MENU_FPS = 30;                // the lobby animates (operator, orbiting map), but 30 is plenty for it
 const OUTRO_TIME_SCALE = 0.3;
+const KILLCAM_WORLD_SCALE = 0.3;    // world speed while the view zooms onto your killer
 
 function frame() {
   requestAnimationFrame(frame);
+
+  // Paused or in a menu mid-cam: drop it, or its overlay would sit over the pause screen.
+  if (killcam.active && appState !== APP_STATE.PLAYING) {
+    killcam.reset();
+    player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
+  }
+
+  // The lobby scene (operator on his pad, map orbiting) shows behind the menu and its settings panel.
+  const lobbyUp = !net.active && !match.running && (appState === APP_STATE.MENU || appState === APP_STATE.SETTINGS);
+  lobby.setShown(lobbyUp);
+  if (lobbyUp !== lobbyWasUp) { lobbyWasUp = lobbyUp; if (!lobbyUp) online.hide(); else if (onlineTab) online.show(); }
 
   const now = performance.now() / 1000;
   const budget = frameBudget();
@@ -1168,65 +1210,81 @@ function frame() {
     updatePlates(dt);
     updateAllyMarkers();
     updateHudTimers(dt);
+  } else if (lobbyUp) {
+    lobby.update(dt);
   } else if (appState === APP_STATE.PLAYING) {
     // The end-of-match outro: the world runs slowed, its timer runs on real time.
     const realDt = dt;
     if (match.outro) dt *= OUTRO_TIME_SCALE;
+    // The kill cam: the world slows while the view zooms on your killer, then stands still while
+    // the replay plays. Its own clock is real time, and so is the respawn wait it holds.
+    const kcPhase = killcam.phase;
+    const kcFrozen = kcPhase === 'replay';
+    if (kcPhase === 'zoom' || kcPhase === 'cut') dt *= KILLCAM_WORLD_SCALE;
     pollGamepad(dt);
     applyLook(realDt);
 
-    if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
+    if (kcFrozen) {
+      player.respawnTimer -= realDt;
+      updateBursts(realDt);
+      updateLights();
+    } else {
 
-    // Weapon timers. The fire cooldown carries its overshoot past zero into the next shot,
-    // because it is polled once per rendered frame: without the carry, a 30 fps cap rounds the
-    // AR's 0.09 s cooldown up to 0.1 s and the player quietly loses a tenth of their rate of
-    // fire to a graphics setting, while the bots — which fire on the fixed clock — keep all of
-    // theirs. The carry is at most one frame, so it can never bank rounds.
-    if (player.cooldown > 0) {
-      player.cooldown -= dt;
-      player.fireCarry = player.cooldown < 0 ? -player.cooldown : 0;
-      if (player.cooldown < 0) player.cooldown = 0;
-    }
-    if (player.reloading > 0) {
-      const from = 1 - player.reloading / player.reloadTotal;
-      player.reloading -= dt;
-      Audio.reloadProgress(player.current, from, 1 - Math.max(player.reloading, 0) / player.reloadTotal);
-      if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
-    }
-    if (isFiring() && currentWeapon().auto) tryFire();
+      if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
 
-    // Fixed-step physics, capped so a stall cannot spiral the accumulator.
-    accumulator += dt;
-    let steps = 0;
-    while (accumulator >= FIXED_DT && steps < CONFIG.MAX_SUBSTEPS) {
-      fixedStep(FIXED_DT);
-      accumulator -= FIXED_DT;
-      steps++;
-    }
-    if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
-    renderAlpha = accumulator / FIXED_DT;
+      // Weapon timers. The fire cooldown carries its overshoot past zero into the next shot,
+      // because it is polled once per rendered frame: without the carry, a 30 fps cap rounds the
+      // AR's 0.09 s cooldown up to 0.1 s and the player quietly loses a tenth of their rate of
+      // fire to a graphics setting, while the bots — which fire on the fixed clock — keep all of
+      // theirs. The carry is at most one frame, so it can never bank rounds.
+      if (player.cooldown > 0) {
+        player.cooldown -= dt;
+        player.fireCarry = player.cooldown < 0 ? -player.cooldown : 0;
+        if (player.cooldown < 0) player.cooldown = 0;
+      }
+      if (player.reloading > 0) {
+        const from = 1 - player.reloading / player.reloadTotal;
+        player.reloading -= dt;
+        Audio.reloadProgress(player.current, from, 1 - Math.max(player.reloading, 0) / player.reloadTotal);
+        if (player.reloading <= 0) { player.reloading = 0; finishReload(); updateAmmoHud(); }
+      }
+      if (isFiring() && currentWeapon().auto) tryFire();
 
-    for (const b of bots) b.renderStep(dt, renderAlpha);
-    syncGrenades();
-    updateBursts(dt);
-    updateExplosionFx(dt);
-    updateSmoke(dt);
-    updateBrass(dt);
-    updatePickups(dt);
-    updateAmmoChests(dt);
-    updatePickupPrompt(updateConsumables(dt));
-    updateLights();          // after every emitter has had its chance to move or flicker
-    updateShake(dt);
-    updateSpotting(dt);
-    updateMatch(dt);
-    updateViewModel(dt);
-    updateCamera(dt);
-    emotes.update(dt, { running: match.running && !match.outro, firing: isFiring() });
-    updateThrowPreview(dt);
-    updatePlates(dt);
-    updateAllyMarkers();
-    updateHudTimers(dt);
-    updateOutro(realDt);
+      // Fixed-step physics, capped so a stall cannot spiral the accumulator.
+      accumulator += dt;
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < CONFIG.MAX_SUBSTEPS) {
+        fixedStep(FIXED_DT);
+        accumulator -= FIXED_DT;
+        steps++;
+      }
+      if (accumulator > FIXED_DT * CONFIG.MAX_SUBSTEPS) accumulator = 0;
+      renderAlpha = accumulator / FIXED_DT;
+
+      for (const b of bots) b.renderStep(dt, renderAlpha);
+      syncGrenades();
+      updateBursts(dt);
+      updateExplosionFx(dt);
+      updateSmoke(dt);
+      updateBrass(dt);
+      updatePickups(dt);
+      updateAmmoChests(dt);
+      updatePickupPrompt(updateConsumables(dt));
+      updateLights();          // after every emitter has had its chance to move or flicker
+      updateShake(dt);
+      updateSpotting(dt);
+      updateMatch(dt, realDt);
+      updateViewModel(dt);
+      updateCamera(dt);
+      if (player.alive && match.running) killcam.record(dt);
+      emotes.update(dt, { running: match.running && !match.outro, firing: isFiring() });
+      updateThrowPreview(dt);
+      updatePlates(dt);
+      updateAllyMarkers();
+      updateHudTimers(dt);
+      updateOutro(realDt);
+    }
+    if (killcam.active) killcam.update(realDt);
   }
 
   // The one shadow refresh of the frame (see renderer.shadowMap.autoUpdate), halved in battery
@@ -1279,6 +1337,7 @@ const {
   requestLock,
   // LEAVE MATCH on the pause screen: online, that is leaving the server.
   endMatch: (...args) => (net.active ? net.leave() : endMatch(...args)),
+  onMapPick: (id) => previewMap(id),
 });
 
 
@@ -1298,22 +1357,25 @@ player.loadout = loadLoadout();
 /** The lobby's Locker card lists what you are carrying. */
 function showLoadoutSummary() {
   const sum = $('locker-sum');
-  if (sum) sum.textContent = player.loadout.map((id) => WEAPON_BY_ID[id].name).join(' · ');
+  if (!sum) return;
+  // Pictures of the guns, not their names: the picture is what you recognise. Names stay as the tooltip.
+  let icons = null;
+  try { icons = hudIcons(); } catch { /* no GL for the icon renderer: names instead */ }
+  sum.textContent = '';
+  for (const id of player.loadout) {
+    const name = WEAPON_BY_ID[id].name;
+    if (!icons?.[id]) { sum.append(Object.assign(document.createElement('span'), { textContent: name })); continue; }
+    sum.append(Object.assign(document.createElement('img'), { src: icons[id], alt: name, title: name }));
+  }
 }
 showLoadoutSummary();
 const locker = createLocker({
-  getSkin: () => savedSkin() ?? SKINS[0].id,
-  setSkin: async (id) => {
-    saveSkin(id);
-    net.gear(id, player.loadout);
-    await loadCharacter(id);
-  },
   getLoadout: () => player.loadout,
   setLoadout: (list) => {
-    if (!validLoadout(list)) return;
+    if (!validLoadout(list) || !list.every((id) => ownsGun(loadProfile(), id))) return;
     player.loadout = list;
     saveLoadout(list);
-    net.gear(savedSkin() ?? SKINS[0].id, list);
+    net.gear(worn().operator, list);
     showLoadoutSummary();
     if (player.current !== 'frag' && !list.includes(player.current)) switchWeapon(list[0]);
     if (match.running) updateAmmoHud();
@@ -1323,11 +1385,40 @@ const locker = createLocker({
     if (match.running) appState = APP_STATE.SETTINGS;
   },
   onClose: () => { if (match.running) requestLock(); },
+  getSkin: () => worn().skin,
+  setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
+  skinLevel: (id) => skinInfo(id)?.level ?? 1,
+  skinOwned: (id) => isUnlocked(loadProfile(), 'skin', id),
+  gunOwned: (id) => ownsGun(loadProfile(), id),
+  getBalance: () => balance(loadProfile()),
+  buyGun: (id) => {
+    const next = buyGun(loadProfile(), id);
+    if (!next) return false;
+    saveProfile(next);
+    renderPlayerCard(next);
+    return true;
+  },
 });
 const emoteMusic = createEmoteMusic({ Audio, getCamera: () => camera });
 const emotes = createEmotes({
-  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, wheel: $('emote-wheel'), Audio, music: emoteMusic,
+  scene, camera, player, blockers, buildCharacterMesh, loadedCharacters, getOperatorId: () => worn().operator, wheel: $('emote-wheel'), Audio, music: emoteMusic,
 });
+/** What the player wears: their saved choices, minus anything not yet earned. */
+const worn = () => { const p = loadProfile(); return sanitizeEquipped(p, p.equipped); };
+const wear = (patch) => saveProfile(withEquipped(loadProfile(), patch));
+/** The character you play: what the lobby stage, other players and the killcam show. */
+async function wearOperator(id) {
+  wear({ operator: id });
+  saveSkin(id);
+  net.gear(id, player.loadout);
+  await loadCharacter(id);
+}
+/** The first-person guns take the worn finish. */
+function applyWornSkin() {
+  const skin = skinInfo(worn().skin);
+  for (const m of Object.values(vmModels)) applyGunSkin(m, skin);
+}
+applyWornSkin();
 /**
  * Online: every dancing puppet sings its emote's song from where it stands. The puppet's emote
  * is the server's (the snapshot's emote byte), so the songs follow the dances, and a dancer who
@@ -1340,6 +1431,72 @@ function updateEmoteSongs() {
     else emoteMusic.stop(b.netId);
   }
 }
+const lobby = createLobby({
+  scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $,
+  getProfile: loadProfile, onEquip: (id) => wearOperator(id),
+});
+const account = createAccount({
+  getElement: $,
+  getProfile: loadProfile,
+  setProfile: (p) => saveProfile(p, { silent: true }),
+  setCallsign: (name) => { const input = $('nameinput'); if (input) input.value = name.toUpperCase().slice(0, 12); },
+  onChange: (p) => { renderPlayerCard(p); applyWornSkin(); lobby.refresh(); },
+});
+addEventListener('overrun:profile', () => account.profileSaved());
+const friends = createFriends({
+  getElement: $,
+  account,
+  getStatus: () => (net?.active ? 'online' : match.running ? 'solo' : 'lobby'),
+  // An invite or a friend in the room both mean the same thing: be in the shared room too.
+  onJoin: () => { if (match.running || net?.active) return; setPlayPane('online'); net.join({ spectate: false }); },
+});
+friends.init();
+const career = createCareer({
+  getProfile: loadProfile,
+  onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
+});
+$('tab-career')?.addEventListener('click', () => career.open());
+/** Building the picked map now, rather than at DEPLOY, is what puts it behind the lobby. */
+function previewMap(id) {
+  if (match.running || net.active) return;
+  switchMap(id);
+  lobby.setExtent(currentPlan()?.extent ?? 46);
+}
+/** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
+function setLobbyTab(tab) {
+  const ops = tab === 'operators';
+  $('menu').classList.toggle('ops', ops);
+  $('tab-play').classList.toggle('active', !ops);
+  $('tab-operators').classList.toggle('active', ops);
+  lobby.setFocus(ops);
+}
+const online = createOnlineLobby({ getElement: $ });
+let onlineTab = false;
+/** SOLO and ONLINE are two panes of the right-hand panel: bots on a map you pick, or the shared room. */
+function setPlayPane(which) {
+  onlineTab = which === 'online';
+  $('ptab-solo').classList.toggle('on', !onlineTab);
+  $('ptab-online').classList.toggle('on', onlineTab);
+  $('pane-solo').classList.toggle('on', !onlineTab);
+  $('pane-online').classList.toggle('on', onlineTab);
+  if (onlineTab) online.show(); else online.hide();
+}
+$('ptab-solo')?.addEventListener('click', () => setPlayPane('solo'));
+$('ptab-online')?.addEventListener('click', () => setPlayPane('online'));
+$('tab-play')?.addEventListener('click', () => setLobbyTab('play'));
+$('tab-operators')?.addEventListener('click', () => setLobbyTab('operators'));
+killcam = createKillcam({
+  scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
+  spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
+});
+/** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
+function skipKillcam() {
+  if (killcam.skip()) player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
+}
+addEventListener('keydown', (e) => {
+  if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) skipKillcam();
+});
+addEventListener('mousedown', skipKillcam);
 addEventListener('keydown', (e) => {
   if (canon(e.code) === 'KeyB' && !e.repeat && appState === APP_STATE.PLAYING
       && ((match.running && !match.outro) || net.playing)) emotes.openWheel();
@@ -1486,7 +1643,7 @@ async function boot() {
   // The item models are held to a short deadline: past it the primitive stand-ins stay and the
   // real ones swap in whenever they arrive (itemModels.js refills the live meshes).
   const itemsReady = Promise.race([loadItemModels(), new Promise((r) => setTimeout(r, 2500))]);
-  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier([savedSkin()].filter(Boolean)), loadViewModels(), loadGlbMaps(), itemsReady]);
+  const [soldierOk, blasters, glbOk] = await Promise.all([loadSoldier([worn().operator].filter(Boolean)), loadViewModels(), loadGlbMaps(), itemsReady]);
   // Extra bot animation clips, if any have been added. Must run after loadSoldier and
   // before the first Bot is constructed, because clips bind at mesh-build time.
   const extraAnims = soldierOk ? await loadBotAnimations() : [];
@@ -1528,6 +1685,9 @@ async function boot() {
   applySettings();
   // Unplugging (or plugging in) re-applies the whole budget: lights, pixel ratio, detail, frame cap.
   initPower(applySettings);
+  lobby.init();
+  account.init();
+  lobby.setExtent(currentPlan()?.extent ?? 46);
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local
@@ -1547,7 +1707,7 @@ async function boot() {
     getLightBudget: () => activeLightBudget, ZONE_MULT, BOT_RANGE_BAND, losClear, consumables,
     DIFFICULTY, AIM, aimProfile, startDuelRound, fireWeapon, combatants, killCombatant, bullets,
     WEAPONS, WEAPON_BY_ID, playerSpread, recoilStep, tryFire, switchWeapon, throwGrenade, clearGrenades,
-    predictThrow, updateThrowPreview, grenades, net, warmScene,
+    hardpoint, friends, predictThrow, updateThrowPreview, grenades, net, warmScene, killcam, lobby, account, worn, applyDamage,
     forceHudTick: (dt) => updateHudTimers(dt),
     currentMapId: getCurrentMapId, findPath, respawnPlayer,
     forceUpdatePlates: (dt) => updatePlates(dt),

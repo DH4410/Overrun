@@ -2,6 +2,10 @@ import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
 import { killLine } from './sim/killinfo.js';
 import { WEAPON_BY_ID } from './sim/weaponData.js';
+import { applyMatch, loadProfile, rankTitle, saveProfile } from './profile.js';
+import { levelRewards } from './rewards.js';
+import { renderPlayerCard } from './playercard.js';
+import { AFTER_TIME } from './killcam.js';
 import {
   CONFIG,
   SPAWN_INVULN,
@@ -9,7 +13,28 @@ import {
   TEAM_COLOR,
 } from './config.js';
 
-export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL' };
+export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVIVAL', duel: '1V1 DUEL', gg: 'GUN GAME', hp: 'HARDPOINT' };
+/**
+ * Gun Game: everyone starts on the same gun and every kill hands the killer the next one. The
+ * ladder runs short barrels to long ones, so the opening kills are at arm's length and the last
+ * is a sniper shot. Finish it first to win. Owning the guns is not required: the ladder lends them.
+ */
+export const GUN_LADDER = ['pistol', 'mp', 'revolver', 'smg', 'ashotgun', 'shotgun', 'ar', 'lmg', 'dmr', 'sniper'];
+export const ladderGun = (kills) => GUN_LADDER[Math.min(Math.max(0, kills), GUN_LADDER.length - 1)];
+/**
+ * Survival is meant to be a power fantasy you can lose, not a wall. Waves are small, hostiles walk
+ * in a few at a time instead of all at once, the early waves are the easy tier whatever the lobby
+ * says, and clearing a wave patches you up.
+ */
+const SV_ORDER = ['easy', 'medium', 'hard'];
+export const svWaveSize = (wave) => Math.min(14, 1 + Math.ceil(wave * 1.5));
+export const svWaveCap = (wave) => Math.min(6, 2 + Math.ceil(wave / 2));
+export function svWaveTier(wave, baseKey) {
+  const cap = wave <= 3 ? 0 : wave <= 6 ? 1 : 2;
+  return SV_ORDER[Math.min(Math.max(0, SV_ORDER.indexOf(baseKey)), cap)];
+}
+const SV_TRICKLE = 2.5;
+const SV_HEAL = 60;
 export const APP_STATE = Object.freeze({ MENU: 0, PLAYING: 1, PAUSED: 2, SETTINGS: 3 });
 
 export function createMatchState() {
@@ -24,6 +49,9 @@ export function createMatchState() {
     kills: 0,
     wave: 1,
     waveBreak: 0,
+    svQueue: 0,
+    svTimer: 0,
+    svBase: 'medium',
     // Duel only. roundsA is the player's, roundsB the bot's; roundReset counts down the
     // interval between rounds and is <= 0 whenever a round is actually being played.
     roundsA: 0,
@@ -31,6 +59,19 @@ export function createMatchState() {
     lastDeath: null,          // who killed the player, with what: { name, weapon, head, flags, dist }
     roundTime: 0,
     roundReset: 0,
+    // The player's own run, for XP and the kill medals.
+    headshots: 0,
+    streak: 0,
+    bestStreak: 0,
+    multi: 0,
+    multiAt: -99,
+    medal: '',
+    // Chains reached (by length) and revenge kills, for XP; who last killed you, and the streak that death cost.
+    multis: {},
+    revenges: 0,
+    nemesis: null,
+    lostStreak: 0,
+    tags: [],
   };
 }
 
@@ -67,6 +108,9 @@ export function createMatchRuntime({
   clearAlertsOn,
   stopFiring,
   isPointerLocked,
+  getKillcam = () => null,
+  hardpoint = null,
+  showStreak = null,
   elements: el,
 }) {
 let nameSeed = 0;
@@ -82,7 +126,19 @@ function addBot(team, weaponId = null) {
   return b;
 }
 
+/** Bring in `wave`: swap the bot tier, place the first few, queue the rest. */
+function startSurvivalWave() {
+  clearBots();
+  match.diff = DIFFICULTY[svWaveTier(match.wave, match.svBase)];
+  const total = svWaveSize(match.wave);
+  const first = Math.min(total, svWaveCap(match.wave));
+  for (let i = 0; i < first; i++) addBot(TEAM.RED);
+  match.svQueue = total - first;
+  match.svTimer = SV_TRICKLE;
+}
+
 function clearBots() {
+  hardpoint?.end();
   for (const [, m] of allyMarks) m.root.remove();
   allyMarks.clear();
   for (const b of bots) {
@@ -106,6 +162,7 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId(), { hold = fal
   // The duel is the elite bot's mode — the menu difficulty does not apply to it. Note that
   // a tier also carries `bots`, the DM headcount, so elite must specify bots: 1.
   match.diff = mode === 'duel' ? DIFFICULTY.elite : DIFFICULTY[diffKey];
+  match.svBase = DIFFICULTY[diffKey] ? diffKey : 'medium';
   match.running = !hold;
   setAppState(hold ? APP_STATE.MENU : APP_STATE.PLAYING);
   match.time = 0;
@@ -115,6 +172,10 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId(), { hold = fal
   match.roundsA = 0; match.roundsB = 0;
   match.roundTime = CONFIG.DUEL_ROUND_SECONDS; match.roundReset = 0;
   match.outro = null;
+  getKillcam()?.reset();
+  match.headshots = 0; match.streak = 0; match.bestStreak = 0; match.multi = 0; match.multiAt = -99; match.medal = '';
+  match.multis = {}; match.revenges = 0; match.nemesis = null; match.lostStreak = 0; match.tags = [];
+  showStreak?.(0);
   document.body.classList.remove('outro');
   $id('outro').className = '';
   $id('podium').className = '';
@@ -122,13 +183,14 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId(), { hold = fal
 
   player.name = (name || 'PLAYER').toUpperCase().slice(0, 12);
   player.kills = 0; player.deaths = 0;
-  player.team = mode === 'tdm' ? TEAM.BLUE : TEAM.SOLO;
+  player.team = mode === 'tdm' || mode === 'hp' ? TEAM.BLUE : TEAM.SOLO;
   // A duel is a mirror match, so both sides start on the same gun (when the player carries
   // it) rather than the player opening on whatever the bot did not roll. Otherwise you spawn
   // holding slot 1.
   player.loadout = loadLoadout();
   match.loadout = mode === 'duel' && player.loadout.includes(CONFIG.DUEL_WEAPON)
     ? CONFIG.DUEL_WEAPON : player.loadout[0];
+  if (mode === 'gg') { player.loadout = [ladderGun(0)]; match.loadout = ladderGun(0); }
   player.current = match.loadout;
   player.cooking = null;
   player.cooldown = 0; player.reloading = 0;
@@ -141,16 +203,20 @@ function startMatch(mode, diffKey, name, mapId = getCurrentMapId(), { hold = fal
   resetConsumables();
   el.feed.innerHTML = '';
 
-  if (mode === 'tdm') {
+  if (mode === 'tdm' || mode === 'hp') {
     for (let i = 0; i < 2; i++) addBot(TEAM.BLUE);
     for (let i = 0; i < 3; i++) addBot(TEAM.RED);
   } else if (mode === 'dm') {
     for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO);
+  } else if (mode === 'gg') {
+    for (let i = 0; i < match.diff.bots; i++) addBot(TEAM.SOLO, ladderGun(0));
   } else if (mode === 'duel') {
     addBot(TEAM.RED, CONFIG.DUEL_WEAPON);
   } else {
-    for (let i = 0; i < 4; i++) addBot(TEAM.RED);
+    startSurvivalWave();
   }
+
+  if (mode === 'hp') hardpoint?.begin();
 
   const playerBlipColor = TEAM_COLOR[player.team];
   playerBlip.traverse((o) => { if (o.material) o.material.color.setHex(playerBlipColor); });
@@ -175,7 +241,24 @@ function beginMatch() {
   Audio.init();
   Audio.startAmbient();
   Audio.roundStart();
+  playIntro(match.mode);
   requestLock();
+}
+
+/** Out of black: the mode and the map, then the HUD slides in. Scenery only, nothing waits on it. */
+let introTimer = 0;
+function playIntro(mode) {
+  const box = $id('intro');
+  if (!box) return;
+  $id('in-kicker').textContent = match.diff && mode !== 'duel' && mode !== 'sv' ? `${(match.diff.label ?? '').toUpperCase()}` : '';
+  $id('in-title').textContent = MODE_LABEL[mode];
+  $id('in-map').textContent = getCurrentMapId().replace(/[-_]/g, ' ').toUpperCase();
+  box.className = '';
+  void box.offsetWidth;                    // restart the animation when a match starts right after another
+  box.className = 'on';
+  document.body.classList.add('intro');
+  clearTimeout(introTimer);
+  introTimer = setTimeout(() => { box.className = ''; document.body.classList.remove('intro'); }, 2200);
 }
 
 /**
@@ -204,6 +287,7 @@ function standings() {
 function endMatch(title, sub, { instant = false } = {}) {
   if (match.outro) return;
   match.running = false;
+  getKillcam()?.reset();
   stopFiring();
   showBoard(false);
   showPause(false);
@@ -236,7 +320,18 @@ function finishMatch(title, sub, podium) {
   el.hud.classList.add('hidden');
   el.menu.classList.remove('hidden');
   el.menuResult.textContent = `${title} — ${sub}`;
-  if (podium) showPodium(outcome, title, sub);
+  // Only a match played to its end pays out; leaving from the pause screen (podium false) does not.
+  let progress = null;
+  if (podium) {
+    progress = applyMatch(loadProfile(), {
+      outcome, kills: player.kills, deaths: player.deaths,
+      headshots: match.headshots, bestStreak: match.bestStreak,
+      multis: match.multis, revenges: match.revenges,
+    });
+    saveProfile(progress.profile);
+  }
+  renderPlayerCard(loadProfile());
+  if (podium) showPodium(outcome, title, sub, progress);
   clearEffects();
 }
 
@@ -244,7 +339,7 @@ function finishMatch(title, sub, podium) {
  * The final standings: the top three on a podium, the winner in the middle and biggest, and
  * everyone else in rows underneath. Built with DOM calls so names are never parsed as HTML.
  */
-function showPodium(outcome, title, sub) {
+function showPodium(outcome, title, sub, progress) {
   const rows = standings();
   $id('pd-kicker').textContent = title === OUTCOME_WORD[outcome] ? MODE_LABEL[match.mode] : `${MODE_LABEL[match.mode]} · ${title}`;
   $id('pd-title').textContent = OUTCOME_WORD[outcome];
@@ -270,9 +365,65 @@ function showPodium(outcome, title, sub) {
     r.append(span('pd-n', `#${j + 4}`), span('pd-nm', c.name), span('pd-k', `${c.kills} K · ${c.deaths} D`));
     rest.appendChild(r);
   });
+  showAward(progress);
   $id('podium').className = `on ${outcome}`;
   $id('podium-close').focus({ preventScroll: true });
 }
+/** The XP breakdown under the podium: each line counts in, then the bar fills and levels roll over. */
+function showAward(progress) {
+  const box = $id('pd-xp');
+  if (!box || !progress) { box?.classList.remove('on'); return; }
+  const lines = $id('pd-xplines');
+  lines.textContent = '';
+  progress.award.lines.forEach((l, i) => {
+    const r = document.createElement('div');
+    r.className = 'xp-line';
+    r.style.animationDelay = `${1.3 + i * 0.18}s`;
+    r.append(span('xp-l', l.label), span('xp-v', `+${l.xp}`));
+    lines.appendChild(r);
+  });
+  const tot = document.createElement('div');
+  tot.className = 'xp-line total';
+  tot.style.animationDelay = `${1.3 + progress.award.lines.length * 0.18}s`;
+  tot.append(span('xp-l', 'TOTAL XP'), span('xp-v', `+${progress.award.total}`));
+  lines.appendChild(tot);
+  const pay = document.createElement('div');
+  pay.className = 'xp-line credits';
+  pay.style.animationDelay = `${1.3 + (progress.award.lines.length + 1) * 0.18}s`;
+  const coin = document.createElement('i');
+  coin.className = 'coin';
+  const paid = span('xp-v', `+${progress.credits}`);
+  paid.prepend(coin);
+  pay.append(span('xp-l', 'CREDITS'), paid);
+  lines.appendChild(pay);
+  const { before, after } = progress;
+  const fill = $id('pd-xpfill');
+  const frac = (x) => `${Math.round((x.into / x.need) * 100)}%`;
+  // Start where the bar was; a level-up fills it, then lands on the new level's progress.
+  fill.style.transition = 'none';
+  fill.style.width = frac(before);
+  void fill.offsetWidth;
+  const t = 1.3 + (progress.award.lines.length + 1) * 0.18 + 0.2;
+  setTimeout(() => {
+    fill.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
+    fill.style.width = progress.leveledUp ? '100%' : frac(after);
+    if (progress.leveledUp) {
+      setTimeout(() => {
+        fill.style.transition = 'none'; fill.style.width = '0%'; void fill.offsetWidth;
+        fill.style.transition = 'width .6s ease-out'; fill.style.width = frac(after);
+      }, 950);
+    }
+  }, t * 1000);
+  // What the levels just gained hand out, so a new operator or finish is never a surprise discovered later.
+  const unlocked = [];
+  for (let l = before.level + 1; l <= after.level; l++) for (const r of levelRewards(l)) unlocked.push(r.name);
+  $id('pd-xplvl').textContent = progress.leveledUp
+    ? `LEVEL UP  ·  ${before.level} → ${after.level}  ·  ${rankTitle(after.level)}${unlocked.length ? `  ·  UNLOCKED: ${unlocked.join(', ')}` : ''}`
+    : `LEVEL ${after.level}  ·  ${after.into} / ${after.need} XP`;
+  $id('pd-xplvl').classList.toggle('up', progress.leveledUp);
+  box.classList.add('on');
+}
+
 $id('podium-close')?.addEventListener('click', () => { $id('podium').className = ''; });
 
 /** While you wait to respawn: where you stand, and the table, refreshed a few times a second. */
@@ -306,6 +457,10 @@ function respawnPlayer(immediate = false, at = null) {
   player.health = CONFIG.MAX_HEALTH;
   player.armor = CONFIG.START_ARMOR;
   player.respawnTimer = 0;
+  getKillcam()?.reset();
+  const lost = $id('p-lost'); if (lost) lost.textContent = '';
+  const by = $id('p-killer'); if (by) by.textContent = '';
+  showStreak?.(0);
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
@@ -384,6 +539,27 @@ function endDuelRound(winner) {
   checkWinConditions();
 }
 
+const MULTI_WINDOW = 4;
+const MULTI_MEDAL = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'MEGA KILL'];
+const STREAK_MEDAL = { 3: '3 KILL STREAK', 5: 'RAMPAGE', 7: 'UNSTOPPABLE', 10: 'GODLIKE' };
+// What a streak hands you, on the kill that reaches it. This is the single-player path: online, ammo and
+// health belong to the server and nothing here runs.
+const STREAK_REWARD = { 3: 'RESUPPLY', 5: 'ARMOR', 7: 'MEDKIT', 10: 'FULL KIT' };
+const MIN_STREAK = 3;                   // the shortest run that counts as a streak to lose
+
+function giveStreakReward(kind) {
+  const resupply = kind === 'RESUPPLY' || kind === 'FULL KIT';
+  if (resupply) {
+    for (const [id, a] of Object.entries(player.ammo)) a.reserve = WEAPON_BY_ID[id]?.reserve ?? a.reserve;
+    player.fragCount = Math.max(player.fragCount, 3);
+    updateAmmoHud();
+  }
+  if (kind === 'ARMOR' || kind === 'FULL KIT') player.armor = CONFIG.MAX_ARMOR;
+  if (kind === 'MEDKIT' || kind === 'FULL KIT') player.health = CONFIG.MAX_HEALTH;
+  updateVitals();
+  Audio.streakReward?.();
+}
+
 /** The single place a death is booked, for the player and for bots alike. */
 function killCombatant(target, source, headshot, info = {}) {
   if (source && source !== target) {
@@ -396,8 +572,11 @@ function killCombatant(target, source, headshot, info = {}) {
         if (source.team === TEAM.BLUE) match.scoreA++;
         else if (source.team === TEAM.RED) match.scoreB++;
       }
-    } else if (match.mode === 'dm') {
+    } else if (match.mode === 'hp') {
+      // Hardpoint scores off the zone, not off kills; a kill only clears someone off it.
+    } else if (match.mode === 'dm' || match.mode === 'gg') {
       if (source === player) match.scoreA++;
+      if (match.mode === 'gg') climbLadder(source);
       // scoreB is Red's score in TDM; don't write it here — dmLeader() reads kills directly.
     } else if (match.mode === 'duel') {
       // Rounds are scored in endDuelRound() below, off the death rather than off the kill,
@@ -407,12 +586,52 @@ function killCombatant(target, source, headshot, info = {}) {
     }
   }
   target.deaths++;
+  match.medal = '';
+  match.tags = [];
+  if (source === player && target !== player) {
+    if (headshot) match.headshots++;
+    match.streak++;
+    match.bestStreak = Math.max(match.bestStreak, match.streak);
+    // Kills inside 4 s of each other chain into a multi-kill; a streak is kills without dying.
+    match.multi = match.time - match.multiAt <= MULTI_WINDOW ? match.multi + 1 : 1;
+    match.multiAt = match.time;
+    const chain = Math.min(match.multi, MULTI_MEDAL.length - 1);
+    if (chain >= 2) match.multis[chain] = (match.multis[chain] || 0) + 1;
+    match.medal = MULTI_MEDAL[chain] || STREAK_MEDAL[match.streak] || '';
+    // Killing whoever last killed you.
+    if (match.nemesis && target === match.nemesis) {
+      match.nemesis = null;
+      match.revenges++;
+      match.tags.push('REVENGE');
+      Audio.revenge?.();
+    }
+    const reward = STREAK_REWARD[match.streak];
+    if (reward) {
+      giveStreakReward(reward);
+      showToast(`${match.streak} KILL STREAK · ${reward}`);
+    }
+    showStreak?.(match.streak);
+  }
+  if (target === player) {
+    match.lostStreak = match.streak >= MIN_STREAK ? match.streak : 0;
+    match.nemesis = source && source !== player && bots.includes(source) ? source : null;
+    match.streak = 0;
+    showStreak?.(0, match.lostStreak);
+    const lost = $id('p-lost');
+    if (lost) lost.textContent = match.lostStreak ? `STREAK LOST · ${match.lostStreak} KILLS` : '';
+    const by = $id('p-killer');
+    if (by) by.textContent = source && source !== player && source.name ? `KILLED BY ${source.name}${WEAPON_BY_ID[source.weaponId] ? ` · ${WEAPON_BY_ID[source.weaponId].name}` : ''}` : '';
+  }
   addKillFeed(source, target, headshot, info);
   if (target === player) match.lastDeath = source && source !== target ? { name: source.name, head: headshot, ...info } : null;
 
   if (target === player) {
     player.alive = false;
-    player.respawnTimer = CONFIG.PLAYER_RESPAWN;
+    // A bot's kill gets the kill cam; its length is the respawn wait (the frame loop holds the timer
+    // while it runs and gives the death screen a beat after). Otherwise a slower solo respawn.
+    const cam = match.mode !== 'duel' && source !== player ? getKillcam() : null;
+    const camTime = cam ? cam.begin(source, headshot, { lost: match.lostStreak }) : 0;
+    player.respawnTimer = camTime > 0 ? camTime + AFTER_TIME : CONFIG.PLAYER_RESPAWN;
     if (player.cooking) player.cooking = null;
     stopFiring();
   } else {
@@ -425,6 +644,26 @@ function killCombatant(target, source, headshot, info = {}) {
   checkWinConditions();
 }
 
+/**
+ * A kill in Gun Game: the killer's next gun. The player is handed it at once, with a full magazine;
+ * a bot gets it when it next respawns, which is when a bot picks its gun.
+ */
+function climbLadder(killer) {
+  const id = ladderGun(killer.kills);
+  if (killer !== player) { killer.fixedWeaponId = id; return; }
+  if (killer.kills >= GUN_LADDER.length) return;            // the winning kill: the match ends on it
+  const w = WEAPON_BY_ID[id];
+  player.loadout = [id];
+  match.loadout = id;
+  player.ammo[id] = { mag: w.mag, reserve: w.reserve };
+  player.current = id;
+  player.reloading = 0;
+  player.cooldown = 0.35;
+  player.cooking = null;
+  updateAmmoHud();
+  showToast(`${killer.kills + 1} / ${GUN_LADDER.length}  ·  ${w.name}`);
+}
+
 /** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
 function dmLeader() {
   return bots.reduce((a, b) => (b.kills > a.kills ? b : a), bots[0] || player);
@@ -432,11 +671,18 @@ function dmLeader() {
 
 function checkWinConditions() {
   if (!match.running) return;
-  if (match.mode === 'dm') {
+  if (match.mode === 'gg') {
+    if (player.kills >= GUN_LADDER.length) return endMatch('VICTORY', 'Finished the ladder');
+    for (const b of bots) if (b.kills >= GUN_LADDER.length) return endMatch('DEFEAT', `${b.name} finished the ladder`);
+  } else if (match.mode === 'dm') {
     if (player.kills >= CONFIG.DM_TARGET) return endMatch('VICTORY', `${player.kills} kills`);
     for (const b of bots) {
       if (b.kills >= CONFIG.DM_TARGET) return endMatch('DEFEAT', `${b.name} reached ${CONFIG.DM_TARGET}`);
     }
+  } else if (match.mode === 'hp') {
+    const goal = hardpoint?.target ?? 100;
+    if (match.scoreA >= goal) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
+    if (match.scoreB >= goal) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
   } else if (match.mode === 'tdm') {
     if (match.scoreA >= CONFIG.TDM_TARGET) return endMatch('BLUE TEAM WINS', `${match.scoreA} – ${match.scoreB}`);
     if (match.scoreB >= CONFIG.TDM_TARGET) return endMatch('RED TEAM WINS', `${match.scoreB} – ${match.scoreA}`);
@@ -451,7 +697,7 @@ function checkWinConditions() {
   }
 }
 
-function updateMatch(dt) {
+function updateMatch(dt, realDt = dt) {
   if (!match.running) return;
   match.time += dt;
 
@@ -465,29 +711,48 @@ function updateMatch(dt) {
       if (match.roundTime <= 0) { match.roundTime = 0; endDuelRound(null); }
     }
   } else if (match.mode === 'sv') {
-    // Endless waves: 4 -> 6 -> 8 ... with a short breather between them.
-    const anyAlive = bots.some((b) => b.alive);
-    if (!anyAlive) {
+    const alive = bots.reduce((n, b) => n + (b.alive ? 1 : 0), 0);
+    if (match.svQueue > 0) {
+      match.svTimer -= dt;
+      if (match.svTimer <= 0 && alive < svWaveCap(match.wave)) {
+        addBot(TEAM.RED);
+        match.svQueue--;
+        match.svTimer = SV_TRICKLE;
+      }
+    } else if (alive === 0) {
       if (match.waveBreak <= 0) {
-        match.waveBreak = 3.0;
+        match.waveBreak = 4.0;
+        if (player.alive) {
+          player.health = Math.min(CONFIG.MAX_HEALTH, player.health + SV_HEAL);
+          player.armor = Math.min(CONFIG.MAX_ARMOR, player.armor + 25);
+          resetPlayerAmmo();
+          updateVitals();
+          updateAmmoHud();
+        }
         showToast(`WAVE ${match.wave} CLEARED`);
       } else {
         match.waveBreak -= dt;
         if (match.waveBreak <= 0) {
           match.wave++;
-          clearBots();
-          const n = 2 + match.wave * 2;
-          for (let i = 0; i < n; i++) addBot(TEAM.RED);
-          showToast(`WAVE ${match.wave} — ${n} HOSTILES`);
+          startSurvivalWave();
+          showToast(`WAVE ${match.wave}`);
           match.waveBreak = 0;
         }
       }
     }
   } else {
     match.timeLeft -= dt;
+    if (match.mode === 'hp' && hardpoint) {
+      const scored = hardpoint.update(dt, combatants);
+      if (scored === TEAM.BLUE) match.scoreA++; else if (scored === TEAM.RED) match.scoreB++;
+      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); }
+      hardpoint.updateHud();
+      checkWinConditions();
+      if (!match.running) return;
+    }
     if (match.timeLeft <= 0) {
       match.timeLeft = 0;
-      if (match.mode === 'dm') {
+      if (match.mode === 'dm' || match.mode === 'gg') {
         const top = dmLeader();
         if (player.kills > top.kills) endMatch('TIME — VICTORY', `${player.kills} kills`);
         else if (player.kills < top.kills) endMatch('TIME — DEFEAT', `${top.kills} kills`);
@@ -505,7 +770,7 @@ function updateMatch(dt) {
   // thing left here is the death overlay, counting down to the next round rather than to
   // a respawn.
   if (!player.alive) {
-    player.respawnTimer -= dt;
+    player.respawnTimer -= realDt;           // real time: the kill cam's slow motion must not stretch the wait
     el.pause.classList.add('on', 'dead');
     deathBoardTimer -= dt;
     if (deathBoardTimer <= 0) { deathBoardTimer = 0.25; renderDeathBoard(); }
@@ -550,7 +815,7 @@ function updateMatch(dt) {
     el.tbA.textContent = match.kills;
     el.tbB.textContent = `W${match.wave}`;
     el.tbTime.textContent = formatTime(match.time);
-  } else if (match.mode === 'tdm') {
+  } else if (match.mode === 'tdm' || match.mode === 'hp') {
     el.tbA.textContent = match.scoreA;
     el.tbB.textContent = match.scoreB;
     el.tbTime.textContent = formatTime(match.timeLeft);

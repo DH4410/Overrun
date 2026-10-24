@@ -7,7 +7,7 @@
  */
 import { ITEMS, TIERS, packItems, packTiers, unpackItems, unpackTiers, useProgress } from './items.js';
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
@@ -28,7 +28,17 @@ export const BTN = {
 /** Bits a repeated command drops, so a late packet cannot reload or jump twice. */
 export const ONE_SHOT_BITS = BTN.JUMP | BTN.RELOAD;
 
-export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag', 'claw'];
+/**
+ * The order is the wire index. The original five guns, frag and claw keep their indices (tiers,
+ * drops and old recordings count on them); the later guns are appended after claw.
+ */
+export const WEAPON_IDS = ['pistol', 'ar', 'smg', 'shotgun', 'sniper', 'frag', 'claw', 'revolver', 'mp', 'lmg', 'ashotgun', 'dmr'];
+/** The guns whose ammo rides in a snapshot: everything but the thrown frag and the zombies' claw, in wire order. */
+export const GUN_WIRE_IDS = WEAPON_IDS.filter((id) => id !== 'frag' && id !== 'claw');
+/** 'claw' is the zombies' and never selectable, and an index off the end is forged: both get the frag slot. */
+function selectableWeapon(i) {
+  return i === WEAPON_IDS.indexOf('claw') || i >= WEAPON_IDS.length ? WEAPON_IDS.indexOf('frag') : i;
+}
 /** Index 0 is "not emoting". Matches EMOTES in src/emotes.js. */
 export const EMOTE_IDS = [null, 'wave', 'hiphop', 'robot', 'chicken', 'macarena', 'ymca', 'thriller', 'victory'];
 export const MODE_IDS = ['dm', 'tdm', 'duel', 'ctf', 'survival', 'war', 'zombie'];
@@ -119,7 +129,7 @@ export function decodeInput(buf) {
       yawQ: v.getUint16(o + 2),
       pitchQ: Math.max(-32000, Math.min(32000, v.getInt16(o + 4))),
       buttons: cleanButtons(v.getUint16(o + 6)),
-      weapon: Math.min(v.getUint8(o + 8), WEAPON_IDS.indexOf('frag')),   // 'claw' is the zombies' and never selectable
+      weapon: selectableWeapon(v.getUint8(o + 8)),
       emote: v.getUint8(o + 9) < EMOTE_IDS.length ? v.getUint8(o + 9) : 0,
     });
     o += INPUT_CMD;
@@ -187,7 +197,7 @@ export function writeYou(w, p) {
   w.f64(p.slideTime); w.f64(p.airVy); w.f64(p.landTime);
   w.f64(p.health); w.f64(p.armor);
   w.u8(WEAPON_IDS.indexOf(p.current));
-  for (const id of WEAPON_IDS.slice(0, 5)) {
+  for (const id of GUN_WIRE_IDS) {
     const a = p.ammo[id] || { mag: 0, reserve: 0 };
     w.u8(a.mag); w.u16(a.reserve);
   }
@@ -214,7 +224,7 @@ export function readYou(r) {
   y.health = r.f64(); y.armor = r.f64();
   y.current = WEAPON_IDS[r.u8()] ?? 'pistol';
   y.ammo = {};
-  for (const id of WEAPON_IDS.slice(0, 5)) y.ammo[id] = { mag: r.u8(), reserve: r.u16() };
+  for (const id of GUN_WIRE_IDS) y.ammo[id] = { mag: r.u8(), reserve: r.u16() };
   y.fragCount = r.u8(); y.smokeCount = r.u8();
   y.cooldown = r.f64(); y.fireCarry = r.f64(); y.reloading = r.f64(); y.reloadTotal = r.f64();
   y.bloom = r.f64(); y.sprayIndex = r.u8(); y.sinceShot = r.f64();

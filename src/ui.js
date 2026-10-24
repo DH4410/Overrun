@@ -1,5 +1,7 @@
 import { ACTIONS, bindKey, codeOf, keyName, resetKeybinds } from './keybinds.js';
 import { loadScreen } from './loading.js';
+import { loadProfile } from './profile.js';
+import { renderPlayerCard } from './playercard.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
@@ -18,9 +20,14 @@ export function createUiRuntime({
   settingsState,
   requestLock,
   endMatch,
+  // The lobby shows the map you pick behind the menu (see previewMap in main.js).
+  onMapPick = () => {},
 }) {
 function bindMenu() {
   let mode = 'dm', diff = 'medium', map = defaultMap();
+
+  // The lobby card shows the saved career; the callsign field is the card's name line.
+  renderPlayerCard(loadProfile());
 
   // Mode and map are each a card in the sidebar that opens a popout of big tiles; picking a
   // tile closes it. Esc, the X, or a click on the backdrop closes it without a change.
@@ -52,6 +59,7 @@ function bindMenu() {
       document.querySelectorAll('#maps [data-map]').forEach((x) => x.classList.toggle('active', x === b));
       showMap();
       closePops();
+      onMapPick(map);
     });
   }
   showMap();
@@ -130,13 +138,12 @@ function bindMenu() {
  * is one line and the control, the label, the live read-out and the persistence all follow.
  */
 const SETTINGS_SCHEMA = [
-  { group: 'GRAPHICS' },
+  { group: 'VIDEO', icon: 'M3 5h18v11H3zM8 20h8M12 16v4' },
   {
     key: 'quality', type: 'choice', label: 'Quality preset',
     options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
     hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
   },
-  { group: 'LAPTOP & BATTERY' },
   {
     key: 'frameCap', type: 'choice', label: 'Frame rate cap',
     options: FRAME_CAPS.map((v) => ({ value: v, label: v === 0 ? 'UNCAPPED' : String(v) })),
@@ -168,7 +175,10 @@ const SETTINGS_SCHEMA = [
     hint: 'The small dressing on the maps: signs and lettering, fittings, paint and stains, '
         + 'grass tufts. Purely visual; turning it off saves fill rate and memory bandwidth.',
   },
-  { group: 'EFFECTS' },
+  { group: 'FX', icon: 'M12 3l2.2 5.6L20 10l-4.4 3.6L17 19l-5-3-5 3 1.4-5.4L4 10l5.8-1.4z' },
+  { key: 'screenShake', type: 'range', label: 'Screen shake', min: 0, max: 1, step: 0.05,
+    hint: 'How hard the view shakes when you fire, are hit or stand near a blast. 0 turns it off.' },
+  { key: 'viewBob', type: 'toggle', label: 'View bob' },
   { key: 'fxLowHealth', type: 'toggle', label: 'Low-health desaturation',
     hint: 'The picture drains of colour as your health runs low, along with the red vignette.' },
   { key: 'fxSpeed', type: 'toggle', label: 'Sprint speed effect',
@@ -181,7 +191,7 @@ const SETTINGS_SCHEMA = [
     hint: 'An enemy blinks white for an instant when you hit them.' },
   { key: 'lowAmmoCue', type: 'toggle', label: 'Low-ammo click',
     hint: 'A metallic tick on the last few shots so you know to reload without looking.' },
-  { group: 'CONTROLS' },
+  { group: 'AIM', icon: 'M12 4v5M12 15v5M4 12h5M15 12h5M12 12h.01' },
   { key: 'touchpad', type: 'toggle', label: 'I am using a touchpad',
     hint: 'One switch for laptop play: fast swipes turn further, right-click toggles aim, and aim assist slows the crosshair over enemies so you stop on '
         + 'target. The individual options below are left as you set them.' },
@@ -190,31 +200,34 @@ const SETTINGS_SCHEMA = [
   { key: 'rawInput', type: 'toggle', label: 'Raw mouse input',
     hint: 'Bypasses the operating system\'s pointer acceleration so the same hand movement always '
         + 'turns the same distance. Applies the next time you click into the game.' },
-  { key: 'fov', type: 'range', label: 'Field of view', min: 60, max: 100, step: 1, unit: '\u00b0',
+  { key: 'fov', type: 'range', label: 'Field of view', min: 60, max: 100, step: 1, unit: '°',
     hint: 'Vertical field of view while hip-firing. Wider sees more of the sides but makes enemies smaller.' },
   { key: 'invertY', type: 'toggle', label: 'Invert vertical look' },
-  { key: 'viewBob', type: 'toggle', label: 'View bob' },
-  { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle' ,
-    hint: 'Trackpad friendly — right-click toggles aim instead of having to hold it.' },
-  { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
-  { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
-  { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
-    hint: 'Fast swipes turn further, slow ones are untouched — so a trackpad can manage a 180 '
-        + 'without giving up fine aim.' },
+  { key: 'toggleAim', type: 'toggle', label: 'Aim: press to toggle',
+    hint: 'Trackpad friendly: right-click toggles aim instead of holding it.' },
   { key: 'aimAssist', type: 'range', label: 'Aim assist', min: 0, max: 1, step: 0.05,
     hint: '0 is off. Up to 0.5 it only slows your crosshair while it is over a visible enemy, '
         + 'so you stop on target instead of overshooting — it never moves your aim. Past 0.5 it '
         + 'also pulls, gently.' },
-  { group: 'KEYBINDS' },
+  { key: 'trackpadLook', type: 'toggle', label: 'Trackpad look boost',
+    hint: 'Fast swipes turn further, slow ones are untouched — so a trackpad can manage a 180 '
+        + 'without giving up fine aim.' },
+  { group: 'MOVE', icon: 'M5 18l5-5 3 3 6-8M15 8h4v4' },
+  { key: 'toggleCrouch', type: 'toggle', label: 'Crouch: press to toggle' },
+  { key: 'arrowKeys', type: 'toggle', label: 'Arrow keys also move' },
+  { group: 'KEYS', icon: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8' },
   { type: 'keybinds' },
-  { group: 'INTERFACE' },
+  { group: 'HUD', icon: 'M4 6h16v12H4zM4 10h16' },
   { key: 'crosshairColor', type: 'color', label: 'Crosshair colour' },
   { key: 'crosshairGap', type: 'range', label: 'Crosshair gap', min: 0, max: 20, step: 1, unit: 'px' },
   { key: 'showDamageNumbers', type: 'toggle', label: 'Floating damage numbers' },
-  { key: 'showEnemyHealth', type: 'toggle', label: 'Show enemy health bars',
+  { key: 'showEnemyHealth', type: 'toggle', label: 'Enemy health bars',
     hint: 'Off by default — the damage numbers already tell you how hard you hit.' },
-  { group: 'AUDIO' },
+  { key: 'highContrast', type: 'toggle', label: 'High contrast',
+    hint: 'Brighter secondary text, solid panels and heavier shadows, for bright rooms or small screens.' },
+  { group: 'AUDIO', icon: 'M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 0 1 0 6' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
+  { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
 ];
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */
@@ -288,22 +301,43 @@ function buildKeybinds() {
   draw();
   return box;
 }
+/** The page being shown, remembered while the panel is open. */
+let settingsPage = 'VIDEO';
 
 function buildSettingsPanel() {
   const host = $('settings-body');
   if (!host) return;
   host.innerHTML = '';
 
+  const nav = $('set-nav');
+  if (nav) nav.textContent = '';
+  let page = host;
+  const show = (name) => {
+    settingsPage = name;
+    host.querySelectorAll('.set-page').forEach((x) => { x.hidden = x.dataset.page !== name; });
+    nav?.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.page === name));
+  };
+  if (!SETTINGS_SCHEMA.some((r) => r.group === settingsPage)) settingsPage = SETTINGS_SCHEMA[0].group;
   for (const row of SETTINGS_SCHEMA) {
     if (row.group) {
-      const h = document.createElement('div');
-      h.className = 'set-group';
-      h.textContent = row.group;
-      host.appendChild(h);
+      // One page at a time: a tab with an icon per page, and only that page's rows on screen.
+      page = document.createElement('div');
+      page.className = 'set-page';
+      page.dataset.page = row.group;
+      page.setAttribute('aria-label', row.group);
+      host.appendChild(page);
+      if (nav) {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.dataset.page = row.group;
+        tab.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${row.icon}"/></svg><span>${row.group}</span>`;
+        tab.addEventListener('click', () => show(row.group));
+        nav.appendChild(tab);
+      }
       continue;
     }
 
-    if (row.type === 'keybinds') { host.appendChild(buildKeybinds()); continue; }
+    if (row.type === 'keybinds') { page.appendChild(buildKeybinds()); continue; }
 
     const wrap = document.createElement('label');
     wrap.className = 'set-row';
@@ -358,14 +392,18 @@ function buildSettingsPanel() {
     }
 
     wrap.append(name, ctl);
-    host.appendChild(wrap);
+    // The explanation lives behind a small "i" instead of a paragraph under every row.
     if (row.hint) {
-      const h = document.createElement('div');
-      h.className = 'set-hint';
-      h.textContent = row.hint;
-      host.appendChild(h);
+      const i = document.createElement('i');
+      i.className = 'set-info';
+      i.textContent = 'i';
+      i.title = row.hint;
+      wrap.title = row.hint;
+      name.appendChild(i);
     }
+    page.appendChild(wrap);
   }
+  show(settingsPage);
 }
 
 function showSettings(on) {

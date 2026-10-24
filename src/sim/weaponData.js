@@ -89,6 +89,67 @@ export const WEAPONS = [
     color: 0x232a24, sound: 'sniper',
   },
   {
+    // Two shots to the body, one to the head, and a slow hammer between them. Heavy kick
+    // and a wide bloom: a second shot fired in a hurry misses.
+    id: 'revolver', name: 'REVOLVER', slot: 1, auto: false,
+    damage: 56, speed: 480, cooldown: 0.52, mag: 6, reserve: 36, reload: 2.6,
+    spread: 0.004, pellets: 1, recoil: 0.05, kick: 0.14, zoom: false,
+    rest: 0.0010, move: 0.016, air: 0.070,
+    bloomStep: 0.0120, bloomMax: 0.040, bloomDecay: 0.140,
+    pattern: [[0, 1], [0.15, 1]],
+    color: 0x3a3d42, sound: 'revolver',
+  },
+  {
+    // The pistol turned up: more than twice the rate of fire for a weaker bullet and a cone
+    // that opens fast. Strong at the corner, wasteful across the map.
+    id: 'mp', name: 'MACHINE PISTOL', slot: 1, auto: true,
+    damage: 11, speed: 340, cooldown: 0.055, mag: 24, reserve: 144, reload: 1.5,
+    spread: 0.04, pellets: 1, recoil: 0.011, kick: 0.028, zoom: false,
+    rest: 0.0048, move: 0.0050, air: 0.040,
+    bloomStep: 0.0034, bloomMax: 0.058, bloomDecay: 0.160,
+    pattern: [
+      [0, 1.0], [0.3, 1.0], [-0.4, 0.9], [0.5, 0.85], [-0.5, 0.8], [0.45, 0.75],
+      [-0.4, 0.7], [0.35, 0.7],
+    ],
+    color: 0x2a2d31, sound: 'mp',
+  },
+  {
+    // The deepest magazine and the slowest reload. Settled and crouched it is a laser; on the
+    // move the cone opens wider than any other automatic.
+    id: 'lmg', name: 'LIGHT MACHINE GUN', slot: 2, auto: true,
+    damage: 24, speed: 380, cooldown: 0.085, mag: 100, reserve: 200, reload: 4.6,
+    spread: 0.03, pellets: 1, recoil: 0.015, kick: 0.05, zoom: false,
+    rest: 0.0030, move: 0.021, air: 0.080,
+    bloomStep: 0.0030, bloomMax: 0.050, bloomDecay: 0.090,
+    pattern: [
+      [0, 1.0], [0, 1.1], [0.05, 1.1], [0.15, 1.0], [0.3, 0.9], [0.4, 0.8], [0.25, 0.7],
+      [-0.1, 0.6], [-0.4, 0.55], [-0.6, 0.5], [-0.4, 0.5], [0.0, 0.5], [0.4, 0.5], [0.5, 0.45],
+    ],
+    color: 0x33372f, sound: 'lmg',
+  },
+  {
+    // Self-loading, so it never waits for a pump. Each pellet is weak: three body shots,
+    // not two, which is what keeps it from replacing the pump gun.
+    id: 'ashotgun', name: 'AUTO SHOTGUN', slot: 3, auto: true,
+    damage: 7, speed: 280, cooldown: 0.3, mag: 8, reserve: 48, reload: 3.2,
+    spread: 0.09, pellets: 8, recoil: 0.045, kick: 0.12, zoom: false,
+    rest: 0.0850, move: 0.012, air: 0.050,
+    bloomStep: 0.0030, bloomMax: 0.025, bloomDecay: 0.090,
+    pattern: [[0, 1], [0.3, 0.9], [-0.3, 0.9], [0.2, 0.85]],
+    color: 0x2f2a26, sound: 'ashotgun',
+  },
+  {
+    // Between the rifle and the sniper: a low-power scope, three body shots, and a mag long
+    // enough to correct a miss.
+    id: 'dmr', name: 'MARKSMAN RIFLE', slot: 4, auto: false,
+    damage: 48, speed: 600, cooldown: 0.27, mag: 12, reserve: 48, reload: 2.6,
+    spread: 0.002, pellets: 1, recoil: 0.035, kick: 0.09, zoom: true, zoomFov: 40,
+    rest: 0.0008, move: 0.022, air: 0.100,
+    bloomStep: 0.0100, bloomMax: 0.050, bloomDecay: 0.130,
+    pattern: [[0, 1], [0.2, 0.9], [-0.2, 0.9]],
+    color: 0x2b2f26, sound: 'dmr',
+  },
+  {
     id: 'frag', name: 'FRAG GRENADE', slot: 5, auto: false,
     damage: 0, speed: 0, cooldown: 0.8, mag: 3, reserve: 0, reload: 0,
     spread: 0, pellets: 0, recoil: 0, kick: 0, zoom: false,

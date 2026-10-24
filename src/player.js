@@ -102,6 +102,8 @@ export function createPlayerRuntime({
   // Multiplayer: while getNet().active the server owns the weapons, so swaps and reloads become
   // requests to it (see src/net/client.js) and nothing here fires or throws.
   getNet = () => null,
+  // The kill cam wants to know where each bot bullet landed on you.
+  onPlayerHit = null,
 }) {
 const match = getMatch();
 const online = () => !!getNet()?.active;
@@ -169,7 +171,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
     if (shield === 'break') Audio.shieldBreak(true);
     else if (shield) Audio.shieldHit(true);
     else Audio.hurt();
-    if (source && source !== player) showDamageDirection(source.pos);
+    if (source && source !== player) { showDamageDirection(source.pos); onPlayerHit?.(source, hitPos || target.pos); }
     addShake(0.035);
   } else {
     if (source === player) {
@@ -205,10 +207,10 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
     };
     killCombatant(target, source, headshot, info);
     if (source === player) {
-      showHitMarker('kill');
-      showKillBanner(target, headshot, info);
-      if (headshot) Audio.headshot?.();
-      Audio.kill();
+      showHitMarker('kill', headshot);
+      showKillBanner(target, headshot, info, match.medal, match.tags);
+      if (headshot) Audio.headshotKill?.();
+      Audio.kill(match.streak);
     }
   }
 }
@@ -414,6 +416,7 @@ function tryFire() {
   player.bloom = Math.min(w.bloomMax ?? 0, (player.bloom ?? 0) + (w.bloomStep ?? 0));
   player.sinceShot = 0;
   addViewModelRecoil(w.kick);
+  addShake(w.kick * 0.12);                 // a heavy gun shoves the whole view, not just the barrel
   triggerMuzzleFlash(mzLocal, _v3);
   ejectBrass(mzLocal.clone().add(new THREE.Vector3(0.05, 0.02, 0.12)));
   if (a.mag === 0) startReload();

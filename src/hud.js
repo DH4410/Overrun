@@ -9,6 +9,7 @@ import { ITEMS, TIERS, packItems, useProgress } from './sim/items.js';
 import { WEAPON_IDS } from './sim/protocol.js';
 import { clamp, rand } from './utils.js';
 import { playerSpread } from './weapons.js';
+import { hudIcons } from './gunicons.js';
 
 /** HUD presentation and runtime UI state, isolated from gameplay ownership. */
 export function createHud({
@@ -44,15 +45,45 @@ const el = {
 let hitmarkerTimer = 0, toastTimer = 0;
 
 /**
+ * Weapon pictures for the kill feed and the slot strip. They are rendered from the real gun models
+ * (gunicons.js), once, a moment after boot so the cost never lands in a match. Until then (or with
+ * no WebGL to render them) a slot falls back to its number and a feed row to the gun's name.
+ */
+let iconsReady = false;
+function icons() {
+  if (!iconsReady) return {};
+  return hudIcons();
+}
+setTimeout(() => {
+  try { hudIcons(); iconsReady = true; updateAmmoHud(); } catch { /* no icons; the HUD falls back to text */ }
+}, 2500);
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function glyph(kind) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', `kf-${kind}`);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', kind === 'hs'
+    ? 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM8 0v3M8 13v3M0 8h3M13 8h3'
+    : 'M8 1C4.7 1 2.5 3.3 2.5 6.2c0 1.7.8 3 2 3.9V13h1.6v-1.4h1v1.4h1.8v-1.4h1v1.4h1.6v-2.9c1.2-.9 2-2.2 2-3.9C13.5 3.3 11.3 1 8 1zM5.8 5.2a1.3 1.3 0 110 2.6 1.3 1.3 0 010-2.6zm4.4 0a1.3 1.3 0 110 2.6 1.3 1.3 0 010-2.6z');
+  svg.appendChild(path);
+  return svg;
+}
+
+
+/**
  * The hitmarker, in three weights: a hit, a headshot, a kill. `kind` is 'body', 'head' or
  * 'kill' (true is accepted for 'kill'). Each has its own colour and size, so a headshot that
  * did not kill reads differently from one that did — which was the whole of the "I headshot
  * him and he didn't die, why?" confusion.
  */
-function showHitMarker(kind) {
+function showHitMarker(kind, headshot = false) {
   const k = kind === true ? 'kill' : (kind || 'body');
   el.hitmarker.classList.toggle('kill', k === 'kill');
   el.hitmarker.classList.toggle('head', k === 'head');
+  // A kill by headshot: the red ticks gain a gold ring and a pulse, so it reads at a glance.
+  el.hitmarker.classList.toggle('hskill', k === 'kill' && !!headshot);
   el.hitmarker.style.opacity = '1';
   hitmarkerTimer = k === 'kill' ? 0.35 : 0.18;
 }
@@ -60,22 +91,60 @@ function showHitMarker(kind) {
 /** Kill confirmation under the crosshair: who went down, and whether it was a headshot. */
 let chain = 0, lastKillAt = -1e9;
 
-function showKillBanner(target, headshot, info = {}) {
+/** `info` is { weapon, flags, dist }; `medal` and `extra` are the career's own labels (streaks, revenge). */
+function showKillBanner(target, headshot, info = {}, medal = '', extra = []) {
   if (!el.killbanner) return;
   const now = performance.now() / 1000;
   chain = now - lastKillAt <= MULTIKILL_WINDOW_S ? chain + 1 : 1;
   lastKillAt = now;
   const label = document.getElementById('kb-label');
-  if (label) label.textContent = multiKillLabel(chain);
+  if (label) label.textContent = medal || multiKillLabel(chain);
   el.killbanner.classList.toggle('multi', chain > 1);
   el.kbName.textContent = target.name;
   const tags = killTags({ head: headshot, flags: info.flags, dist: info.dist });
+  for (const t of extra) if (!tags.includes(t)) tags.push(t);
   const tag = document.getElementById('kb-tag');
   if (tag) tag.textContent = tags.join('  \u00b7  ');
+  el.killbanner.classList.toggle('medal', !!medal);
   el.killbanner.classList.toggle('headshot', tags.length > 0);
+  el.killbanner.classList.toggle('revenge', extra.includes('REVENGE'));
+  if (headshot) flashHeadshot();
   el.killbanner.classList.remove('show');
   void el.killbanner.offsetWidth;            // restart the animation for back-to-back kills
   el.killbanner.classList.add('show');
+}
+
+const hsFlash = $('hsflash');
+/** A short gold bloom at the screen's edge for a headshot kill. */
+function flashHeadshot() {
+  if (!hsFlash) return;
+  hsFlash.classList.remove('on');
+  void hsFlash.offsetWidth;
+  hsFlash.classList.add('on');
+}
+
+/**
+ * The streak counter under the score. `n` is the run in progress (0 hides it); `lost` is a run that
+ * has just ended, which turns the counter red and leaves it up until you respawn instead of vanishing.
+ */
+function showStreak(n, lost = 0) {
+  const box = $('streak');
+  if (!box) return;
+  const num = $('streak-n'), lbl = $('streak-l');
+  box.classList.remove('bump', 'ended');
+  if (n > 0) {
+    num.textContent = n;
+    lbl.textContent = n >= 10 ? 'GODLIKE' : n >= 7 ? 'UNSTOPPABLE' : n >= 5 ? 'RAMPAGE' : 'KILL STREAK';
+    box.classList.add('on');
+    void box.offsetWidth;
+    box.classList.add('bump');
+  } else if (lost > 0) {
+    num.textContent = lost;
+    lbl.textContent = 'STREAK ENDED';
+    box.classList.add('on', 'ended');
+  } else {
+    box.classList.remove('on');
+  }
 }
 
 function showToast(text) {
@@ -272,6 +341,7 @@ function updatePlates(dt) {
 function updateVitals() {
   // Critical-health pulse is a class on the panel so the CSS animation owns the timing.
   el.vitals?.classList.toggle('low', player.alive && player.health < 35);
+  el.vitals?.classList.toggle('mid', player.alive && player.health >= 35 && player.health < 65);
   // The chip behind each fill follows it down late (a CSS transition delay), so the chunk a
   // hit took stays visible for a moment; on the way up it hides behind the fill.
   const hp = `scaleX(${clamp(player.health / CONFIG.MAX_HEALTH, 0, 1)})`;
@@ -306,6 +376,12 @@ function updateAmmoHud() {
   const w = currentWeapon();
   el.aname.textContent = w.name;
   tierSig = -1;                    // updateItemHud paints the tier prefix again
+  const ic = icons();
+  const big = $('a-icon');
+  if (big) {
+    big.hidden = !ic[w.id];
+    if (ic[w.id] && big.dataset.w !== w.id) { big.src = ic[w.id]; big.dataset.w = w.id; }
+  }
   if (w.thrown) {
     el.amag.textContent = player.fragCount;
     el.ares.textContent = '∞';
@@ -313,14 +389,27 @@ function updateAmmoHud() {
     const a = player.ammo[w.id];
     el.amag.textContent = a.mag;
     el.ares.textContent = a.reserve;
+    // The count warns you before the click: amber at under a third of the magazine, red and pulsing at none.
+    const box = $('ammo');
+    if (box) {
+      box.classList.toggle('low', a.mag > 0 && a.mag <= Math.max(1, Math.ceil(w.mag * 0.3)));
+      box.classList.toggle('empty', a.mag === 0);
+    }
   }
+  if (w.thrown) $('ammo')?.classList.remove('low', 'empty');
   // Slot strip.
   el.slots.innerHTML = '';
   [...player.loadout, 'frag'].forEach((id, i) => {
     const wp = WEAPONS.find((w) => w.id === id);
     const d = document.createElement('div');
-    d.textContent = keyName(codeOf(`slot${i + 1}`));
     d.title = wp.name;
+    const n = Object.assign(document.createElement('b'), { textContent: keyName(codeOf(`slot${i + 1}`)) });
+    d.appendChild(n);
+    if (ic[wp.id]) {
+      const g = document.createElement('img');
+      g.alt = ''; g.src = ic[wp.id];
+      d.appendChild(g);
+    }
     if (wp.id === player.current) d.className = 'on';
     else if (wp.thrown ? player.fragCount <= 0 : player.ammo[wp.id].mag + player.ammo[wp.id].reserve <= 0) {
       d.className = 'empty';
@@ -345,24 +434,28 @@ function kfSpan(c, label) {
 }
 
 /**
- * One feed row: who, the weapon that did it, how (NOSCOPE, HEADSHOT, MIDAIR, distance), and who.
- * `info` is { weapon, flags, dist }; without a weapon the arrow stands in.
+ * One row: KILLER [gun] [how: NOSCOPE, HEADSHOT, MIDAIR, distance] VICTIM. `info` is { weapon, flags, dist }.
+ * Names are coloured by what they are to you (you, your team, the enemy) and the row's stripe says
+ * whose point it was, so in a team match you can tell "we got one" from "they got one" without
+ * reading a name.
  */
 function addKillFeed(source, target, headshot, info = {}) {
   const row = document.createElement('div');
-  row.className = source === player || target === player ? 'kf mine' : 'kf';
+  const killer = source && source !== target ? feedClass(source) : null;     // me | al | en | null (the world)
+  const side = killer === 'me' || killer === 'al' ? 'good' : 'bad';
+  const teamKill = killer && player.team !== TEAM.SOLO && source.team === target.team;
+  row.className = `kf ${teamKill ? 'tk' : side}${source === player || target === player ? ' mine' : ''}${target === player ? ' died' : ''}`;
   const sSpan = source ? kfSpan(source, source === player ? 'YOU' : source.name)
     : Object.assign(document.createElement('span'), { textContent: 'WORLD' });
   const how = document.createElement('span');
   how.className = 'how';
-  const icon = source && source !== target ? killIcon(info.weapon) : null;
+  const icon = killer ? killIcon(info.weapon ?? (source === player ? player.current : source?.weaponId)) : null;
   if (icon) how.append(icon);
-  else how.append(Object.assign(document.createElement('span'), { className: 'arrow', textContent: source === target ? '\u2620' : '\u203a' }));
+  else how.append(Object.assign(document.createElement('span'), { className: 'arrow', textContent: killer ? '\u203a' : '\u2620' }));
   for (const t of killTags({ head: headshot, flags: info.flags, dist: info.dist })) {
     how.append(Object.assign(document.createElement('span'), { className: t === 'HEADSHOT' ? 'chip hs' : 'chip', textContent: t }));
   }
-  const tSpan = kfSpan(target, target === player ? 'YOU' : target.name);
-  row.append(sSpan, how, tSpan);
+  row.append(sSpan, how, kfSpan(target, target === player ? 'YOU' : target.name));
   el.feed.appendChild(row);
   while (el.feed.children.length > 5) el.feed.firstChild.remove();
   setTimeout(() => { row.style.opacity = '0'; }, 4200);
@@ -374,24 +467,45 @@ function addKillFeed(source, target, headshot, info = {}) {
 function showBoard(on) { el.board.classList.toggle('on', !!on); if (on) refreshBoard(); }
 
 function refreshBoard() {
-  const rows = [player, ...bots.filter((b) => !b.hostile)];
-  rows.sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  const order = (list) => list.slice().sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  const everyone = [player, ...bots.filter((b) => !b.hostile)];
+  const hex = (team) => `#${TEAM_COLOR[team].toString(16).padStart(6, '0')}`;
+  const top = Math.max(1, ...everyone.map((c) => c.kills));
   el.bBody.innerHTML = '';
-  for (const c of rows) {
+
+  const addRow = (c, rank) => {
     const tr = document.createElement('tr');
-    if (c === player) tr.className = 'self';
-    const color = `#${TEAM_COLOR[c.team].toString(16).padStart(6, '0')}`;
+    tr.className = `${c === player ? 'self' : ''}${c.alive ? '' : ' down'}`.trim();
+    tr.style.setProperty('--w', `${Math.round((c.kills / top) * 100)}%`);
     const kd = c.deaths === 0 ? c.kills.toFixed(2) : (c.kills / c.deaths).toFixed(2);
     // Use DOM construction so player names never execute as HTML.
+    const tdRank = Object.assign(document.createElement('td'), { className: 'rk', textContent: rank });
     const tag = Object.assign(document.createElement('span'), { className: 'tag' });
-    tag.style.background = color;
+    tag.style.background = hex(c.team);
     const tdName = document.createElement('td');
+    tdName.className = 'nm';
     tdName.append(tag, c === player ? player.name : c.name);
-    const tdK = Object.assign(document.createElement('td'), { className: 'num', textContent: c.kills });
-    const tdD = Object.assign(document.createElement('td'), { className: 'num', textContent: c.deaths });
-    const tdKD = Object.assign(document.createElement('td'), { className: 'num', textContent: kd });
-    tr.append(tdName, tdK, tdD, tdKD);
+    if (c === player) tdName.appendChild(Object.assign(document.createElement('em'), { textContent: 'YOU' }));
+    const cell = (text, extra = '') => Object.assign(document.createElement('td'), { className: `num ${extra}`.trim(), textContent: text });
+    tr.append(tdRank, tdName, cell(c.kills, 'k'), cell(c.deaths, 'd'), cell(kd, 'kd'));
     el.bBody.appendChild(tr);
+  };
+
+  if (match.mode === 'tdm' || match.mode === 'hp') {
+    // Two blocks, yours first, each headed by its colour and its score.
+    for (const team of [TEAM.BLUE, TEAM.RED]) {
+      const members = order(everyone.filter((c) => c.team === team));
+      const hdr = document.createElement('tr');
+      hdr.className = `team ${team === TEAM.BLUE ? 'blue' : 'red'}`;
+      const th = Object.assign(document.createElement('td'), { colSpan: 5 });
+      th.append(Object.assign(document.createElement('b'), { textContent: team === TEAM.BLUE ? 'YOUR TEAM' : 'ENEMY TEAM' }),
+        Object.assign(document.createElement('span'), { textContent: team === TEAM.BLUE ? match.scoreA : match.scoreB }));
+      hdr.appendChild(th);
+      el.bBody.appendChild(hdr);
+      members.forEach((c, i) => addRow(c, i + 1));
+    }
+  } else {
+    order(everyone).forEach((c, i) => addRow(c, i + 1));
   }
   el.bSub.textContent = match.mode === 'sv'
     ? `WAVE ${match.wave} · ${match.kills} KILLS`
@@ -415,13 +529,18 @@ function updateHudTimers(dt) {
   if (player.reloading > 0) {
     const p = Math.round((1 - player.reloading / player.reloadTotal) * 100);
     el.areload.textContent = `RELOADING ${p}%`;
+    el.areload.classList.add('bar');
+    el.areload.style.setProperty('--p', `${p}%`);
   } else if (player.cooking) {
     const pct = Math.round(clamp(player.chargeTime / CONFIG.THROW_CHARGE_TIME, 0, 1) * 100);
     el.areload.textContent = `${player.cooking.toUpperCase()} POWER ${pct}%`;
+    el.areload.classList.add('bar');
+    el.areload.style.setProperty('--p', `${pct}%`);
   } else {
     const w = currentWeapon();
     const a = !w.thrown && player.ammo[w.id];
     el.areload.textContent = (a && a.mag === 0) ? `PRESS ${keyName(codeOf('reload'))}` : '';
+    el.areload.classList.remove('bar');
   }
   updateCrosshairSpread();
   updateShotReady();
@@ -550,6 +669,7 @@ return {
   el,
   showHitMarker,
   showKillBanner,
+  showStreak,
   showToast,
   showDamageDirection,
   applyCrosshairStyle,

@@ -899,7 +899,7 @@ export class Room {
     const w = WEAPON_BY_ID[WEAPON_IDS[d.a]];
     const a = p.ammo[w.id];
     if (!a) return false;
-    const upgrade = d.b > p.tiers[d.a];
+    const upgrade = d.b > (p.tiers[d.a] ?? d.b);
     if (!upgrade && a.mag >= w.mag && a.reserve >= w.reserve * 1.5) return false;
     if (upgrade) p.tiers[d.a] = d.b;
     a.mag = w.mag;

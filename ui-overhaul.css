@@ -1703,3 +1703,67 @@ body:has(#menu:not(.hidden)) .lk-bal { display: none; }
   .cr-node { padding: 6px 4px 7px; }
 }
 @media (max-height: 640px) { .cr-label-titles { display: none; } }
+
+/* ==========================================================================
+   Spacing system and Locker v3. Everything below scales with the window's height, and nothing
+   touches the edge of its box: text sits at least --pad inside whatever holds it.
+   ========================================================================== */
+:root {
+  --u: clamp(8px, 1.5vh, 16px);              /* the base gap */
+  --pad: clamp(8px, 1.5vh, 14px);            /* the space between a box's edge and what is in it */
+  --bar-lo: #e5484d; --bar-mid: #f3a23f; --bar-hi: #4cc38a;
+}
+
+/* Tabs: the underline sits at the foot of the bar, well clear of the words. */
+#topnav .tabs { align-self: stretch; }
+.tab::after { bottom: 0; height: 3px; }
+
+/* The locker */
+.lk-card { width: min(1240px, 94vw); padding: var(--u) 0 clamp(14px, 2.6vh, 26px); gap: var(--u); }
+.lk-head { padding: 0 2px; }
+.lk-head h2 { font-size: clamp(26px, 4.4vh, 38px); }
+.lk-body { gap: clamp(14px, 2.6vh, 30px); grid-template-columns: minmax(170px, 17%) minmax(0, 1fr) minmax(300px, 35%); }
+.lk-col { gap: var(--u); }
+.lk-label { font-size: 12px; letter-spacing: 3px; color: var(--ink-3); margin: 0; }
+.lk-label b { margin-left: 8px; color: var(--ink); letter-spacing: 2px; font-weight: 700; }
+
+.lk-slots { gap: var(--u); }
+.lk-slots .lk-gun { padding: 0 var(--pad); gap: 12px; align-items: center; }
+.lk-slots .lk-name { font-size: clamp(15px, 2.3vh, 18px); }
+
+.lk-stage { gap: var(--u); }
+.lk-view { min-height: 130px; }
+.lk-tag { left: var(--pad); top: var(--pad); padding: 4px 10px; }
+.lk-name-row { padding: 0 2px; }
+.lk-name-row h3 { font-size: clamp(24px, 4vh, 34px); }
+.lk-facts { gap: clamp(8px, 1.5vh, 14px) clamp(18px, 3vw, 36px); padding: 0 2px; }
+.lk-stat { grid-template-columns: 1fr auto; row-gap: 5px; column-gap: 8px; align-items: baseline; }
+.lk-stat i { font-size: 11px; letter-spacing: 2px; color: var(--ink-3); }
+.lk-stat u { min-width: 0; font-size: 14px; letter-spacing: .5px; }
+.lk-stat b { grid-column: 1 / -1; height: 6px; background: rgba(255, 255, 255, .1); }
+.lk-stat em { background: var(--bar-hi); transition: width .25s; }
+.lk-stat[data-grade="low"] em { background: var(--bar-lo); }
+.lk-stat[data-grade="mid"] em { background: var(--bar-mid); }
+.lk-stat[data-grade="high"] em { background: var(--bar-hi); }
+.lk-stat[data-grade="low"] u { color: #ff8a8e; }
+.lk-stat[data-grade="mid"] u { color: #ffc27a; }
+.lk-stat[data-grade="high"] u { color: #7fe0b0; }
+
+.lk-finish { display: flex; align-items: center; gap: 14px; padding: 0 2px; }
+.lk-finish .lk-label { flex: none; }
+.lk-skins { gap: 10px; flex-wrap: wrap; }
+.lk-skin { width: 30px; height: 30px; padding: 0; justify-content: center; border-radius: 50%; background: none; box-shadow: none; position: relative; }
+.lk-skin i { width: 26px; height: 26px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45); }
+.lk-skin:hover:not(:disabled) { background: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .4); }
+.lk-skin.on { background: none; box-shadow: 0 0 0 2px var(--accent); }
+.lk-skin.locked { opacity: .5; }
+.lk-skin.locked::after { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 2px; background: rgba(7, 10, 15, .9); color: var(--ink); border-radius: 50%; box-sizing: border-box; -webkit-mask: none; mask: none; content: ''; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5);
+  background: rgba(7, 10, 15, .92) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 11h14v9H5zM8 11V8a4 4 0 0 1 8 0v3' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E") center / 9px no-repeat; }
+
+.lk-armory { gap: var(--u); }
+.lk-armory .lk-gun { padding: var(--pad); gap: 6px; }
+.lk-armory .lk-name { font-size: clamp(13px, 2vh, 16px); }
+.lk-price { top: var(--pad); right: var(--pad); }
+.lk-equipped { top: var(--pad); left: var(--pad); }
+@media (max-height: 700px) { .lk-finish { margin-top: 0; } }
+@media (max-height: 560px) { .lk-facts { display: grid; grid-template-columns: repeat(3, 1fr); } .lk-skins { display: flex; } .lk-stat i { font-size: 10px; } }

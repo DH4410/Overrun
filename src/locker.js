@@ -49,14 +49,38 @@ function createPreview(canvas) {
   const cam = new THREE.PerspectiveCamera(28, 1, 0.05, 30);
   const pivot = new THREE.Group();
   scene.add(pivot);
+  pivot.rotation.order = 'ZYX';                       // yaw about the world's up, then tilt about the screen's horizontal
   let model = null, raf = 0, last = 0, frame = 0;
+  let yaw = -0.5, pitch = 0, vel = 0, drag = null, releasedAt = 0;
+
+  // Grab the gun and turn it; let go and it carries on turning by itself after a moment.
+  canvas.style.touchAction = 'none';
+  canvas.style.cursor = 'grab';
+  canvas.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY };
+    vel = 0;
+    canvas.setPointerCapture?.(e.pointerId);
+    canvas.style.cursor = 'grabbing';
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    yaw += dx * 0.012;
+    pitch = clamp(pitch + dy * 0.006, -0.55, 0.55);
+    vel = dx * 0.012;
+  });
+  const letGo = () => { if (!drag) return; drag = null; releasedAt = performance.now(); canvas.style.cursor = 'grab'; };
+  canvas.addEventListener('pointerup', letGo);
+  canvas.addEventListener('pointercancel', letGo);
 
   function fit() {
     const w = canvas.clientWidth || 600, h = canvas.clientHeight || 300;
     if (canvas.width !== w || canvas.height !== h) { r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
   }
 
-  function show(id, skin) {
+  /** Show gun `id`. `skin` is a finish ({ slots }) or null for stock. A new gun starts side-on again. */
+  function show(id, skin, { keepAngle = false } = {}) {
     if (model) { pivot.remove(model); model.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); }
     model = buildGunModel(id);
     applyGunSkin(model, skin);
@@ -68,9 +92,10 @@ function createPreview(canvas) {
     fit();
     // Far enough that the whole gun, barrel to stock, fits across the view with a margin.
     const half = Math.max(size.z, size.y * 2.2, 0.15) / 2;
-    const dist = (half / (Math.tan((cam.fov * Math.PI) / 360) * cam.aspect)) * 1.5;
+    const dist = (half / (Math.tan((cam.fov * Math.PI) / 360) * cam.aspect)) * 1.45;
     cam.position.set(dist, size.y * 0.08, 0);
     cam.lookAt(0, 0, 0);
+    if (!keepAngle) { yaw = -0.5; pitch = 0; vel = 0; releasedAt = performance.now(); }
   }
 
   function loop(t) {
@@ -79,8 +104,13 @@ function createPreview(canvas) {
     const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
     last = t;
     fit();
-    // Sweeps through a side-on view rather than spinning all the way round, which hides the profile.
-    pivot.rotation.y = -0.5 + Math.sin(t / 2600) * 0.55 + dt * 0;
+    if (!drag) {
+      yaw += vel; vel *= 0.9;                          // a flick keeps going, then settles
+      if (Math.abs(vel) < 0.002 && t - releasedAt > 1800) yaw += dt * 0.55;   // idle: a slow full turn
+      pitch *= 0.97;
+    }
+    pivot.rotation.y = yaw;
+    pivot.rotation.z = pitch;
     r.render(scene, cam);
   }
   function start() { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(loop); }
@@ -89,18 +119,20 @@ function createPreview(canvas) {
   return { show, start, stop, dispose };
 }
 
-/** The numbers under the preview: a bar for how it feels and the figure behind it. */
+/** The numbers under the preview: a bar for how it feels, the figure behind it, and a grade that colours the bar. */
 function gunFacts(w) {
   const rpm = Math.round(60 / w.cooldown);
   const perShot = w.pellets > 1 ? `${w.damage} × ${w.pellets}` : `${w.damage}`;
-  return [
+  const score = (v) => String(Math.round(v * 100));
+  const bars = [
     ['DAMAGE', clamp((w.damage * w.pellets) / 110, 0.04, 1), perShot],
     ['FIRE RATE', clamp(1 / w.cooldown / 16, 0.04, 1), `${rpm} RPM`],
-    ['ACCURACY', clamp(1 - w.rest / 0.085, 0.04, 1), ''],
-    ['MOBILITY', clamp(1 - w.move / 0.034, 0.04, 1), ''],
+    ['ACCURACY', clamp(1 - w.rest / 0.085, 0.04, 1), null],
+    ['MOBILITY', clamp(1 - w.move / 0.034, 0.04, 1), null],
     ['MAGAZINE', clamp(w.mag / 30, 0.04, 1), `${w.mag} / ${w.reserve}`],
     ['RELOAD', clamp(1 - w.reload / 3.2, 0.04, 1), `${w.reload.toFixed(1)} S`],
   ];
+  return bars.map(([label, v, text]) => [label, v, text ?? score(v), v < 0.34 ? 'low' : v < 0.67 ? 'mid' : 'high']);
 }
 
 /**
@@ -116,7 +148,7 @@ export function createLocker({
   // Credits: whether a gun is yours, the balance, and how to pay for one.
   gunOwned = () => true, getBalance = () => 0, buyGun = () => false,
 }) {
-  let root = null, sel = 0, shown = 'pistol', preview = null;
+  let root = null, sel = 0, shown = 'pistol', preview = null, previewed = null;
 
   function build() {
     root = document.createElement('div');
@@ -135,8 +167,7 @@ export function createLocker({
             <div class="lk-view"><canvas id="lk-canvas"></canvas><div class="lk-tag" id="lk-tag"></div></div>
             <div class="lk-name-row"><h3 id="lk-gname"></h3><span id="lk-gcls"></span><button id="lk-buy" type="button" hidden><i class="coin"></i><b></b></button></div>
             <div class="lk-facts" id="lk-facts"></div>
-            <div class="lk-label">FINISH</div>
-            <div class="lk-skins" id="lk-skins"></div>
+            <div class="lk-finish"><div class="lk-label">FINISH <b id="lk-fname"></b></div><div class="lk-skins" id="lk-skins"></div></div>
           </section>
           <section class="lk-col lk-right"><div class="lk-label">ARMORY</div><div class="lk-armory" id="lk-armory"></div></section>
         </div>
@@ -209,13 +240,14 @@ export function createLocker({
     const facts = root.querySelector('#lk-facts');
     facts.textContent = '';
     if (!w.thrown) {
-      for (const [label, v, text] of gunFacts(w)) {
-        facts.insertAdjacentHTML('beforeend', `<div class="lk-stat"><i>${label}</i><b><em style="width:${Math.round(v * 100)}%"></em></b><u>${text}</u></div>`);
+      for (const [label, v, text, grade] of gunFacts(w)) {
+        facts.insertAdjacentHTML('beforeend', `<div class="lk-stat" data-grade="${grade}"><i>${label}</i><u>${text}</u><b><em style="width:${Math.round(v * 100)}%"></em></b></div>`);
       }
     } else {
       facts.insertAdjacentHTML('beforeend', '<div class="lk-note">HOLD G TO COOK</div>');
     }
-    preview?.show(id, skinInfo(getSkin()));
+    preview?.show(id, skinInfo(getSkin()), { keepAngle: id === previewed });   // a new finish keeps the angle you turned it to
+    previewed = id;
   }
 
   function render() {
@@ -251,11 +283,14 @@ export function createLocker({
       b.classList.toggle('locked', !owned);
       b.dataset.skin = sk.id;
       b.title = owned ? sk.name : `${sk.name} - reach level ${skinLevel(sk.id)}`;
-      b.innerHTML = `<i style="background:${sk.swatch}"></i><span>${sk.name}</span>${owned ? '' : `<small>LVL ${skinLevel(sk.id)}</small>`}`;
+      b.setAttribute('aria-label', owned ? sk.name : `${sk.name}, reach level ${skinLevel(sk.id)}`);
+      b.innerHTML = `<i style="background:${sk.swatch}"></i>${owned ? '' : `<small>LVL ${skinLevel(sk.id)}</small>`}`;
       b.disabled = !owned;
       b.addEventListener('click', () => { setSkin(sk.id); showGun(shown); render(); });
       skins.appendChild(b);
     }
+
+    root.querySelector('#lk-fname').textContent = skinInfo(getSkin())?.name ?? '';
 
     const armory = root.querySelector('#lk-armory');
     armory.innerHTML = '';
@@ -287,6 +322,7 @@ export function createLocker({
     root.classList.remove('hidden');
     preview?.dispose();
     preview = createPreview(root.querySelector('#lk-canvas'));
+    previewed = null;
     render();
     showGun(shown);
     preview?.start();

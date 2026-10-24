@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const PORT = Number(process.env.TEST_PORT || 4173);
+
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.spec.mjs',
@@ -12,7 +14,7 @@ export default defineConfig({
   outputDir: 'test-results',
   use: {
     ...devices['Desktop Chrome'],
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: `http://127.0.0.1:${PORT}`,
     serviceWorkers: 'block',
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',
@@ -20,7 +22,7 @@ export default defineConfig({
   },
   webServer: {
     command: 'node scripts/serve-tests.mjs',
-    url: 'http://127.0.0.1:4173',
+    url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: false,
     timeout: 15_000,
   },

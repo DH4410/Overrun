@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
 import { gunSkinInfo } from './gunskins.js';
@@ -19,11 +20,18 @@ const FLAT = { color: 0xeef2f6, roughness: 0.9, metalness: 0 };
 function rig(style) {
   let r;
   try { r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); } catch { return null; }
-  const W = 320, H = 140;
+  const W = style.flat ? 320 : 480, H = style.flat ? 140 : 210;
   r.setPixelRatio(1);
   r.setSize(W, H, false);
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, style.flat ? 2.9 : 2.4));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, style.flat ? 2.9 : 1.6));
+  if (!style.flat) {
+    // Metal shows what is around it: with nothing around it a chrome or steel finish draws black.
+    const pm = new THREE.PMREMGenerator(r);
+    scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.9;
+    pm.dispose();
+  }
   const light = new THREE.DirectionalLight(0xffffff, style.flat ? 1.6 : 2.6);
   light.position.set(2, 3, 1.5);
   scene.add(light);

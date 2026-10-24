@@ -1,3 +1,4 @@
+import { createDrop } from './crateDrop.js';
 import { skinShots } from './gunicons.js';
 import {
   CRATE_PRICE, CRATE_SKINS, GUN_SKINS, RARITY, RARITY_ORDER, dailyShop, gunSkinInfo, shopEndsAt, skinGradient,
@@ -10,12 +11,11 @@ import { balance, ownsSkin } from './shop.js';
  * the page and the crate-opening reveal and asks `openCrate` / `buySkin` to do the paying.
  *
  * The pay-then-reveal order matters: `openCrate` commits the draw and the cost first, so closing the
- * page in the middle of the spin cannot lose the skin. The reel is only the show.
+ * page in the middle of the drop cannot lose the skin. The supply drop (src/crateDrop.js, a full-screen
+ * window of its own) is only the show.
  */
 
 const SHOWCASE_GUN = 'ar';                 // the gun every card shows its skin on
-const TILE = 132;                          // reel tile width in px (keep in sync with --st-tile in the CSS)
-const SPIN_MS = 5200;
 const TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const CRATE_ART = '<svg viewBox="0 0 96 80" aria-hidden="true"><path d="M8 26 48 8l40 18v38L48 76 8 64z" fill="#1d2a40" stroke="#9fb4d6" stroke-width="2.5" stroke-linejoin="round"/><path d="M8 26l40 18 40-18M48 44v32" fill="none" stroke="#9fb4d6" stroke-width="2.5" stroke-linejoin="round"/><path d="M30 17l40 18v13l-40-18z" fill="#f3b53f" opacity=".92"/><rect x="40" y="42" width="16" height="14" rx="3" fill="#0e1522" stroke="#f3b53f" stroke-width="2.5"/></svg>';
 
@@ -23,6 +23,7 @@ const pct = (tier, open) => Math.round((RARITY[tier].weight / open.reduce((n, t)
 
 export function createStore({ getProfile, openCrate, buySkin, openLocker = () => {}, onOpen = () => {}, onClose = () => {}, sfx = () => {}, now = () => Date.now() }) {
   let root = null, timer = 0, busy = false, shots = {};
+  const drop = createDrop({ sfx, gunId: SHOWCASE_GUN });
 
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const isOpen = () => !!root && !root.classList.contains('hidden');
@@ -43,8 +44,6 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
             <div class="st-label">SKIN CRATE</div>
             <div class="st-stage" id="st-stage">
               <div class="st-art" id="st-art">${CRATE_ART}</div>
-              <div class="st-reel" id="st-reel" hidden><div class="st-track" id="st-track"></div><i class="st-mark"></i></div>
-              <div class="st-win" id="st-win" hidden></div>
             </div>
             <div class="st-odds" id="st-odds"></div>
             <button id="st-open" type="button"><i class="coin"></i><b>${CRATE_PRICE}</b><span>OPEN CRATE</span></button>
@@ -122,23 +121,14 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     if (ms < 1500 && !busy) renderShop();       // the day turned over while the page was up
   }
 
-  /** The strip of skins the reel spins through, ending on `winner`. */
-  function fillReel(winner) {
-    const track = root.querySelector('#st-track');
-    track.textContent = '';
-    const pool = CRATE_SKINS;
-    const tiles = [];
-    for (let i = 0; i < 46; i++) tiles.push(pool[Math.floor(Math.random() * pool.length)]);
-    tiles[40] = winner;
-    for (const sk of tiles) {
-      const t = el('div', 'st-tile', `${art(sk)}<b>${sk.name}</b>`);
-      t.style.setProperty('--rc', RARITY[sk.rarity].color);
-      track.append(t);
-    }
-    return track;
+  /** Another crate right now? The drop window's third button asks. */
+  function againState() {
+    const p = getProfile();
+    const have = new Set(p.owned);
+    if (!CRATE_SKINS.some((k) => !have.has(`skin:${k.id}`))) return { ok: false, label: 'ALL COLLECTED' };
+    if (balance(p) < CRATE_PRICE) return { ok: false, label: `NEED ${CRATE_PRICE - balance(p)} MORE` };
+    return { ok: true, price: CRATE_PRICE };
   }
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function openOne() {
     if (busy) return;
@@ -146,45 +136,18 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     if (!res) { render(); return; }
     busy = true;
     const win = gunSkinInfo(res.skin);
-    shots = { ...shots, ...skinShots(SHOWCASE_GUN, [...CRATE_SKINS.map((k) => k.id)]) };
-    const reel = root.querySelector('#st-reel'), track = fillReel(win);
-    const winBox = root.querySelector('#st-win'), artBox = root.querySelector('#st-art');
-    winBox.hidden = true;
-    artBox.hidden = true;
-    reel.hidden = false;
-    renderCrate();
-    sfx('spin');
-    const calm = matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    // Land somewhere inside the winning tile, not always dead centre: the near miss is part of the feel.
-    const jitter = (Math.random() - 0.5) * TILE * 0.7;
-    const to = -(40 * TILE + TILE / 2 - reel.clientWidth / 2 + jitter);
-    track.style.transition = 'none';
-    track.style.transform = 'translateX(0)';
-    void track.offsetWidth;
-    track.style.transition = calm ? 'none' : `transform ${SPIN_MS}ms cubic-bezier(.08,.62,.12,1)`;
-    track.style.transform = `translateX(${to}px)`;
-    await sleep(calm ? 300 : SPIN_MS + 250);
-    if (!isOpen()) { busy = false; return; }
-    reel.hidden = true;
-    winBox.hidden = false;
-    winBox.className = `st-win r-${win.rarity}`;
-    winBox.style.setProperty('--rc', RARITY[win.rarity].color);
-    winBox.innerHTML = `<div class="st-burst"></div>${art(win)}<div class="st-wname"><em>${RARITY[win.rarity].name}</em><b>${win.name}</b></div>`
-      + '<div class="st-wact"><button type="button" id="st-try">TRY IT</button><button type="button" id="st-again">OK</button></div>';
-    winBox.querySelector('#st-again').addEventListener('click', () => { winBox.hidden = true; artBox.hidden = false; });
-    winBox.querySelector('#st-try').addEventListener('click', () => { close(); openLocker(); });
-    busy = false;
-    sfx('reveal', win.rarity);
     render();
+    const choice = await drop.play(win, againState());
+    busy = false;
+    if (!isOpen()) return;
+    render();
+    if (choice === 'try') { close(); openLocker(); } else if (choice === 'again') openOne();
   }
 
   function open() {
     if (!root) build();
     busy = false;
     root.classList.remove('hidden');
-    root.querySelector('#st-reel').hidden = true;
-    root.querySelector('#st-win').hidden = true;
-    root.querySelector('#st-art').hidden = false;
     // The pictures of the day's skins and the crate's: drawn once, kept.
     shots = skinShots(SHOWCASE_GUN, [...dailyShop(now()).map((k) => k.id), ...CRATE_SKINS.map((k) => k.id)]);
     render();
@@ -197,6 +160,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
 
   function close() {
     if (!root || !isOpen()) return;
+    drop.close();
     root.classList.add('hidden');
     clearInterval(timer);
     busy = false;

@@ -53,13 +53,13 @@ for (const [w, h] of SIZES) {
 
 /**
  * The lobby never scrolls and the tab bar never goes away: every screen fits the window, and PLAY /
- * OPERATORS / CAREER / LOCKER / SETTINGS stay visible and clickable while any of them is open.
+ * OPERATORS / CAREER / STORE / LOCKER / SETTINGS stay visible and clickable while any of them is open.
  */
 for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
   test(`at ${w}x${h} nothing scrolls and every tab stays on screen`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await bootGame(page);
-    const tabs = ['#tab-play', '#tab-operators', '#tab-career', '#locker-open', '#settings-open'];
+    const tabs = ['#tab-play', '#tab-operators', '#tab-career', '#tab-store', '#locker-open', '#settings-open'];
     const check = async (where) => {
       const fit = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, sw: document.documentElement.scrollWidth, ih: innerHeight, iw: innerWidth }));
       expect(fit.sh, `${where}: page height`).toBeLessThanOrEqual(fit.ih + 1);
@@ -67,7 +67,7 @@ for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
       for (const t of tabs) await expect(page.locator(t), `${where}: ${t}`).toBeVisible();
     };
     await check('play');
-    for (const t of ['#tab-operators', '#tab-career', '#locker-open', '#settings-open', '#tab-play']) {
+    for (const t of ['#tab-operators', '#tab-career', '#tab-store', '#locker-open', '#settings-open', '#tab-play']) {
       await page.locator(t).click();
       await check(t);
     }

@@ -1507,10 +1507,22 @@ const store = createStore({
   onClose: () => markNav(lobbyPage),
   sfx: (kind, rarity) => {
     Audio.init();
-    if (kind === 'spin') {
-      // Ticks that slow down with the reel: close together at first, then wider as it settles.
-      let at = 0;
-      for (let i = 0; i < 38; i++) { Audio.tone({ f0: 1500, f1: 900, dur: 0.035, gain: 0.12, type: 'square', delay: at }); at += 0.04 + (i / 38) ** 2.4 * 0.32; }
+    if (kind === 'fall') {
+      // Wind rising as the crate comes down.
+      Audio.burst({ dur: 2.0, gain: 0.16, type: 'bandpass', freq: 700, q: 0.6, decay: 1.8 });
+      Audio.tone({ f0: 180, f1: 70, dur: 2.0, gain: 0.07, type: 'sine' });
+    } else if (kind === 'thud') {
+      Audio.tone({ f0: 120, f1: 36, dur: 0.35, gain: 0.5, type: 'sine' });
+      Audio.burst({ dur: 0.35, gain: 0.4, type: 'lowpass', freq: 700, decay: 0.3 });
+    } else if (kind === 'lock') {
+      Audio.tone({ f0: 900, f1: 900, dur: 0.09, gain: 0.18, type: 'square' });
+      Audio.tone({ f0: 1350, f1: 1350, dur: 0.14, gain: 0.18, type: 'square', delay: 0.1 });
+      // A charge building to the burst.
+      Audio.tone({ f0: 160, f1: 900 + RARITY_ORDER.indexOf(rarity) * 260, dur: 1.0, gain: 0.1, type: 'sawtooth', delay: 0.15 });
+    } else if (kind === 'burst') {
+      Audio.burst({ dur: 0.7, gain: 0.5, type: 'lowpass', freq: 1400, decay: 0.6 });
+      Audio.tone({ f0: 240, f1: 40, dur: 0.5, gain: 0.5, type: 'sine' });
+      Audio.burst({ dur: 0.5, gain: 0.25, type: 'highpass', freq: 3500, decay: 0.45, delay: 0.03 });
     } else if (kind === 'reveal') {
       const top = RARITY_ORDER.indexOf(rarity);
       [523, 659, 784, 1046].slice(0, 1 + top).forEach((f, i) => Audio.tone({ f0: f, f1: f, dur: 0.5 + top * 0.25, gain: 0.2, type: 'triangle', delay: i * 0.09 }));

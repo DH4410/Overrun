@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { PATTERNS } from './gunskins.js';
+import { patchMaterial, patternTexture } from './gunTextures.js';
 
 /**
  * Procedural firearms, shared by the first-person viewmodels and the guns bots carry.
@@ -46,6 +48,8 @@ export function gunMaterials() {
     const mat = m[role];
     mat.userData.skinRole = role;
     mat.userData.stock = [mat.color.getHex(), mat.roughness, mat.metalness];
+    mat.userData.texScale = { value: 1 };     // repeats per metre while a pattern is on (see applyGunSkin)
+    patchMaterial(mat, mat.userData.texScale);
   }
   return m;
 }
@@ -53,7 +57,8 @@ export function gunMaterials() {
 /**
  * Repaint a gun (or a whole viewmodel) with a finish from src/rewards.js. `skin.slots` maps a role
  * to [colour, roughness, metalness, glow?]; a null `slots` (the stock finish), or a role it leaves out,
- * goes back to the gun's own colours. Safe to call again and again.
+ * goes back to the gun's own colours. `skin.tex` may name a pattern per role (src/gunskins.js PATTERNS),
+ * laid over the colour. Safe to call again and again.
  */
 export function applyGunSkin(root, skin) {
   const seen = new Set();
@@ -68,6 +73,10 @@ export function applyGunSkin(root, skin) {
       mat.roughness = rough;
       mat.metalness = metal;
       mat.emissive.setHex(glow);              // a rare skin can light up; every other one is unlit
+      const name = skin?.tex?.[role] ?? null;
+      const map = name ? patternTexture(name) : null;
+      if (mat.map !== map) { mat.map = map; mat.needsUpdate = true; }   // the shader changes when a map comes or goes
+      mat.userData.texScale.value = name ? PATTERNS[name].scale * (skin.texScale ?? 1) : 1;
     }
   });
 }

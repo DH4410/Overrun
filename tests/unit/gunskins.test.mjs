@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  CRATE_PRICE, CRATE_SKINS, GUN_SKINS, RARITY, SHOP_SKINS, SHOP_SLOTS, dailyShop, rollCrate, shopDay, shopEndsAt, skinKey,
+  CRATE_PRICE, CRATE_SKINS, GUN_SKINS, PATTERNS, RARITY, SHOP_SKINS, SHOP_SLOTS, dailyShop, rollCrate, shopDay, shopEndsAt, skinKey,
 } from '../../src/gunskins.js';
 import { clean, mergeProfiles } from '../../src/profile.js';
 import { balance, buyShopSkin, openCrate, ownedValue, ownsSkin } from '../../src/shop.js';
@@ -24,6 +25,14 @@ test('every skin is well formed, and the crate and shop pools never overlap', ()
       assert.ok(rough >= 0 && rough <= 1 && metal >= 0 && metal <= 1);
     }
   }
+  for (const k of GUN_SKINS) {
+    for (const [role, name] of Object.entries(k.tex ?? {})) {
+      assert.ok(k.slots[role], `${k.id}: ${role} is a real role`);
+      assert.ok(PATTERNS[name], `${k.id} names a pattern that exists: ${name}`);
+    }
+  }
+  const drawn = readFileSync(new URL('../../src/gunTextures.js', import.meta.url), 'utf8');
+  for (const name of Object.keys(PATTERNS)) assert.match(drawn, new RegExp(`\\b${name}[(:]`), `${name} has a drawing routine`);
   assert.ok(CRATE_SKINS.every((k) => k.source === 'crate' && k.price === CRATE_PRICE));
   assert.ok(SHOP_SKINS.every((k) => k.source === 'shop' && k.price > CRATE_PRICE));
   assert.ok(SHOP_SKINS.length >= SHOP_SLOTS + 2, 'the shop has more than one day of stock');

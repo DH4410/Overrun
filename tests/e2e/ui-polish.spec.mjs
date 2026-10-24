@@ -68,11 +68,11 @@ test('the locker shows the gun you point at, turning, with its numbers', async (
   await expect(page.locator('#lk-tag')).toHaveText('EQUIPPED · SLOT 1');
   await page.locator('#lk-armory [data-gun="sniper"]').hover();
   await expect(page.locator('#lk-gname')).toHaveText('SNIPER RIFLE');
-  await expect(page.locator('#lk-facts')).toContainText('110');
+  await expect(page.locator('#lk-facts')).toContainText('150');
   await expect(page.locator('#lk-facts')).toContainText('RPM');
   await page.locator('#lk-slots .lk-slot:nth-child(5)').click();   // the frag
   await expect(page.locator('#lk-gname')).toHaveText('FRAG GRENADE');
-  await expect(page.locator('#lk-tag')).toHaveText('ALWAYS ON KEY 5');
+  await expect(page.locator('#lk-tag')).toHaveText('SLOT 5');
   await page.keyboard.press('Digit3');
   await expect(page.locator('#lk-gname')).toHaveText('SHOTGUN');
   await page.keyboard.press('Escape');
@@ -81,11 +81,11 @@ test('the locker shows the gun you point at, turning, with its numbers', async (
 
 test('the pause screen lists the controls, and the lobby does not carry them', async ({ page }) => {
   await bootGame(page);
-  await expect(page.locator('#keyhelp')).toBeHidden();
+  await expect(page.locator('#p-keys')).toBeHidden();
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   await page.evaluate(() => document.getElementById('pause').classList.add('on'));
-  await expect(page.locator('#keyhelp')).toBeVisible();
-  await expect(page.locator('#keyhelp')).toContainText('Reload');
+  await expect(page.locator('#p-keys')).toBeVisible();
+  await expect(page.locator('#p-keys')).toContainText('Reload');
 });
 
 test('the death screen says who killed you, and with what, until you respawn', async ({ page }) => {

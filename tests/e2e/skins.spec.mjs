@@ -1,36 +1,37 @@
 import { expect, test } from '@playwright/test';
 
+import { OPERATORS } from '../../src/rewards.js';
 import { SKINS } from '../../src/skins.js';
 import { bootGame, watchRuntimeErrors } from './helpers/game.mjs';
 
 /**
- * The locker's SKINS tab: every character, all unlocked, picked with one click and remembered.
+ * The OPERATORS page: every character, picked with one click and remembered.
  * Skins that are not `boot` load the first time somebody wears one.
  */
 
-test('the locker lists every skin with a portrait, and wearing one is remembered', async ({ page }) => {
+test('the operators page lists every character with a portrait, and wearing one is remembered', async ({ page }) => {
   const errors = watchRuntimeErrors(page);
+  // A veteran, so every operator on the pass is earned.
+  await page.addInitScript(() => { if (!localStorage.getItem('overrun.profile')) localStorage.setItem('overrun.profile', JSON.stringify({ xp: 100000 })); });
   await bootGame(page);
-  await page.click('#locker-open');
-  await page.click('#locker .lk-tabs [data-tab="skins"]');
-  await expect(page.locator('#locker .lk-skin')).toHaveCount(SKINS.length);
-  await expect(page.locator('#lk-gear')).toBeHidden();
-  await expect(page.locator('#locker-reset')).toBeHidden();
+  await page.click('#tab-operators');
+  await expect(page.locator('#ops .ops-tile')).toHaveCount(OPERATORS.length);
+  await expect(page.locator('#ops .ops-tile.locked')).toHaveCount(0);
 
-  // Every card has its portrait, drawn from assets/skins/.
-  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('#locker .lk-skin img')].filter((i) => !i.naturalWidth).length)).toBe(0);
+  // Every tile has its portrait, drawn from assets/skins/.
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('#ops .ops-tile img')].filter((i) => !i.naturalWidth).length)).toBe(0);
 
-  const pick = SKINS[SKINS.length - 1];
-  await page.click(`#locker .lk-skin[data-skin="${pick.id}"]`);
-  await expect(page.locator(`#locker .lk-skin.worn[data-skin="${pick.id}"]`)).toHaveCount(1);
-  await expect(page.locator('#lk-wear b')).toHaveText(pick.name);
-  expect(await page.evaluate(() => localStorage.getItem('overrun-skin'))).toBe(pick.id);
+  const pick = OPERATORS[OPERATORS.length - 1];
+  await page.click(`#ops .ops-tile[data-id="${pick.id}"]`);
+  await expect(page.locator('#ops-name')).toHaveText(pick.name);
+  await page.click('#ops-equip');
+  await expect(page.locator(`#ops .ops-tile.worn[data-id="${pick.id}"]`)).toHaveCount(1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overrun.profile')).equipped.operator)).toBe(pick.id);
   // Worn means loaded: the lobby, the emote and the other players' screens all draw it at once.
   await expect.poll(() => page.evaluate((id) => globalThis.__game.assets.characters.includes(id) || Boolean(globalThis.__game.buildCharacterMesh(id)), pick.id)).toBe(true);
 
-  // Back to the weapons: the loadout panel is untouched.
-  await page.click('#locker .lk-tabs [data-tab="gear"]');
-  await expect(page.locator('#lk-gear')).toBeVisible();
+  // The locker is about weapons only now.
+  await page.click('#locker-open');
   await expect(page.locator('#locker .lk-slot')).toHaveCount(5);
   expect(errors).toEqual([]);
 });

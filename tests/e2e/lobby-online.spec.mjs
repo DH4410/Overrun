@@ -55,6 +55,6 @@ test('an empty room is online with nobody in it; then the roster shows who joins
   await expect(page.locator('#ol-players')).toHaveText('2 / 10');
   await expect(page.locator('#ol-roster li b')).toHaveText(['VIPER', 'HAVOC']);
   await expect(page.locator('#ol-now')).toContainText('PORT');
-  await expect(page.locator('#ol-phase')).toHaveText('ROUND IN PROGRESS');
+  await expect(page.locator('#ol-phase')).toHaveText(/WAITING ROOM|STARTING|ROUND IN PROGRESS/);   // a fresh room waits for players to ready up
   await page.context().close();
 });

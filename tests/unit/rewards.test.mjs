@@ -46,14 +46,17 @@ test('titles come from stats, and need every stat they name', () => {
 
 test('levelRewards lists what a level grants; level 1 grants nothing new', () => {
   assert.deepEqual(levelRewards(1), []);
-  assert.deepEqual(levelRewards(3).map((r) => r.id), ['gasmask']);
+  assert.deepEqual(levelRewards(2).map((r) => r.id), ['gasmask', 'desert']);
+  assert.deepEqual(levelRewards(3).map((r) => r.id), ['crypto']);
   assert.ok(levelRewards(5).some((r) => r.kind === 'skin' && r.id === 'arctic'));
-  assert.deepEqual(levelRewards(4), []);
+  assert.deepEqual(levelRewards(4).map((r) => r.id), ['ely']);
+  assert.deepEqual(levelRewards(19), []);
 });
 
 test('nextReward finds the next level that grants something, and ends past the track', () => {
   assert.equal(nextReward(1).level, 2);
-  assert.equal(nextReward(3).level, 5);
+  assert.equal(nextReward(3).level, 4);
+  assert.equal(nextReward(18).level, 20);
   assert.equal(nextReward(TRACK_END), null);
 });
 
@@ -75,4 +78,15 @@ test('the profile keeps what is worn, and rejects junk names', () => {
   assert.equal(clean({ equipped: { operator: '<script>', skin: 'x'.repeat(40) } }).equipped.operator, 'swat');
   assert.equal(clean({ equipped: { skin: 'x'.repeat(40) } }).equipped.skin, 'stock');
   assert.deepEqual(clean(null).equipped, DEFAULT_EQUIPPED);
+});
+
+test('every operator on the pass is a character the game can load, with a portrait', async () => {
+  const { existsSync } = await import('node:fs');
+  const { SKINS: CHARACTERS } = await import('../../src/skins.js');
+  const known = new Set(CHARACTERS.map((c) => c.id));
+  for (const o of OPERATORS) {
+    assert.ok(known.has(o.id) || ['swat', 'trooper', 'gasmask', 'crypto', 'ely', 'steve'].includes(o.id), `${o.id} is not a known character`);
+    assert.ok(existsSync(new URL(`../../assets/skins/${o.id}.jpg`, import.meta.url)), `${o.id} has no portrait`);
+  }
+  assert.equal(new Set(OPERATORS.map((o) => o.id)).size, OPERATORS.length, 'operator ids are unique');
 });

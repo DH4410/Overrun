@@ -41,6 +41,8 @@ import { createFriends } from './friends.js';
 import { hudIcons } from './gunicons.js';
 import { createCareer } from './career.js';
 import { createLobby } from './lobby.js';
+import { createLobbyBackdrop } from './lobbyBackdrop.js';
+import { createOperators } from './operators.js';
 import { createOnlineLobby } from './online.js';
 import { createHud } from './hud.js';
 import { canon, loadKeybinds } from './keybinds.js';
@@ -165,6 +167,7 @@ const bootQuality = QUALITY[settings.quality];
 
 const renderer = new THREE.WebGLRenderer({
   antialias: bootQuality.antialias,
+  alpha: true,                                    // the lobby draws its operator over a blurred still of the map
   powerPreference: settings.powerSaver ? 'low-power' : 'high-performance',
 });
 renderer.setSize(innerWidth, innerHeight);
@@ -1138,7 +1141,7 @@ function updateCamera(dt) {
  */
 function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
-  if (appState === APP_STATE.MENU && !net.active) return 1 / MENU_FPS;
+  if (appState === APP_STATE.MENU && !net.active) return 1 / (saverActive() ? MENU_FPS_SAVER : MENU_FPS);
   if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
   if (net.inLobby) return 1 / LOBBY_FPS;   // a character standing on a podium needs no more than this
   const cap = tuning().frameCap;
@@ -1148,7 +1151,7 @@ function frameBudget() {
 let framesDrawn = 0;
 let lobbyWasUp = false;
 let shadowFrame = 0;
-const MENU_FPS = 30;                // the lobby animates (operator, orbiting map), but 30 is plenty for it
+const MENU_FPS = 30, MENU_FPS_SAVER = 20;   // the operator idles; 30 is plenty, and 20 on battery
 const OUTRO_TIME_SCALE = 0.3;
 const KILLCAM_WORLD_SCALE = 0.3;    // world speed while the view zooms onto your killer
 
@@ -1161,7 +1164,7 @@ function frame() {
     player.respawnTimer = Math.min(player.respawnTimer, AFTER_TIME);
   }
 
-  // The lobby scene (operator on his pad, map orbiting) shows behind the menu and its settings panel.
+  // The lobby scene (the operator on his pad over a blurred map) shows behind the menu and its settings panel.
   const lobbyUp = !net.active && !match.running && (appState === APP_STATE.MENU || appState === APP_STATE.SETTINGS);
   lobby.setShown(lobbyUp);
   if (lobbyUp !== lobbyWasUp) { lobbyWasUp = lobbyUp; if (!lobbyUp) online.hide(); else if (onlineTab) online.show(); }
@@ -1211,6 +1214,7 @@ function frame() {
     updateAllyMarkers();
     updateHudTimers(dt);
   } else if (lobbyUp) {
+    backdrop.update();
     lobby.update(dt);
   } else if (appState === APP_STATE.PLAYING) {
     // The end-of-match outro: the world runs slowed, its timer runs on real time.
@@ -1292,6 +1296,12 @@ function frame() {
   // are the single most expensive thing in the frame.
   shadowFrame++;
   renderer.shadowMap.needsUpdate = !saverActive() || (shadowFrame & 1) === 0;
+
+  // The lobby draws a pad and one character; the map behind it is a still image (src/lobbyBackdrop.js).
+  if (lobbyUp && !net.active) {
+    lobby.render();
+    return;
+  }
 
   // --- render: world, then viewmodel on a cleared depth buffer, then the minimap ---
   renderer.setScissorTest(false);
@@ -1383,8 +1393,9 @@ const locker = createLocker({
   onOpen: () => {
     document.exitPointerLock?.();
     if (match.running) appState = APP_STATE.SETTINGS;
+    else markNav('locker');
   },
-  onClose: () => { if (match.running) requestLock(); },
+  onClose: () => { if (match.running) requestLock(); else markNav(lobbyPage); },
   getSkin: () => worn().skin,
   setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
   skinLevel: (id) => skinInfo(id)?.level ?? 1,
@@ -1432,9 +1443,10 @@ function updateEmoteSongs() {
   }
 }
 const lobby = createLobby({
-  scene, camera, buildCharacterMesh, loadedCharacters, emotes, getElement: $,
+  renderer, buildCharacterMesh, isCharacterLoaded, loadCharacter,
   getProfile: loadProfile, onEquip: (id) => wearOperator(id),
 });
+const backdrop = createLobbyBackdrop({ renderer, scene, canvas: $('lobby-bg') });
 const account = createAccount({
   getElement: $,
   getProfile: loadProfile,
@@ -1453,23 +1465,42 @@ const friends = createFriends({
 friends.init();
 const career = createCareer({
   getProfile: loadProfile,
+  onOpen: () => markNav('career'),
+  onClose: () => markNav(lobbyPage),
   onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
 });
-$('tab-career')?.addEventListener('click', () => career.open());
+$('tab-career')?.addEventListener('click', () => { locker.close(); $('settings-close')?.click(); career.open(); });
 /** Building the picked map now, rather than at DEPLOY, is what puts it behind the lobby. */
 function previewMap(id) {
   if (match.running || net.active) return;
   switchMap(id);
-  lobby.setExtent(currentPlan()?.extent ?? 46);
+  backdrop.setExtent(currentPlan()?.extent ?? 46);
 }
-/** PLAY and OPERATORS are two views of one lobby: the panels step aside and the lens closes in. */
+/** The five top tabs are always on screen; this marks the one whose page is up. */
+const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', locker: 'locker-open', settings: 'settings-open' };
+let lobbyPage = 'play';                      // the page under any overlay: play or operators
+function markNav(active) { for (const [key, id] of Object.entries(NAV)) $(id)?.classList.toggle('active', key === active); }
+const operatorsPage = createOperators({
+  getElement: $,
+  getProfile: loadProfile,
+  preview: (id) => lobby.preview(id),
+  onEquip: (id) => wearOperator(id),
+});
+/** PLAY and OPERATORS are two pages of one lobby: the operator stays on the pad and the panels change. */
 function setLobbyTab(tab) {
   const ops = tab === 'operators';
+  lobbyPage = ops ? 'operators' : 'play';
   $('menu').classList.toggle('ops', ops);
-  $('tab-play').classList.toggle('active', !ops);
-  $('tab-operators').classList.toggle('active', ops);
-  lobby.setFocus(ops);
+  markNav(lobbyPage);
+  lobby.setView(ops ? 'ops' : 'play');
+  if (ops) operatorsPage.show(); else operatorsPage.hide();
 }
+// Settings belongs to ui.js; its tab follows the panel.
+new MutationObserver(() => { if (career.isOpen() || locker.isOpen()) return; markNav($('settings').classList.contains('hidden') ? lobbyPage : 'settings'); })
+  .observe($('settings'), { attributes: true, attributeFilter: ['class'] });
+/** A tab click first puts away whatever overlay is open, so every tab works from every page. */
+function leaveOverlays() { career.close(); locker.close(); }
+$('settings-open')?.addEventListener('click', leaveOverlays);
 const online = createOnlineLobby({ getElement: $ });
 let onlineTab = false;
 /** SOLO and ONLINE are two panes of the right-hand panel: bots on a map you pick, or the shared room. */
@@ -1483,8 +1514,8 @@ function setPlayPane(which) {
 }
 $('ptab-solo')?.addEventListener('click', () => setPlayPane('solo'));
 $('ptab-online')?.addEventListener('click', () => setPlayPane('online'));
-$('tab-play')?.addEventListener('click', () => setLobbyTab('play'));
-$('tab-operators')?.addEventListener('click', () => setLobbyTab('operators'));
+$('tab-play')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('play'); });
+$('tab-operators')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('operators'); });
 killcam = createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
@@ -1567,7 +1598,7 @@ net = createNetClient({
   },
 });
 addEventListener('keyup', (e) => { if (canon(e.code) === 'KeyB') emotes.closeWheel(true); });
-$('locker-open')?.addEventListener('click', () => locker.open());
+$('locker-open')?.addEventListener('click', () => { career.close(); locker.open(); });
 $('locker-open-pause')?.addEventListener('click', () => locker.open());
 
 /**
@@ -1687,7 +1718,7 @@ async function boot() {
   initPower(applySettings);
   lobby.init();
   account.init();
-  lobby.setExtent(currentPlan()?.extent ?? 46);
+  backdrop.setExtent(currentPlan()?.extent ?? 46);
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local

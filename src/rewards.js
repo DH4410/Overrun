@@ -12,13 +12,31 @@ import { ownsGun } from './shop.js';
  *   titles     - a line under your name, unlocked by what you have done (not by level)
  */
 
+/**
+ * Every character in src/skins.js, in unlock order: the pass the Operators page draws. The ids are
+ * the character ids, so wearing one is the same thing the multiplayer hello already sends.
+ */
 export const OPERATORS = [
-  { id: 'swat', name: 'SWAT', role: 'POLICE TACTICAL', level: 1 },
-  { id: 'trooper', name: 'TROOPER', role: 'POLICE TACTICAL', level: 1 },
-  { id: 'gasmask', name: 'GAS MASK', role: 'POLICE TACTICAL', level: 3 },
-  { id: 'crypto', name: 'CRYPTO', role: 'MERCENARY', level: 6 },
-  { id: 'ely', name: 'ELY', role: 'MILITARY', level: 10 },
-  { id: 'steve', name: 'STEVE', role: 'MILITARY', level: 14 },
+  { id: 'swat', name: 'SWAT', role: 'POLICE', level: 1 },
+  { id: 'trooper', name: 'TROOPER', role: 'POLICE', level: 1 },
+  { id: 'gasmask', name: 'GAS MASK', role: 'POLICE', level: 2 },
+  { id: 'crypto', name: 'CRYPTO', role: 'MERCENARY', level: 3 },
+  { id: 'ely', name: 'ELY', role: 'MILITARY', level: 4 },
+  { id: 'steve', name: 'STEVE', role: 'MERCENARY', level: 5 },
+  { id: 'street', name: 'STREET', role: 'CIVILIAN', level: 6 },
+  { id: 'scout', name: 'SCOUT', role: 'CIVILIAN', level: 7 },
+  { id: 'runner', name: 'RUNNER', role: 'CIVILIAN', level: 8 },
+  { id: 'racer', name: 'RACER', role: 'CIVILIAN', level: 9 },
+  { id: 'prisoner', name: 'PRISONER', role: 'CIVILIAN', level: 10 },
+  { id: 'operative', name: 'OPERATIVE', role: 'AGENT', level: 11 },
+  { id: 'ninja', name: 'NINJA', role: 'STEALTH', level: 12 },
+  { id: 'shadow', name: 'SHADOW', role: 'STEALTH', level: 13 },
+  { id: 'paladin', name: 'PALADIN', role: 'KNIGHT', level: 14 },
+  { id: 'alien', name: 'ALIEN', role: 'ALIEN', level: 15 },
+  { id: 'skeleton', name: 'SKELETON', role: 'UNDEAD', level: 16 },
+  { id: 'vampire', name: 'VAMPIRE', role: 'MONSTER', level: 17 },
+  { id: 'warzombie', name: 'WARZOMBIE', role: 'UNDEAD', level: 18 },
+  { id: 'mutant', name: 'MUTANT', role: 'MONSTER', level: 20 },
 ];
 
 /**

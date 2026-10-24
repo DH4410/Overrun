@@ -22,6 +22,7 @@ const browserGlobals = {
   fetch: 'readonly',
   localStorage: 'readonly',
   innerWidth: 'readonly',
+  MutationObserver: 'readonly',
   innerHeight: 'readonly',
   devicePixelRatio: 'readonly',
   addEventListener: 'readonly',

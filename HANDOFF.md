@@ -339,6 +339,42 @@ not run two e2e runs at once: they share that port.
 
 ---
 
+## Session 10: rebuilt on top of the live site (`live-deployed`), lobby second pass
+
+The live site (overrun.dimahuang8.workers.dev) is the `live-deployed` branch (commit 4b86103, pushed
+by hand from the `shooting-game` folder). Everything from sessions 8 and 9 was merged onto it, so
+the 8 GLB maps and their thumbnails, the 20 Mixamo skins, always-sprint, heal animations, the
+headshot kill feed, the battery saver and the loading screens are all kept. The lobby was then
+redone against the feedback list.
+
+**Lobby design.** A fixed tab bar (`#topnav`, a child of `body`, `--nav-h` tall) with PLAY /
+OPERATORS / CAREER / LOCKER / SETTINGS that never hides. PLAY is the operator on a pad at the
+centre, mode/map cards on the right and DEPLOY. Nothing in PLAY changes the skin or loadout.
+OPERATORS (`src/operators.js`, `#ops`) is a battle-pass grid of all 20 operators in unlock order:
+portrait tiles, level badge, lock/worn/selected states, EQUIP under the operator on the left.
+Career, locker and settings are overlays under the bar (`top: var(--nav-h)`).
+
+**Why it is light on a battery.** `src/lobbyBackdrop.js` draws the picked map ONCE into a 480 px
+2D canvas (`#lobby-bg`), CSS blurs it, and the map is not drawn again until the map or window
+changes. The lobby's own `render()` draws only a pad and one character into a transparent canvas.
+Menu frame rate is 30 (20 with the battery saver). No `backdrop-filter` on lobby panels.
+`body.lobby-on` must have a transparent background or the page paints over the backdrop.
+
+**Pickers fit the screen.** Mode and map pickers are 3 and 4 column grids whose tile height is
+computed from the viewport (`clamp(104px, (100vh - nav - 130px) / 2, 320px)`), so both rows are
+always visible. Tiles carry real map thumbnails, size bars and a "W x D M" chip instead of a
+sentence.
+
+**Operator table.** `OPERATORS` in `src/rewards.js` is now 20 entries (levels: swat 1, trooper 1,
+gasmask 2, crypto 3, ely 4, steve 5, street 6, scout 7, runner 8, racer 9, prisoner 10, operative 11,
+ninja 12, shadow 13, paladin 14, alien 15, skeleton 16, vampire 17, warzombie 18, mutant 20).
+`tests/unit/rewards.test.mjs` checks each has a loadable character and a portrait.
+
+**Known and unchanged.** The Arena map greys out in Deathmatch: that is the map `modes`
+restriction already on the live site. Online play pays no XP or credits. Friends use the one shared
+online room (no private parties). Career is stored in the browser and is not anti-cheat. Accounts
+and friends have never been deployed; PBKDF2 CPU use on the Workers free plan is unmeasured.
+
 ## Session 9: credits, guns, modes, friends, a less wordy UI
 
 Work is on `claude/accounts-and-rewards`, stacked on the two branches above. Answers to your list:

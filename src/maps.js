@@ -677,6 +677,7 @@ export function createMapController({
       sky: d.look.sky,
       env: d.look.env,
       mapView: d.mapView,
+      size: [HX * 2, HZ * 2],          // metres, what the lobby's map cards show
       ceilY: d.ceilY,
       modes: d.modes,
       nav: { extent: Math.max(HX, HZ) - 0.5, step: 3, coverPad: 2.6 },

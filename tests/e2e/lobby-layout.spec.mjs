@@ -9,7 +9,7 @@ import { bootGame } from './helpers/game.mjs';
  */
 
 const SIZES = [[1920, 1080], [1440, 810], [1366, 768], [1280, 720], [1024, 600], [800, 450]];
-const BLOCKS = ['#topnav .brand', '#topnav .tabs', '#account', '#playercard', '#nextreward', '#operator .op-plate', '#operator #op-prev', '#operator #op-next', '#lobby-right', '#keyhelp'];
+const BLOCKS = ['#topnav .brand', '#topnav .tabs', '#account', '#playercard', '#nextreward', '#lobby-right', '#keyhelp'];
 
 async function boxes(page) {
   return page.evaluate((sel) => sel.flatMap((s) => {
@@ -49,4 +49,44 @@ for (const [w, h] of SIZES) {
       expect(primary.x + primary.width).toBeLessThanOrEqual(w);
     });
   }
+}
+
+/**
+ * The lobby never scrolls and the tab bar never goes away: every screen fits the window, and PLAY /
+ * OPERATORS / CAREER / LOCKER / SETTINGS stay visible and clickable while any of them is open.
+ */
+for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
+  test(`at ${w}x${h} nothing scrolls and every tab stays on screen`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await bootGame(page);
+    const tabs = ['#tab-play', '#tab-operators', '#tab-career', '#locker-open', '#settings-open'];
+    const check = async (where) => {
+      const fit = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, sw: document.documentElement.scrollWidth, ih: innerHeight, iw: innerWidth }));
+      expect(fit.sh, `${where}: page height`).toBeLessThanOrEqual(fit.ih + 1);
+      expect(fit.sw, `${where}: page width`).toBeLessThanOrEqual(fit.iw + 1);
+      for (const t of tabs) await expect(page.locator(t), `${where}: ${t}`).toBeVisible();
+    };
+    await check('play');
+    for (const t of ['#tab-operators', '#tab-career', '#locker-open', '#settings-open', '#tab-play']) {
+      await page.locator(t).click();
+      await check(t);
+    }
+  });
+
+  test(`at ${w}x${h} every mode and map can be picked without scrolling`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await bootGame(page);
+    for (const [open, list] of [['#mode-card', '#modes .tile'], ['#map-card', '#maps .tile']]) {
+      await page.locator(open).click();
+      const tiles = page.locator(list);
+      const n = await tiles.count();
+      expect(n).toBeGreaterThan(3);
+      for (let i = 0; i < n; i++) {
+        const r = await tiles.nth(i).boundingBox();
+        expect(r.y, `${list} #${i} top`).toBeGreaterThanOrEqual(0);
+        expect(r.y + r.height, `${list} #${i} bottom (${h} tall)`).toBeLessThanOrEqual(h + 1);
+      }
+      await page.keyboard.press('Escape');
+    }
+  });
 }

@@ -7,6 +7,9 @@ import { clamp } from './utils.js';
 import { SKINS, skinInfo } from './rewards.js';
 import { gunPrice } from './shop.js';
 import { WEAPON_BY_ID } from './weapons.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 /** How each gun is labelled in the locker: its class and a rarity colour. */
 export const GUN_CARD = {
@@ -32,7 +35,11 @@ function createPreview(canvas) {
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch { return null; }
   r.setPixelRatio(1);
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, 2.2));
+  // A room to reflect: black polymer and blued steel read as shapes instead of a silhouette.
+  const pmrem = new THREE.PMREMGenerator(r);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 1.1;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a606c, 2.6));
   const key = new THREE.DirectionalLight(0xffffff, 2.8);
   key.position.set(2.5, 3, 2);
   scene.add(key);
@@ -78,7 +85,7 @@ function createPreview(canvas) {
   }
   function start() { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(loop); }
   function stop() { cancelAnimationFrame(raf); raf = 0; }
-  function dispose() { stop(); r.dispose(); r.forceContextLoss?.(); }
+  function dispose() { stop(); scene.environment?.dispose(); pmrem.dispose(); r.dispose(); r.forceContextLoss?.(); }
   return { show, start, stop, dispose };
 }
 
@@ -172,9 +179,9 @@ export function createLocker({
     return el;
   }
 
-  const tagFor = (id) => id === 'frag' ? 'ALWAYS ON KEY 5'
+  const tagFor = (id) => id === 'frag' ? 'SLOT 5'
     : !gunOwned(id) ? 'LOCKED'
-    : getLoadout().includes(id) ? `EQUIPPED · SLOT ${getLoadout().indexOf(id) + 1}` : 'IN THE LOCKER';
+    : getLoadout().includes(id) ? `EQUIPPED · SLOT ${getLoadout().indexOf(id) + 1}` : '';
 
   /** The buy button shows for the gun you are looking at while it is not yours; dim when you cannot afford it. */
   function syncBuy() {
@@ -206,7 +213,7 @@ export function createLocker({
         facts.insertAdjacentHTML('beforeend', `<div class="lk-stat"><i>${label}</i><b><em style="width:${Math.round(v * 100)}%"></em></b><u>${text}</u></div>`);
       }
     } else {
-      facts.insertAdjacentHTML('beforeend', '<div class="lk-note">Cook it with G to set the fuse; a longer hold throws it further.</div>');
+      facts.insertAdjacentHTML('beforeend', '<div class="lk-note">HOLD G TO COOK</div>');
     }
     preview?.show(id, skinInfo(getSkin()));
   }
@@ -255,7 +262,8 @@ export function createLocker({
     for (const id of GUN_IDS) {
       const c = card(id);
       const at = loadout.indexOf(id);
-      if (at >= 0) c.insertAdjacentHTML('afterbegin', `<span class="lk-equipped">SLOT ${at + 1}</span>`);
+      if (at >= 0) c.insertAdjacentHTML('afterbegin', `<span class="lk-equipped">${TICK}${at + 1}</span>`);
+      c.classList.toggle('equipped', at >= 0);
       c.classList.toggle('in-slot', at === sel);
       c.classList.toggle('looking', id === shown);
       c.draggable = gunOwned(id);

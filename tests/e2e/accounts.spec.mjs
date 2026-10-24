@@ -133,22 +133,26 @@ test('wrong passwords say so, and a closed card goes away with Escape', async ({
 
 test('operators are gated by level: a locked one cannot be worn, an earned one can', async ({ browser }) => {
   const page = await open(browser);                          // a fresh career: level 1
-  await expect(page.locator('#op-name')).toHaveText('SWAT');
-  await page.locator('#op-next').click();                    // trooper: a starter
-  await expect(page.locator('#op-name')).toHaveText('TROOPER');
+  await page.locator('#tab-operators').click();
+  await expect(page.locator('#ops-name')).toHaveText('SWAT');
+  await page.locator('.ops-tile[data-id="trooper"]').click();   // a starter
+  await expect(page.locator('#ops-name')).toHaveText('TROOPER');
+  await page.locator('#ops-equip').click();
   expect((await worn(page)).operator).toBe('trooper');
-  await page.locator('#op-next').click();                    // gas mask: level 3
-  await expect(page.locator('#op-name')).toHaveText('GAS MASK');
-  await expect(page.locator('#op-lock')).toHaveText('LOCKED · REACH LEVEL 3');
+  await page.locator('.ops-tile[data-id="crypto"]').click();    // level 3
+  await expect(page.locator('#ops-name')).toHaveText('CRYPTO');
+  await expect(page.locator('#ops-state')).toContainText('LEVEL 3');
+  await expect(page.locator('#ops-equip')).toBeHidden();
   expect((await worn(page)).operator).toBe('trooper');       // not worn
   await page.context().close();
 
   const rich = await open(browser, { profile: { xp: 5000 } });   // well past level 6
-  await rich.locator('#op-next').click();
-  await rich.locator('#op-next').click();
-  await expect(rich.locator('#op-name')).toHaveText('GAS MASK');
-  await expect(rich.locator('#op-lock')).toHaveText('');
-  expect((await worn(rich)).operator).toBe('gasmask');
+  await rich.locator('#tab-operators').click();
+  await rich.locator('.ops-tile[data-id="crypto"]').click();
+  await expect(rich.locator('#ops-state')).not.toContainText('LEVEL');
+  await rich.locator('#ops-equip').click();
+  expect((await worn(rich)).operator).toBe('crypto');
+  await expect(rich.locator('.ops-tile[data-id="crypto"]')).toHaveClass(/\bworn\b/);
   await rich.context().close();
 });
 
@@ -158,7 +162,7 @@ test('the career screen lists the track, and titles are earned by stats', async 
   await expect(page.locator('#career')).not.toHaveClass(/\bhidden\b/);
   await expect(page.locator('#cr-track .cr-node')).not.toHaveCount(0);
   await expect(page.locator('#cr-track .cr-node.current')).toHaveCount(1);
-  await expect(page.locator('#cr-track .cr-node.locked').first()).toContainText('AWAY');
+  await expect(page.locator('#cr-track .cr-node.locked').first()).toContainText('LV');
   // 60 headshots earns HEADHUNTER; 25 wins (CHAMPION) is not close.
   const head = page.locator('.cr-title', { hasText: 'HEADHUNTER' });
   await head.locator('button').click();

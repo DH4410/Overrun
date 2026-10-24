@@ -41,12 +41,21 @@ function bindMenu() {
   }
   addEventListener('keydown', (e) => { if (e.code === 'Escape') closePops(); });
 
+  /** How big a map is, as a label and a 1-4 bar reading: the numbers a player picks by. */
+  const sizeClass = ([w, d]) => { const a = w * d; return a < 3000 ? ['SMALL', 1] : a < 6000 ? ['MEDIUM', 2] : a < 10000 ? ['LARGE', 3] : ['HUGE', 4]; };
+  const mapChips = (id) => {
+    const size = MAPS[id]?.size;
+    if (!size) return '';
+    const [label, bars] = sizeClass(size);
+    return `<i class="sz" data-bars="${bars}"><u></u><u></u><u></u><u></u>${label}</i><i>${size[0]} &times; ${size[1]} M</i>`;
+  };
   const showMap = () => {
     $('map-name').textContent = MAPS[map].name;
-    $('map-blurb').textContent = MAPS[map].blurb;
+    $('map-blurb').innerHTML = mapChips(map);
+    $('map-art')?.setAttribute('class', `sc-art art-${map}`);
   };
   for (const b of document.querySelectorAll('#maps [data-map]')) {
-    b.querySelector('.md').textContent = MAPS[b.dataset.map]?.blurb ?? '';
+    b.querySelector('.md').innerHTML = mapChips(b.dataset.map);
     // A map whose files failed to load cannot be picked; switchMap would ignore it anyway.
     if (MAPS[b.dataset.map]?.available?.() === false) {
       b.disabled = true;
@@ -87,7 +96,9 @@ function bindMenu() {
 
   const showMode = (b) => {
     $('mode-name').textContent = b.querySelector('.mt').textContent;
-    $('mode-desc').textContent = b.querySelector('.md').textContent;
+    $('mode-desc').innerHTML = b.querySelector('.md').innerHTML;
+    const art = $('mode-art');
+    if (art) art.innerHTML = b.querySelector('.ti-art').innerHTML;
   };
   for (const b of document.querySelectorAll('.mode-btn')) {
     b.addEventListener('click', () => {

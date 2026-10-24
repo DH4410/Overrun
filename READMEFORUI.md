@@ -215,3 +215,17 @@ New ids (do not rename; no `!important` on anything the game writes at runtime):
 Less text on purpose: the lobby cards no longer show a sentence under the mode and map names
 (`.sc-desc` is hidden), the online pane has no standing explanation, and the loadout is pictures.
 Please keep icons ahead of sentences.
+
+## 9. Added in session 10 (lobby rebuilt on the live version)
+
+| Id / class | What | Notes |
+|---|---|---|
+| `#topnav`, `#tab-play`, `#tab-operators`, `#tab-career`, `#locker-open`, `#settings-open` | The tab bar | A child of `body`, fixed, always visible in the lobby. `--nav-h` (on `:root`) is its height; every overlay uses `top: var(--nav-h)` |
+| `#lobby-bg` | The blurred map still behind the lobby | A 2D canvas filled once by `src/lobbyBackdrop.js`; CSS blur only, never `backdrop-filter` |
+| `body.lobby-on` | Lobby is showing | Its background must stay `transparent` |
+| `#menu.ops`, `#ops`, `#ops-name`, `#ops-role`, `#ops-state`, `#ops-equip`, `#ops-grid`, `.ops-tile` | The OPERATORS battle-pass page | Built by `src/operators.js`; tile states `.sel`, `.worn`, `.locked`; keep the grid inside one screen |
+| `.chips`, `.sz [data-bars]` | Size and mode facts as chips and bars | Replaces the sentence under a map or mode name |
+
+Removed: `#operator`, `#op-prev`, `#op-next`, `#op-name`, `#op-lock` (swapping skins in PLAY) and
+the loadout row above DEPLOY (`.rp-loadout`). Do not bring a skin or loadout control back to PLAY.
+Never scroll the page: every screen is sized from the viewport height.

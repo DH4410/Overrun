@@ -375,6 +375,55 @@ restriction already on the live site. Online play pays no XP or credits. Friends
 online room (no private parties). Career is stored in the browser and is not anti-cheat. Accounts
 and friends have never been deployed; PBKDF2 CPU use on the Workers free plan is unmeasured.
 
+## Session 11: cosmetics, the store and the supply drop (branch `claude/overrun-cosmetics`)
+
+Built on the session 10 rebuild. Nothing here is deployed; the e2e for it runs on `TEST_PORT=4290`.
+
+**Gun skins.** `src/gunskins.js` holds the data: 27 skins in 4 rarities (`RARITY` weights 62/27/9/2,
+rarity follows how good a skin looks, so plain ones are common), `CRATE_SKINS` (19, from the crate),
+`SHOP_SKINS` (8, only in the daily shop), `dailyShop(ms)` (4 slots, rotates daily), `rollCrate`.
+A skin is slot colours for the roles `polymer` / `alloy` / `steel` (`[hex, rough, metal, glow?]`) plus an
+optional `tex: { role: patternName }`. Gun materials are looked up by those three role names, so any new
+gun model must keep them. Skins are NOT networked: only your own viewmodel, the locker, the store and the
+drop window show them.
+
+**Textures are files, not code.** The 17 patterns are tileable JPGs in `assets/textures/guns/`, the crate's
+four in `assets/textures/crate/`. They are baked from `tools/gunTextureDraw.js` and
+`tools/crateTextureDraw.js` by `npm run bake:textures` (`scripts/bake-gun-textures.mjs`, uses the installed
+Playwright Chromium). They are procedural, not photographs: replace any file with a real tileable CC0
+image of the same name and nothing else changes. `src/gunTextures.js` is the loader only: a 1-pixel
+stand-in until the file arrives, `texturesReady()` / `texturesPending()`, and `patchMaterial`, which projects the
+pattern along each part's dominant axis (the guns have no UVs). Never `.clone()` an async-loaded texture;
+call `freshPattern(name)`. The service worker precaches all of them; bump the cache name when you add one.
+
+**Economy.** `src/shop.js`: `openCrate` pays then draws, `buyShopSkin`, `ownedValue`. `CRATE_PRICE` is 300.
+The server accepts a profile only when `ownedValue(owned) <= spent <= credits <= maxCredits`. The crate
+draw is client side, so it is not anti-cheat.
+
+**Store and drop.** `src/store.js` (`#store`, `.st-*`, top tab `#tab-store`) shows the crate as a still picture
+(`src/crateModel.js` `crateStill`, drawn once) and the daily shop. Opening a crate runs `src/crateDrop.js`
+(`#drop`, `#drop-*`, `.dr-*`): its own full-screen window, a supply crate on a parachute, a soft shader
+beam, the skin on a gun you can drag to rotate, then a name card with TRY ON / AGAIN / DONE. Timeline
+constants `FALL=2100 LOCK=3300 BURST=4300 CARD=5200` (ms). `createDrop().play(skin, again)` resolves
+`'try' | 'again' | 'done'`. Escape skips, then closes. The e2e helper freezes time: step it with
+`__testClock.pump(frames, dtMs)` (`forward()` / `settled()` in `tests/e2e/store.spec.mjs`).
+
+**Locker v3.** Drag-to-rotate preview (`#lk-canvas`), red / orange / green stat bars (`--bar-lo/mid/hi`),
+a paint row of finishes then the collection (`.lk-coll`) then a `+` to the store (`.lk-more`).
+
+**Spacing.** Tab and text-button underlines sit clear of the words. Below 520 px of height
+(`@media (max-height: 520px)` at the end of `ui-overhaul.css`) the career, operators and locker trade
+pictures for room; the locker keeps three columns at any width. A throwaway audit script measured text and
+picture gaps against the nearest box on every screen at 1366x768, 1280x650, 1024x600 and 800x450; what is
+left is full-bleed art on purpose (operator tiles, the 3D view).
+
+**Brief for the 3D art.** `docs/COWORK-BLENDER-BRIEF.md` is a prompt for a local session with Blender:
+a modelled crate with animations, more Mixamo operators, real CC0 textures. No Blender exists in the
+cloud container, so none of that is done here.
+
+**Still open.** Operator skins that are lighter and more unique (needs a Mixamo login done by the
+owner). More detailed gun models. The pause-menu locker was not looked at. Drag-rotate was only exercised by tests, not by hand.
+
 ## Session 9: credits, guns, modes, friends, a less wordy UI
 
 Work is on `claude/accounts-and-rewards`, stacked on the two branches above. Answers to your list:

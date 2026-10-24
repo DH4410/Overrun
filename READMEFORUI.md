@@ -229,3 +229,18 @@ Please keep icons ahead of sentences.
 Removed: `#operator`, `#op-prev`, `#op-next`, `#op-name`, `#op-lock` (swapping skins in PLAY) and
 the loadout row above DEPLOY (`.rp-loadout`). Do not bring a skin or loadout control back to PLAY.
 Never scroll the page: every screen is sized from the viewport height.
+
+
+## 10. Added in session 11 (store, supply drop, locker v3)
+
+| Id / class | What | Notes |
+|---|---|---|
+| `#tab-store`, `#store`, `.st-card`, `.st-crate`, `.st-stage`, `.st-art`, `.st-cards`, `.st-card-item`, `.st-buy`, `.st-odds` | The STORE page | Built by `src/store.js`. The crate is a still image. At `max-height: 560px` the shop cards become one compact column |
+| `#drop`, `#drop-win`, `#drop-canvas`, `#drop-skip`, `#drop-done`, `.dr-card` | The supply-drop window | Built by `src/crateDrop.js`, full screen, over the store. The name card (`#drop-win`) is `hidden` until the reveal |
+| `#lk-canvas`, `.lk-view` | The locker's gun preview | Drag to rotate |
+| `.lk-coll`, `.lk-more`, `.lk-finish`, `.lk-count` | Paint row: level finishes, collection, `+` | `.lk-coll.r-rare/epic/legendary` set `--rc` |
+| `--bar-lo`, `--bar-mid`, `--bar-hi` | Stat bar colours (red, orange, green) | Used by `.lk-stat` |
+| `.coin` | The credit icon | Used in the wallet, store, locker and drop |
+
+Rules kept: underlines sit well below the words; nothing touches its box edge; never scroll. The
+`max-height: 520px` block at the end of `ui-overhaul.css` is what makes the career, operators and locker fit a very short window.

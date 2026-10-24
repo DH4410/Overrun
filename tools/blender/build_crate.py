@@ -161,3 +161,34 @@ def clip(name, fn):
         ob.rotation_euler = (0, 0, 0); ob.scale = (1, 1, 1)
 
 lid_rest = Vector(lid.location)
+for ob in (crate, lid):
+    ob.rotation_mode = 'XYZ'
+
+def idle():
+    for f, r, z in ((0, 0, 0), (15, 0.012, 0.004), (30, 0, 0), (45, -0.012, 0.004), (60, 0, 0)):
+        key(crate, f, rotation_euler=(0, r, 0), location=(0, 0, z))
+def land():
+    for f, s, z in ((0, (1, 1, 1), 0.0), (4, (1.06, 1.06, 0.88), 0.0), (9, (0.98, 0.98, 1.04), 0.04), (14, (1.01, 1.01, 0.99), 0.0), (24, (1, 1, 1), 0.0)):
+        key(crate, f, scale=s, location=(0, 0, z))
+def shake():
+    for f, x, r in ((0, 0, 0), (3, 0.012, 0.02), (6, -0.01, -0.02), (9, 0.008, 0.015), (12, 0, 0)):
+        key(crate, f, location=(x, 0, 0), rotation_euler=(0, r, 0))
+def opening():
+    rx, ry, rz = lid_rest
+    key(lid, 0, location=lid_rest, rotation_euler=(0, 0, 0), scale=(1, 1, 1))
+    key(lid, 5, location=(rx, ry, rz + 0.015), rotation_euler=(0.02, 0, 0), scale=(1, 1, 1))     # latches release
+    key(lid, 14, location=(rx, ry + 0.1, rz + 0.45), rotation_euler=(-0.25, 0.05, 0.04), scale=(1, 1, 1))
+    key(lid, 26, location=(rx + 0.5, ry + 0.9, rz + 1.5), rotation_euler=(-1.1, 0.5, 0.6), scale=(1, 1, 1))
+    key(lid, 36, location=(rx + 0.9, ry + 2.0, rz + 1.2), rotation_euler=(-2.4, 1.2, 1.5), scale=(1, 1, 1))
+    key(lid, 37, scale=(0.001, 0.001, 0.001))
+    key(crate, 0, scale=(1, 1, 1))
+    key(crate, 4, scale=(1.02, 1.02, 0.96))
+    key(crate, 12, scale=(1, 1, 1))
+
+clip('idle', idle); clip('land', land); clip('shake', shake); clip('open', opening)
+
+bpy.ops.export_scene.gltf(
+    filepath=OUT, export_format='GLB', export_yup=True, export_apply=True,
+    export_animations=True, export_animation_mode='NLA_TRACKS', export_nla_strips=True,
+    export_image_format='JPEG', export_jpeg_quality=80, export_cameras=False, export_lights=False)
+print('WROTE', OUT, os.path.getsize(OUT))

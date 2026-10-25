@@ -22,7 +22,7 @@ test('the locker changes the loadout, saves it, and keys 1-4 follow it', async (
   await page.click('#lk-armory [data-gun="shotgun"]');
   const want = ['shotgun', 'smg', 'pistol', 'sniper'];
   expect(await page.evaluate(() => globalThis.__game.player.loadout)).toEqual(want);
-  await page.click('#locker-close');
+  await page.click('#tab-play');
   await expect(page.locator('#locker')).toBeHidden();
 
   // It survives a reload, and the locker shows it.
@@ -31,7 +31,7 @@ test('the locker changes the loadout, saves it, and keys 1-4 follow it', async (
   await page.click('#locker-open');
   expect(await page.locator('#lk-slots .lk-slot').evaluateAll((els) => els.map((e) => e.dataset.gun)))
     .toEqual([...want, 'frag']);
-  await page.click('#locker-close');
+  await page.click('#tab-play');
 
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const current = () => page.evaluate(() => globalThis.__game.player.current);

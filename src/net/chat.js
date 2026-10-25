@@ -26,7 +26,11 @@ export function createChat({ send, keys, canOpen, isLobby }) {
   input.spellcheck = false;
   input.placeholder = 'Say something. Enter to send, Esc to cancel';
   form.append(tag, input);
-  root.append(log, form);
+  // A passive reminder while playing: the box only opens on Enter, and nothing else says so.
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.innerHTML = '<kbd>ENTER</kbd> CHAT <kbd>SHIFT</kbd>+<kbd>ENTER</kbd> TEAM';
+  root.append(log, form, hint);
   document.body.appendChild(root);
 
   const lines = [];   // { at, el }

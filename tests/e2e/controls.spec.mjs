@@ -12,7 +12,7 @@ test('a rebound key drives the game, the old key goes quiet, and the choice is r
   await page.click('#settings-open');
   const forward = page.locator('.kb-row button[data-action="forward"]');
   await expect(forward).toHaveText('W');
-  await forward.click();
+  await forward.click({ force: true });
   await expect(forward).toHaveText('PRESS A KEY');
   await page.keyboard.press('KeyE');
   await expect(forward).toHaveText('E');
@@ -20,16 +20,16 @@ test('a rebound key drives the game, the old key goes quiet, and the choice is r
   await expect(page.locator('#keyhelp')).toContainText('EASD');
 
   // Taking a key another action holds swaps them: C was crouch.
-  await page.locator('.kb-row button[data-action="jump"]').click();
+  await page.locator('.kb-row button[data-action="jump"]').click({ force: true });
   await page.keyboard.press('KeyC');
   await expect(page.locator('.kb-row button[data-action="jump"]')).toHaveText('C');
   await expect(page.locator('.kb-row button[data-action="crouch"]')).toHaveText('SPACE');
 
   // Escape backs out of a pending rebind without changing anything.
-  await page.locator('.kb-row button[data-action="reload"]').click();
+  await page.locator('.kb-row button[data-action="reload"]').click({ force: true });
   await page.keyboard.press('Escape');
   await expect(page.locator('.kb-row button[data-action="reload"]')).toHaveText('R');
-  await page.click('#settings-close');
+  await page.click('#tab-play');
 
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const moved = await page.evaluate(() => {

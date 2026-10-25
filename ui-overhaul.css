@@ -1931,3 +1931,16 @@ body:has(#menu:not(.hidden)) .lk-bal { display: none; }
 }
 /* The locker keeps its three columns on narrow windows too: wrapping the armory underneath pushed it over the paint row. */
 @media (max-width: 980px) { .lk-body { grid-template-columns: minmax(130px, 19%) minmax(0, 1fr) minmax(210px, 33%); } .lk-right { grid-column: auto; } }
+
+/* ---- lobby pages: the tabs are the navigation, so no page needs a DONE or a close of its own.
+   (In a match the pause menu opens the same panels, and there they keep their button.) ---- */
+body.lobby-on #settings-close,
+body.lobby-on #locker-close,
+body.lobby-on #career-close,
+body.lobby-on #store-close { display: none; }
+
+/* chat reminder: only while playing and the box is shut; in the lobby the box is always there */
+#mp-chat .hint { margin-top: 4px; font-size: 11px; letter-spacing: 2px; color: var(--ink-3); text-shadow: 0 1px 3px #000; opacity: .8; }
+#mp-chat .hint kbd { font: inherit; padding: 1px 5px; margin: 0 2px; border: 1px solid var(--ink-4); border-radius: 3px; color: var(--ink-2); }
+#mp-chat.typing .hint, #mp-chat.dock .hint { display: none; }
+.mpe-reward { color: var(--accent); font-family: var(--f-display); font-weight: 700; font-size: 16px; letter-spacing: 2px; padding: 4px 0; }

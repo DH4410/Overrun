@@ -106,10 +106,10 @@ for (const [w, h] of [[1280, 720], [800, 450]]) {
     expect(await scrollbarOffenders(page)).toEqual([]);
     await page.click('#settings-open');
     expect(await scrollbarOffenders(page)).toEqual([]);
-    await page.click('#settings-close');
+    await page.click('#tab-play');
     await page.click('#locker-open');
     expect(await scrollbarOffenders(page)).toEqual([]);
-    await page.click('#locker-close');
+    await page.click('#tab-play');
 
     await startMatch(page, { mode: 'dm', map: 'port', diff: 'hard' });
     await page.evaluate(() => {

@@ -1469,6 +1469,38 @@ const account = createAccount({
   onChange: (p) => { renderPlayerCard(p); applyWornSkin(); lobby.refresh(); },
 });
 addEventListener('overrun:profile', () => account.profileSaved());
+
+/**
+ * One callsign for solo and online. Both read the card's name field, so the field has to be the
+ * truth: it is remembered on this device, an account's username replaces it while signed in (and
+ * locks it, so the name in a match is always the name on the account), and signing out brings the
+ * remembered one back. Before this a typed name was lost on every reload and a sign-in could
+ * overwrite it silently.
+ */
+{
+  const input = $('nameinput');
+  const KEY = 'overrun.callsign';
+  const clean = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9_\- ]/g, '').slice(0, 12);
+  const read = () => { try { return clean(localStorage.getItem(KEY)); } catch { return ''; } };
+  const write = (v) => { try { localStorage.setItem(KEY, v); } catch { /* private window: stays for this visit */ } };
+  let remembered = read() || 'PLAYER';
+  if (input) {
+    input.value = remembered;
+    input.addEventListener('input', () => {
+      const at = input.selectionStart;
+      input.value = clean(input.value);
+      input.setSelectionRange?.(at, at);
+      if (input.value) { remembered = input.value; write(remembered); }
+    });
+    input.addEventListener('blur', () => { if (!input.value.trim()) input.value = remembered; });
+    addEventListener('overrun:auth', (e) => {
+      const user = e.detail?.user;
+      input.readOnly = !!user;
+      input.title = user ? 'Your account name' : 'Click to change your callsign';
+      input.value = user ? clean(user) : remembered;
+    });
+  }
+}
 const friends = createFriends({
   getElement: $,
   account,

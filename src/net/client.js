@@ -11,6 +11,7 @@ import {
   readSnapshot,
 } from '../sim/protocol.js';
 import { savedSkin } from '../skins.js';
+import { applyMatch, loadProfile, saveProfile } from '../profile.js';
 import { ITEMS, ITEM_SHIFT, TIERS, canUse, lootFor } from '../sim/items.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { killLine } from '../sim/killinfo.js';
@@ -118,7 +119,7 @@ export function createNetClient(d) {
   let endInfo = null;
   let lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
   let rosterList = [];
-  let queued = false, history = loadHistory(), wasLobby = false, chatTick = 0;
+  let paid = false, endReward = null, queued = false, history = loadHistory(), wasLobby = false, chatTick = 0;
   let stageReady = false, loading = false, prevPhase = 0, stageSig = '';
   const stats = { snaps: 0, bytes: 0, corrections: 0, resyncs: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
 
@@ -445,7 +446,7 @@ export function createNetClient(d) {
 
   function onMatch(m) {
     applyMatchInfo(m);
-    endInfo = null;
+    endInfo = null; paid = false; endReward = null;
     ui.end.classList.remove('on');
     el.feed.innerHTML = '';
     d.clearSmoke();
@@ -465,10 +466,32 @@ export function createNetClient(d) {
     timeLeft = m.timeLeft;
     endInfo = m;
     recordHistory(m);
+    payOut(m);
     document.exitPointerLock?.();
     el.pause.classList.remove('on', 'dead');
     drawEnd();
     ui.end.classList.add('on');
+  }
+
+  /**
+   * Online rounds pay XP and credits exactly as solo matches do, so progress is the same wherever
+   * you play. Once per round (a reconnect re-sends the end message), and only if you were in it:
+   * a seat left empty earns nothing. The career is the player's own copy, not anti-cheat.
+   */
+  function payOut(m) {
+    if (spectator || myId === null || paid || !m.standings || m.standings.length < 2) return;
+    const me = m.standings.find((r) => r.id === myId);
+    if (!me || me.kills + me.deaths === 0) return;
+    paid = true;
+    const w = m.winner || {};
+    let outcome = 'draw';
+    if (w.team !== undefined) outcome = w.team === me.team ? 'win' : 'loss';
+    else if (w.id !== undefined) outcome = w.id === myId ? 'win' : 'loss';
+    const res = applyMatch(loadProfile(), {
+      outcome, kills: me.kills, deaths: me.deaths, headshots: me.headshots ?? 0, bestStreak: me.bestStreak ?? 0,
+    });
+    saveProfile(res.profile);
+    endReward = { xp: res.award.total, credits: res.credits, level: res.after.level, leveledUp: res.leveledUp };
   }
 
   /** One line of match history per round played: win, loss or draw, and the score. */
@@ -512,6 +535,10 @@ export function createNetClient(d) {
         stats.appendChild(cell);
       }
       card.appendChild(stats);
+    }
+    if (endReward) {
+      const r = span('mpe-reward', `+${endReward.xp} XP · +${endReward.credits} CREDITS${endReward.leveledUp ? ` · LEVEL ${endReward.level}` : ''}`);
+      card.appendChild(r);
     }
     const table = document.createElement('div');
     table.className = 'mpe-rows';

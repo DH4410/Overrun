@@ -7,8 +7,9 @@ import { clamp, lerp } from './utils.js';
 /**
  * The kill cam. When a bot kills you the camera first swings onto them and zooms in while the
  * world runs in slow motion, then the screen rewinds into a replay of the last few seconds at
- * real speed: the killer as they were (their own posed skeleton, gun and aim, recorded as it was
- * drawn), you as you were, and every shot they fired. After it, a short respawn wait.
+ * real speed, through the killer's own eyes: their posed skeleton, gun and aim as they were
+ * drawn, so what you see is what they saw (the sights, the shots, you), and every shot they
+ * fired. After it, a short respawn wait.
  *
  * What is recorded is the drawn pose, not the simulation, so the replay is exactly what the
  * game showed, and nothing here can change a result. Single player only.
@@ -116,6 +117,8 @@ export function createKillcam({
   let hid = [];                         // live bot meshes hidden for the replay
   const tracers = [], flashes = [];
   const _q = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+  const _gm1 = new THREE.Matrix4(), _gm2 = new THREE.Matrix4(), _gp1 = new THREE.Vector3(), _gp2 = new THREE.Vector3();
+  const _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gs = new THREE.Vector3(), _gs2 = new THREE.Vector3();
 
   const flashTex = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -140,6 +143,10 @@ export function createKillcam({
     g.userData.gunIndex = bot.gunMesh ? bot.mesh.children.indexOf(bot.gunMesh) : -1;
     g.userData.skin = null;
     g.traverse((o) => { if (!g.userData.skin && o.isSkinnedMesh) g.userData.skin = o; });
+    // The replay looks out of this head, so it is shrunk away: the camera sits inside it.
+    const head = g.userData.skin?.skeleton.bones.find((bn) => /Head$/.test(bn.name));
+    if (head) head.scale.setScalar(0.001);
+    g.userData.head = head ?? null;
     scene.add(g);
     return g;
   }
@@ -256,8 +263,11 @@ export function createKillcam({
     if (g.userData.gunIndex >= 0) {
       const gun = g.children[g.userData.gunIndex];
       if (gun && a.hasGun) {
+        // Between the two samples, so the view the gun drives does not step at the recording rate.
+        _gm1.fromArray(a.gun).decompose(_gp1, _gq1, _gs);
+        _gm2.fromArray(b.hasGun ? b.gun : a.gun).decompose(_gp2, _gq2, _gs2);
         gun.matrixAutoUpdate = false;
-        gun.matrix.fromArray(a.gun);
+        gun.matrix.compose(_gp1.lerp(_gp2, k), _gq1.slerp(_gq2, k), _gs);
         gun.matrixWorldNeedsUpdate = true;
       }
     }
@@ -303,7 +313,7 @@ export function createKillcam({
   function fireVisual(s, mePos) {
     const o = s.o;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    sp.position.copy(o); sp.scale.setScalar(0.5);
+    sp.position.copy(o); sp.scale.setScalar(0.28);
     scene.add(sp);
     flashes.push({ sprite: sp, life: 0.06 });
     let len = 30;
@@ -384,24 +394,23 @@ export function createKillcam({
     while (playedShots < replayShots.length && replayShots[playedShots].t <= time) { fireVisual(replayShots[playedShots], mp); playedShots++; }
     while (playedHits < replayHits.length && replayHits[playedHits].t <= time) { spawnBlood(replayHits[playedHits].p); playedHits++; }
 
-    // Behind and a little to the right of the killer, looking where they look, closer when they aim.
-    const kp = ghostK.position;
-    _a.set(kp.x, kp.y + 0.9, kp.z);                                    // the killer's head
-    if (mp) _b.set(mp.x, mp.y + 0.8, mp.z); else _b.copy(_a);          // your chest
-    _c.copy(_b).sub(_a); _c.y = 0;
-    if (_c.lengthSq() < 0.01) _c.set(-Math.sin(ghostK.rotation.y), 0, -Math.cos(ghostK.rotation.y));
-    _c.normalize();
-    const back = lerp(3.7, 2.7, ks.aim);
-    camera.position.copy(_a).addScaledVector(_c, -back);
-    camera.position.x += _c.z * 0.85; camera.position.z -= _c.x * 0.85;     // over the right shoulder
-    camera.position.y += 0.75;
-    // Pull in if a wall is in the way.
-    for (let k = 1; k > 0.2 && !losClear(_a.x, _a.y, _a.z, camera.position.x, camera.position.y, camera.position.z); k -= 0.2) {
-      camera.position.lerpVectors(_a, camera.position, k);
+    // Through the killer's eyes: from their head, looking where they look. Shouldered, that is down
+    // the gun's own line (their sights are a hand's breadth in front of the eye); carried low, it is
+    // straight ahead of the body.
+    const kg = ghostK;
+    if (kg.userData.head) _a.setFromMatrixPosition(kg.userData.head.matrixWorld);
+    else _a.set(kg.position.x, kg.position.y + 1.6, kg.position.z);
+    const yaw = kg.rotation.y - Math.PI;
+    _b.set(Math.sin(yaw), 0, Math.cos(yaw));                           // where the body faces
+    const gun = kg.userData.gunIndex >= 0 ? kg.children[kg.userData.gunIndex] : null;
+    if (gun) {
+      _c.set(0, 0, -1).transformDirection(gun.matrixWorld);            // where the gun points
+      _b.lerp(_c, clamp(ks.aim * 1.25, 0, 1)).normalize();
     }
-    _tmp.lookAt(camera.position, _b, _up);
+    camera.position.copy(_a).addScaledVector(_b, 0.05);
+    _tmp.lookAt(camera.position, _c.copy(camera.position).add(_b), _up);
     camera.quaternion.setFromRotationMatrix(_tmp);
-    camera.fov = lerp(52, 36, ks.aim);
+    camera.fov = lerp(80, 64, ks.aim);
     camera.updateProjectionMatrix();
 
     for (const x of tracers) { x.life -= dt; if (x.life <= 0) { scene.remove(x.mesh); } }

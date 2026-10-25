@@ -1,5 +1,5 @@
 import { levelFromXp, rankTitle } from './profile.js';
-import { isUnlocked, nextReward, titleInfo } from './rewards.js';
+import { isUnlocked, titleInfo } from './rewards.js';
 import { balance } from './shop.js';
 
 const $ = (id) => document.getElementById(id);
@@ -13,9 +13,6 @@ export function renderPlayerCard(profile) {
   // A title you wear replaces the rank line; the rank is still on the career screen.
   const worn = profile.equipped?.title;
   set('pc-rank', worn && isUnlocked(profile, 'title', worn) ? titleInfo(worn).name : rankTitle(level));
-  const next = nextReward(level);
-  set('nr-name', next ? next.items.map((i) => i.name).join(' + ') : 'EVERYTHING UNLOCKED');
-  set('nr-sub', next ? `AT LEVEL ${next.level}  ·  ${next.level - level} LEVEL${next.level - level === 1 ? '' : 'S'} AWAY` : 'You have the full track.');
   set('pc-xpt', `${into} / ${need} XP`);
   const fill = $('pc-xpfill');
   if (fill) fill.style.width = `${Math.round((into / need) * 100)}%`;

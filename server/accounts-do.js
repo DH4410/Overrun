@@ -17,7 +17,9 @@ export class AccountsDO extends DurableObject {
       put: (k, v) => ctx.storage.put(k, v),
       delete: (k) => ctx.storage.delete(k),
     };
-    this.api = createAccountApi({ accounts: new Accounts({ store, iterations }), throttle: new Throttle() });
+    // "name:credits,name:credits" - gifts for named accounts, paid once each (see Accounts.granted).
+    const grants = Object.fromEntries(String(env.CREDIT_GRANTS ?? '').split(',').map((g) => g.split(':')).filter(([n, c]) => n && Number(c) > 0).map(([n, c]) => [n.trim().toLowerCase(), Number(c)]));
+    this.api = createAccountApi({ accounts: new Accounts({ store, iterations, grants }), throttle: new Throttle() });
   }
 
   async fetch(request) {

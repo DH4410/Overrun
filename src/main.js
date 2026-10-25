@@ -564,6 +564,7 @@ async function warmScene(tick = async () => {}) {
 function applySettings() {
   const q = QUALITY[settings.quality];
   document.body.classList.toggle('hc', !!settings.highContrast);
+  document.body.classList.toggle('saver', saverActive());
   // The battery saver (manual, or automatic while unplugged) only ever lowers these.
   const t = tuning();
 
@@ -620,6 +621,7 @@ const resScaler = createResScaler();
 
 /** The lobby stage is a still, simple scene: draw it at full resolution, supersampled, so edges are clean. */
 let sharp = false;
+let lobbyCrisp = false;     // the solo lobby, drawn the same way
 function setSharp(on) {
   if (sharp === on) return;
   sharp = on;
@@ -627,8 +629,10 @@ function setSharp(on) {
 }
 
 function applyRenderScale() {
-  renderScale = sharp ? 1 : baseRenderScale * resScaler.scale;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, sharp ? clamp(devicePixelRatio, 1.5, 2) : tuning().maxPixelRatio));
+  // Full resolution for the lobby, unless the battery saver is on: then the preset's own scale.
+  const crisp = (sharp || lobbyCrisp) && !saverActive();
+  renderScale = crisp ? 1 : baseRenderScale * resScaler.scale;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, crisp ? clamp(devicePixelRatio, 1.5, 2) : tuning().maxPixelRatio));
   resizeRenderer();
 }
 
@@ -1144,17 +1148,20 @@ function updateCamera(dt) {
  */
 function frameBudget() {
   // Online, the match runs on whether or not this screen is paused.
-  if (appState === APP_STATE.MENU && !net.active) return 1 / (saverActive() ? MENU_FPS_SAVER : MENU_FPS);
-  if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
-  if (net.inLobby) return 1 / LOBBY_FPS;   // a character standing on a podium needs no more than this
+  // With the battery saver off the lobby runs at full smoothness (the player's frame cap, the display's rate by default):
+  // it is one character and a pad, cheap to draw, and 30 Hz read as lag. On battery it stays slow.
   const cap = tuning().frameCap;
+  const smooth = cap > 0 ? 1 / cap : 0;
+  if (appState === APP_STATE.MENU && !net.active) return saverActive() ? 1 / MENU_FPS_SAVER : smooth;
+  if (appState !== APP_STATE.PLAYING && !net.active) return 1 / IDLE_FPS;
+  if (net.inLobby) return saverActive() ? 1 / LOBBY_FPS : smooth;   // a character standing on a podium
   return cap > 0 ? 1 / cap : 0;
 }
 
 let framesDrawn = 0;
 let lobbyWasUp = false;
 let shadowFrame = 0;
-const MENU_FPS = 30, MENU_FPS_SAVER = 20;   // the operator idles; 30 is plenty, and 20 on battery
+const MENU_FPS_SAVER = 20;   // the operator idles; 20 is plenty on battery
 const OUTRO_TIME_SCALE = 0.3;
 const KILLCAM_WORLD_SCALE = 0.3;    // world speed while the view zooms onto your killer
 
@@ -1170,6 +1177,7 @@ function frame() {
   // The lobby scene (the operator on his pad over a blurred map) shows behind the menu and its settings panel.
   const lobbyUp = !net.active && !match.running && (appState === APP_STATE.MENU || appState === APP_STATE.SETTINGS);
   lobby.setShown(lobbyUp);
+  if (lobbyUp !== lobbyCrisp) { lobbyCrisp = lobbyUp; applyRenderScale(); }
   if (lobbyUp !== lobbyWasUp) { lobbyWasUp = lobbyUp; if (!lobbyUp) online.hide(); else if (onlineTab) online.show(); }
 
   const now = performance.now() / 1000;

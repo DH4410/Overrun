@@ -1301,12 +1301,6 @@ body.killcam #hud > #streak { display: none !important; }
    Next unlock (lobby, under the player card) and the career screen.
    ========================================================================== */
 
-#nextreward { padding: 10px 14px 12px; background: rgba(9, 14, 24, .88); -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09), inset 3px 0 0 var(--accent);
-  font-family: var(--f-display); }
-.nr-lbl { font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--accent); }
-.nr-name { margin-top: 4px; font-size: 20px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; line-height: 1.1; }
-.nr-sub { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: 2px; color: var(--ink-3); }
-@media (max-height: 700px) { #nextreward { display: none; } }
 
 #career { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center; pointer-events: auto;
   background: radial-gradient(ellipse at 50% 15%, #16203a, #04060a 72%); }
@@ -1394,7 +1388,7 @@ body.killcam #hud > #streak { display: none !important; }
 /* High-contrast mode (Settings > Interface): brighter secondary text, solid panels, heavier shadows. */
 body.hc { --ink-2: rgba(255, 255, 255, .97); --ink-3: rgba(255, 255, 255, .86); --ink-4: rgba(255, 255, 255, .4);
   --shadow: 0 1px 2px #000, 0 0 3px #000, 0 0 12px rgba(0, 0, 0, .9); }
-body.hc #lobby-right, body.hc #playercard, body.hc #nextreward, body.hc #account, body.hc .op-plate, body.hc .acct-card, body.hc .mpe-card, body.hc #board .card { background: #070b12; }
+body.hc #lobby-right, body.hc #playercard, body.hc #account, body.hc .op-plate, body.hc .acct-card, body.hc .mpe-card, body.hc #board .card { background: #070b12; }
 body.hc .sel-card, body.hc .ol-row, body.hc #ol-roster li, body.hc .pill { background: rgba(255, 255, 255, .13); }
 body.hc .kf, body.hc #topbar .score, body.hc #toast { background: #070b12; }
 
@@ -1530,9 +1524,9 @@ body:has(#menu.hidden) #topnav { display: none; }
 .tab.active::after { left: 0; right: 0; }
 .tab:hover::after { left: 18%; right: 18%; }
 .nav-right { gap: 8px; }
-#wallet, #account, #friends-btn, #lobby-right, #playercard, #nextreward { -webkit-backdrop-filter: none; backdrop-filter: none; }
+#wallet, #account, #friends-btn, #lobby-right, #playercard { -webkit-backdrop-filter: none; backdrop-filter: none; }
 #wallet, #account, #friends-btn { background: rgba(14, 20, 31, .95); }
-#lobby-right, #playercard, #nextreward { background: rgba(9, 14, 24, .93); }
+#lobby-right, #playercard { background: rgba(9, 14, 24, .93); }
 @media (max-height: 640px) { #topnav .brand span { display: none; } }
 
 /* The menu sits under the bar and is one row. */
@@ -1966,3 +1960,41 @@ body.lobby-on #dima-panel { top: 72px; }
 #dima-panel .dp-bar { height: 4px; margin: 3px 0 6px; background: rgba(255, 255, 255, .14); }
 #dima-panel .dp-bar i { display: block; height: 100%; background: var(--accent); }
 #dima-panel p { margin: 6px 0 0; font: 400 11px/1.4 var(--f-body, sans-serif); color: var(--ink-2); letter-spacing: 0; }
+
+
+/* ==========================================================================
+   Interaction polish: every control answers the pointer. Off while the battery saver is on
+   (body.saver, set in main.js applySettings): no transitions, no lifting, no glow.
+   ========================================================================== */
+
+body:not(.saver) :is(button, .tab, .mcard, .lk-gun, .st-card-item, .st-buy, #st-open, .acct-card, [role="button"]) {
+  transition: transform .14s ease, filter .14s ease, background-color .14s ease, border-color .14s ease, color .14s ease;
+}
+body:not(.saver) :is(button, .lk-gun, [role="button"]):not(:disabled, .tab):hover {
+  filter: brightness(1.16) saturate(1.08) drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 45%, transparent));
+}
+body:not(.saver) :is(button, .lk-gun, [role="button"]):not(:disabled, .tab):active { transform: translateY(1px) scale(.975); filter: brightness(.94); }
+body:not(.saver) :is(button, .lk-gun, [role="button"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A big action brightens and lifts a touch more. */
+body:not(.saver) :is(#st-open, .st-buy, .pause-btns button.primary, .set-actions #settings-close):not(:disabled):hover {
+  transform: translateY(-2px);
+  filter: brightness(1.22) saturate(1.1) drop-shadow(0 4px 14px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+body:not(.saver) :is(#st-open, .st-buy):not(:disabled):active { transform: translateY(0) scale(.97); }
+
+/* The shop: the item under the pointer goes lighter and rises, its picture swells a little. */
+.st-card-item { position: relative; }
+body:not(.saver) .st-card-item:hover {
+  background: color-mix(in srgb, var(--rc) 24%, #1d2638);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .4), inset 0 0 0 1px color-mix(in srgb, var(--rc) 55%, transparent);
+}
+body:not(.saver) .st-card-item .st-pic img { transition: transform .2s ease, filter .2s ease; }
+body:not(.saver) .st-card-item:hover .st-pic img { transform: scale(1.05); filter: brightness(1.12); }
+body.saver .st-card-item:hover { background: color-mix(in srgb, var(--rc) 24%, #1d2638); }
+body.saver .st-art { animation: none; }
+body.saver :is(#store, #locker, #topnav, #lobby-right, #playercard, #account) *, body.saver .tab::after { transition: none !important; }
+
+/* Menu chrome is not text to select: a stray drag across a heading painted it in the browser's blue highlight. Fields and the account popup stay selectable. */
+#menu, #topnav, #store, #locker { -webkit-user-select: none; user-select: none; }
+#menu :is(input, textarea), #store :is(input, textarea), #locker :is(input, textarea) { -webkit-user-select: text; user-select: text; }

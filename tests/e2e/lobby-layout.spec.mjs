@@ -9,7 +9,7 @@ import { bootGame } from './helpers/game.mjs';
  */
 
 const SIZES = [[1920, 1080], [1440, 810], [1366, 768], [1280, 720], [1024, 600], [800, 450]];
-const BLOCKS = ['#topnav .brand', '#topnav .tabs', '#account', '#playercard', '#nextreward', '#lobby-right', '#keyhelp'];
+const BLOCKS = ['#topnav .brand', '#topnav .tabs', '#account', '#playercard', '#lobby-right', '#keyhelp'];
 
 async function boxes(page) {
   return page.evaluate((sel) => sel.flatMap((s) => {

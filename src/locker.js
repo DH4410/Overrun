@@ -7,6 +7,7 @@ import { clamp } from './utils.js';
 import { SKINS, skinInfo } from './rewards.js';
 import { GUN_SKINS, RARITY, gunSkinInfo, skinGradient } from './gunskins.js';
 import { gunPrice } from './shop.js';
+import { saverActive } from './settings.js';
 import { WEAPON_BY_ID } from './weapons.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
@@ -31,11 +32,14 @@ export const GUN_CARD = {
 /**
  * A slowly turning 3D view of one gun, drawn on its own canvas while the locker is open. It is the
  * same procedural model the first-person view and the bots use, in the finish you are wearing.
+ *
+ * With the battery saver on it is a still picture: drawn once per gun, no turning, no dragging, no frame
+ * loop. It is created once and kept: losing its GL context on close left the canvas blank on the next open.
  */
 function createPreview(canvas) {
   let r;
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch { return null; }
-  r.setPixelRatio(1);
+  r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
   // A room to reflect: black polymer and blued steel read as shapes instead of a silhouette.
   const pmrem = new THREE.PMREMGenerator(r);
@@ -52,13 +56,15 @@ function createPreview(canvas) {
   const pivot = new THREE.Group();
   scene.add(pivot);
   pivot.rotation.order = 'ZYX';                       // yaw about the world's up, then tilt about the screen's horizontal
-  let model = null, raf = 0, last = 0, frame = 0;
-  let yaw = -0.5, pitch = 0, vel = 0, drag = null, releasedAt = 0;
+  let model = null, raf = 0, last = 0;
+  let yaw = -0.5, vel = 0, drag = null, releasedAt = 0;
+  const still = () => saverActive();
 
   // Grab the gun and turn it; let go and it carries on turning by itself after a moment.
   canvas.style.touchAction = 'none';
   canvas.style.cursor = 'grab';
   canvas.addEventListener('pointerdown', (e) => {
+    if (still()) return;
     drag = { x: e.clientX, y: e.clientY };
     vel = 0;
     canvas.setPointerCapture?.(e.pointerId);
@@ -66,10 +72,9 @@ function createPreview(canvas) {
   });
   canvas.addEventListener('pointermove', (e) => {
     if (!drag) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    const dx = e.clientX - drag.x;
     drag.x = e.clientX; drag.y = e.clientY;
-    yaw += dx * 0.012;
-    pitch = clamp(pitch + dy * 0.006, -0.55, 0.55);
+    yaw += dx * 0.012;                                 // sideways only: it turns, it does not tumble
     vel = dx * 0.012;
   });
   const letGo = () => { if (!drag) return; drag = null; releasedAt = performance.now(); canvas.style.cursor = 'grab'; };
@@ -78,8 +83,20 @@ function createPreview(canvas) {
 
   function fit() {
     const w = canvas.clientWidth || 600, h = canvas.clientHeight || 300;
-    if (canvas.width !== w || canvas.height !== h) { r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+    const ratio = r.getPixelRatio(), want = still() ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    if (ratio !== want) r.setPixelRatio(want);
+    if (canvas.width !== Math.round(w * want) || canvas.height !== Math.round(h * want)) { r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); return true; }
+    return false;
   }
+
+  /** One frame, for the still picture. */
+  function drawOnce() {
+    if (!model) return;
+    fit();
+    pivot.rotation.y = yaw;
+    r.render(scene, cam);
+  }
+  window.addEventListener('resize', () => { if (still() && !raf && canvas.clientWidth) drawOnce(); });
 
   /** Show gun `id`. `skin` is a finish ({ slots }) or null for stock. A new gun starts side-on again. */
   function show(id, skin, { keepAngle = false } = {}) {
@@ -97,28 +114,29 @@ function createPreview(canvas) {
     const dist = (half / (Math.tan((cam.fov * Math.PI) / 360) * cam.aspect)) * 1.45;
     cam.position.set(dist, size.y * 0.08, 0);
     cam.lookAt(0, 0, 0);
-    if (!keepAngle) { yaw = -0.5; pitch = 0; vel = 0; releasedAt = performance.now(); }
+    if (!keepAngle) { yaw = -0.5; vel = 0; releasedAt = performance.now(); }
+    if (still()) drawOnce();
   }
 
   function loop(t) {
     raf = requestAnimationFrame(loop);
-    if ((frame++ & 1) === 1) return;                   // 30 fps is plenty for a turntable
     const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
     last = t;
     fit();
     if (!drag) {
       yaw += vel; vel *= 0.9;                          // a flick keeps going, then settles
       if (Math.abs(vel) < 0.002 && t - releasedAt > 1800) yaw += dt * 0.55;   // idle: a slow full turn
-      pitch *= 0.97;
     }
     pivot.rotation.y = yaw;
-    pivot.rotation.z = pitch;
     r.render(scene, cam);
   }
-  function start() { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(loop); }
+  function start() {
+    cancelAnimationFrame(raf); raf = 0; last = 0;
+    canvas.style.cursor = still() ? 'default' : 'grab';
+    if (still()) drawOnce(); else raf = requestAnimationFrame(loop);
+  }
   function stop() { cancelAnimationFrame(raf); raf = 0; }
-  function dispose() { stop(); scene.environment?.dispose(); pmrem.dispose(); r.dispose(); r.forceContextLoss?.(); }
-  return { show, start, stop, dispose };
+  return { show, start, stop };
 }
 
 /** The numbers under the preview: a bar for how it feels, the figure behind it, and a grade that colours the bar. */
@@ -354,8 +372,7 @@ export function createLocker({
     sel = Math.min(sel, LOADOUT_SIZE - 1);
     shown = getLoadout()[sel];
     root.classList.remove('hidden');
-    preview?.dispose();
-    preview = createPreview(root.querySelector('#lk-canvas'));
+    preview ??= createPreview(root.querySelector('#lk-canvas'));
     previewed = null;
     render();
     showGun(shown);
@@ -367,8 +384,7 @@ export function createLocker({
   function close() {
     if (!root || !isOpen()) return;
     root.classList.add('hidden');
-    preview?.dispose();
-    preview = null;
+    preview?.stop();
     onClose();
   }
 

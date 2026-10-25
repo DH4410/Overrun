@@ -70,8 +70,10 @@ function newRecoveryCode() {
 const normaliseRecovery = (code) => String(code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export class Accounts {
-  constructor({ store, iterations = 100_000, now = () => Date.now() }) {
+  /** `grants`: { usernameLc: credits }, gifts the owner has configured for specific accounts (tests, prizes). */
+  constructor({ store, iterations = 100_000, now = () => Date.now(), grants = {} }) {
     this.store = store;
+    this.grants = grants;
     this.iterations = iterations;
     this.now = now;
     this.locks = new Map();
@@ -158,7 +160,10 @@ export class Accounts {
       const fresh = await this.store.get(`u:${u.usernameLc}`);
       const token = await this.startSession(fresh);
       await this.store.put(`u:${fresh.usernameLc}`, fresh);
-      return { token, user: this.publicUser(fresh), profile: fresh.profile, rev: fresh.rev };
+      return { token, fresh };
+    }).then(async ({ token, fresh }) => {
+      const paid = await this.granted(fresh);
+      return { token, user: this.publicUser(paid), profile: paid.profile, rev: paid.rev };
     });
   }
 
@@ -169,7 +174,25 @@ export class Accounts {
     const s = await this.store.get(`s:${hash}`);
     if (!s) return null;
     if (s.exp <= this.now()) { await this.store.delete(`s:${hash}`); return null; }
-    return this.store.get(`u:${s.u}`);
+    return this.granted(await this.store.get(`u:${s.u}`));
+  }
+
+  /**
+   * Pay out a configured gift once. `u.granted` is how much of it the account already has, so a
+   * restart or a second login never pays twice and raising the number in the config pays the difference.
+   */
+  async granted(u) {
+    const want = Math.floor(Number(u && this.grants[u.usernameLc]) || 0);
+    if (!u || want <= (u.granted ?? 0)) return u;
+    return this.withLock(`u:${u.usernameLc}`, async () => {
+      const cur = await this.store.get(`u:${u.usernameLc}`);
+      if (!cur || want <= (cur.granted ?? 0)) return cur;
+      cur.profile = { ...cur.profile, credits: cur.profile.credits + (want - (cur.granted ?? 0)) };
+      cur.granted = want;
+      cur.rev += 1;
+      await this.store.put(`u:${cur.usernameLc}`, cur);
+      return cur;
+    });
   }
 
   async logout(token) {
@@ -202,7 +225,7 @@ export class Accounts {
       }
       // Credits follow XP, spending cannot exceed what was earned, and what was bought must have
       // been paid for and cannot be given back.
-      if (next.credits > maxCredits(next.xp, levelFromXp(next.xp).level)) throw new AccountError(400, 'range', 'That career has more credits than it could have earned.');
+      if (next.credits > maxCredits(next.xp, levelFromXp(next.xp).level) + (cur.granted ?? 0)) throw new AccountError(400, 'range', 'That career has more credits than it could have earned.');
       if (next.spent > next.credits || ownedValue(next.owned) > next.spent) throw new AccountError(400, 'range', 'That career has spent more than it has.');
       if ((cur.profile.owned ?? []).some((k) => !next.owned.includes(k))) throw new AccountError(400, 'regress', 'A career cannot lose what it bought.');
       next.equipped = sanitizeEquipped(next, next.equipped);

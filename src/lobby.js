@@ -122,7 +122,7 @@ export function createLobby({
     // Stand on the pad by measuring the actual soles, so every character is on it and in the middle of it.
     const box = new THREE.Box3().setFromObject(g);
     g.position.set(-(box.min.x + box.max.x) / 2, PAD_H - box.min.y, -(box.min.z + box.max.z) / 2);
-    g.rotation.y = 0.28;                   // a little turned so the shoulder leads
+    g.rotation.y = Math.PI + 0.28;       // the model faces -Z and the camera is on +Z: turn it round, a little off-centre so the shoulder leads
     g.visible = shown;
     scene.add(g);
     hero = g; heroId = id;

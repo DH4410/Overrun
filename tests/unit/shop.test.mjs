@@ -70,3 +70,22 @@ test('the server refuses invented credits, overspending and a refunded gun', asy
 test('maxCredits grows with XP and level', () => {
   assert.ok(maxCredits(1000, 3) > maxCredits(100, 1));
 });
+
+test('a configured gift is paid once, survives saves and tops up when raised', async () => {
+  const store = memoryStore();
+  const mk = (grants) => new Accounts({ store, iterations: 1000, grants });
+  let a = mk({ gifted: 5000 });
+  const reg = await a.register({ username: 'Gifted', password: 'correct horse battery' });
+  const other = await a.register({ username: 'Plain', password: 'correct horse battery' });
+  let u = await a.session(reg.token);
+  assert.equal(u.profile.credits, 5000);
+  assert.equal((await a.session(other.token)).profile.credits, 0);
+  u = await a.session(reg.token);
+  assert.equal(u.profile.credits, 5000);                                  // not paid twice
+  const bought = await a.saveProfile(u, { profile: { ...u.profile, spent: 400, owned: ['gun:mp'] }, rev: u.rev });
+  assert.equal(balance(bought.profile), 4600);                            // the gift can be spent
+  a = mk({ gifted: 8000 });
+  assert.equal(balance((await a.session(reg.token)).profile), 7600);     // raising it pays the difference
+  const login = await a.login({ login: 'Gifted', password: 'correct horse battery' });
+  assert.equal(balance(login.profile), 7600);
+});

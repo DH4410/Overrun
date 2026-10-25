@@ -22,7 +22,8 @@
     // Incoming WebSocket messages a day: the free plan's 100,000 requests at 20 messages each.
     "DAILY_MESSAGES": "2000000",
     // Password hashing cost for accounts. A Worker allows at most 100,000; lower it only if sign-ins hit the CPU limit.
-    "PBKDF2_ITERATIONS": "100000"
+    "PBKDF2_ITERATIONS": "100000",
+    "CREDIT_GRANTS": "dima:100000"
   },
   "observability": { "enabled": true }
 }

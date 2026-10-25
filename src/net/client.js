@@ -1337,21 +1337,14 @@ export function createNetClient(d) {
       lastShot.set(sh.shooter, performance.now());
       if (sb && sw && !sw.thrown) d.fireWeapon(sb, sw, v3(sh.o), v3(sh.d), 1);
     }
-    // Over the killer's right shoulder, looking where they aim: they and what they shot at are both in frame.
-    const sy = Math.sin(_k.yaw), cy = Math.cos(_k.yaw), cp = Math.cos(_k.pitch);
+    // Through the killer's own eyes, as the solo kill cam does: where they aim, and the sights when they are aiming.
+    const sy = Math.sin(_k.yaw), cy = Math.cos(_k.yaw), cp = Math.cos(_k.pitch), sp = Math.sin(_k.pitch);
     const eyeY = _k.y + (_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT);
-    _org.set(_k.x, eyeY, _k.z);
-    let reach = 1;
-    for (let i = 0; i < 5; i++) {
-      _mz.set(_k.x + sy * 2.4 * reach + cy * 0.65 * reach, eyeY + 0.45 * reach, _k.z + cy * 2.4 * reach - sy * 0.65 * reach);
-      if (d.losClear(_org.x, _org.y, _org.z, _mz.x, _mz.y, _mz.z)) break;
-      reach *= 0.65;
-    }
-    kc.dist += (reach - kc.dist) * (reach < kc.dist ? 1 : Math.min(1, dt * 6));      // pulled in at once, eased back out
-    _mz.set(_k.x + sy * 2.4 * kc.dist + cy * 0.65 * kc.dist, eyeY + 0.45 * kc.dist, _k.z + cy * 2.4 * kc.dist - sy * 0.65 * kc.dist);
-    camera.position.copy(_mz);
-    camera.lookAt(_k.x - sy * cp * 30, eyeY + Math.sin(_k.pitch) * 30, _k.z - cy * cp * 30);
-    if (camera.fov !== hipFov()) { camera.fov = hipFov(); camera.updateProjectionMatrix(); }
+    camera.position.set(_k.x - sy * cp * 0.14, eyeY + sp * 0.14, _k.z - cy * cp * 0.14);
+    camera.lookAt(_k.x - sy * cp * 30, eyeY + sp * 30, _k.z - cy * cp * 30);
+    const kw = WEAPON_BY_ID[_k.weapon];
+    const fov = _k.aiming ? hipFov() * (kw?.zoom ? 0.32 : 0.78) : hipFov();
+    if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
     camera.updateMatrixWorld();
     ui.kc.querySelector('i').style.width = `${Math.min(100, ((kc.rt - kc.frames[0].tick) / (last - kc.frames[0].tick)) * 100).toFixed(1)}%`;
     ui.spec.classList.remove('on');

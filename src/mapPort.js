@@ -31,38 +31,29 @@ export const PORT = {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
     return {
       asphalt: pbrMat('asphalt_02', { repeat: 1, ao: true, fallback: 0x4d5054, rough: 0.95 }),
-      apron: pbrMat('concrete_floor_01', { repeat: 1, ao: true, fallback: 0x9a968e, rough: 0.9, extra: { vertexColors: true } }),
+      apron: pbrMat('concrete_floor_01', { repeat: 1, ao: true, fallback: 0x9a968e, rough: 0.9 }),
       slab: pbrMat('concrete_pavement', { repeat: 1, ao: true, fallback: 0x8f8c86, rough: 0.9, extra: decal(1) }),
-      wall: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0xa19d95, rough: 0.92, extra: { vertexColors: true } }),
-      barrier: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0xaaa69c, rough: 0.95, extra: { vertexColors: true } }),
-      cladding: pbrMat('factory_wall', { repeat: 1, ao: true, fallback: 0x56705a, rough: 0.6, metal: 0.3, extra: { vertexColors: true } }),
-      roof: pbrMat('box_profile_metal_sheet', { repeat: 1, ao: true, fallback: 0x6b4038, rough: 0.6, metal: 0.3, extra: { vertexColors: true } }),
-      wood: pbrMat('plywood', { repeat: 1, ao: true, fallback: 0xa07c52, rough: 0.8, extra: { vertexColors: true } }),
+      wall: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0xa19d95, rough: 0.92 }),
+      barrier: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0xaaa69c, rough: 0.95 }),
+      cladding: pbrMat('factory_wall', { repeat: 1, ao: true, fallback: 0x56705a, rough: 0.6, metal: 0.3 }),
+      roof: pbrMat('box_profile_metal_sheet', { repeat: 1, ao: true, fallback: 0x6b4038, rough: 0.6, metal: 0.3 }),
+      wood: pbrMat('plywood', { repeat: 1, ao: true, fallback: 0xa07c52, rough: 0.8 }),
       // Container paint: the colour is per container (vertex colours from the GLB); the texture
       // only adds its scratches and grime, as luminance.
       paint: pbrMat('green_metal_rust', {
         repeat: 1, fallback: 0xffffff, rough: 0.55, metal: 0.25, detail: true, extra: { vertexColors: true },
       }),
-      yellow: pbrMat('green_metal_rust', { repeat: 1, ao: true, fallback: 0xd29a1c, rough: 0.55, metal: 0.25, detail: true, extra: { vertexColors: true } }),
-      steel: new THREE.MeshStandardMaterial({ color: 0x5b6167, roughness: 0.45, metalness: 0.6, vertexColors: true }),
+      yellow: pbrMat('green_metal_rust', { repeat: 1, ao: true, fallback: 0xd29a1c, rough: 0.55, metal: 0.25, detail: true }),
+      steel: new THREE.MeshStandardMaterial({ color: 0x5b6167, roughness: 0.45, metalness: 0.6 }),
       lines: new THREE.MeshStandardMaterial({ color: 0xd9b23a, roughness: 0.85, ...decal(2) }),
       linesW: new THREE.MeshStandardMaterial({ color: 0xd6d8d4, roughness: 0.85, ...decal(2) }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xfff1d6 }),
-      // Fittings with no collider (ladders, window frames, castings, straps) and the stencils,
-      // text and stains painted on the walls and floor; both are coloured per piece by the GLB.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
-      // Matte paint: Lambert is the cheaper shader and looks the same on it. There are 20k
-      // decal triangles on screen, so the per-pixel cost shows up on battery.
-      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.1, vertexColors: true }),
       water: new THREE.MeshStandardMaterial({ color: 0x27414b, roughness: 0.25, metalness: 0.1 }),
     };
   },
-  /**
-   * Meshes that stay out of the shadow pass: decals, emitters, everything past the wall, and the
-   * small fittings (ladder rungs, frames, castings), whose shadows no one can see.
-   */
-  noCast: ['asphalt', 'slab', 'lines', 'linesW', 'lamp', 'far', 'water', 'mark', 'fit'],
+  /** Meshes that stay out of the shadow pass: decals, emitters, and everything past the wall. */
+  noCast: ['asphalt', 'slab', 'lines', 'linesW', 'lamp', 'far', 'water'],
 
   look: {
     background: 0xc9dcea,

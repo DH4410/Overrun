@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
-import { typeAtlas } from './typeAtlas.js';
 
 /**
  * SNOW: a research outpost in a mountain valley at the end of a winter afternoon, modelled in
@@ -29,37 +28,27 @@ export const SNOW = {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
     // The snows, the cladding and the paint keep a chosen colour and take only their texture's
     // detail, so the base stays one palette whatever each scan's own tint.
-    // Cladding, concrete, steel and timber also carry vertex colours: dirt gathered at the foot
-    // and soft patches (the wear pass in roundkit_dh.py). Keys that share a material (steel and
-    // rail, snowcap and mound) all carry them or all do not, or a mesh without would draw black.
-    const worn = { vertexColors: true };
     const snow = pbrMat('snow_02', { repeat: 1, ao: true, fallback: 0xe4e9ef, rough: 0.9, detail: true });
-    const steel = pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x5a5e62, rough: 0.5, metal: 0.6, extra: worn });
-    const snowcap = pbrMat('snow_01', { repeat: 1, ao: true, fallback: 0xeef1f5, rough: 0.85, detail: true });
+    const steel = pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x5a5e62, rough: 0.5, metal: 0.6 });
     return {
       snow,
       drift: snow,
-      snowcap,
-      mound: snowcap,
-      berm: pbrMat('snow_01', { repeat: 1, ao: true, fallback: 0xdde4eb, rough: 0.9, detail: true, extra: worn }),
+      snowcap: pbrMat('snow_01', { repeat: 1, ao: true, fallback: 0xeef1f5, rough: 0.85, detail: true }),
+      berm: pbrMat('snow_01', { repeat: 1, ao: true, fallback: 0xdde4eb, rough: 0.9, detail: true }),
       track: pbrMat('asphalt_snow', { repeat: 1, ao: true, fallback: 0x8d9296, rough: 0.9, extra: decal(1) }),
       ice: new THREE.MeshStandardMaterial({ color: 0x9fb8c9, roughness: 0.12, ...decal(1) }),
-      concrete: pbrMat('concrete_wall_006', { repeat: 1, ao: true, fallback: 0x8c8b87, rough: 0.9, extra: worn }),
-      // precast and dressed detail (footings, copings, canopies, steps, sills): no collider
-      trim: pbrMat('concrete_wall_006', { repeat: 1, ao: true, fallback: 0xa5a4a0, rough: 0.9, detail: true, extra: worn }),
-      // pipes, housings, ladders, frames, hinges, handles and vents: dark painted steel
-      metal: new THREE.MeshStandardMaterial({ color: 0x3b3e42, roughness: 0.55, metalness: 0.45, vertexColors: true }),
+      concrete: pbrMat('concrete_wall_006', { repeat: 1, ao: true, fallback: 0x8c8b87, rough: 0.9 }),
       floor: pbrMat('concrete_floor_worn_001', { repeat: 1, ao: true, fallback: 0x74736f, rough: 0.9, extra: decal(1) }),
-      red: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x9c2f24, rough: 0.6, metal: 0.3, detail: true, extra: worn }),
-      ochre: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0xc28a2e, rough: 0.6, metal: 0.3, detail: true, extra: worn }),
-      grey: pbrMat('corrugated_iron', { repeat: 1, ao: true, fallback: 0x6e767c, rough: 0.55, metal: 0.4, detail: true, extra: worn }),
-      lining: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xd8d2c4, rough: 0.9, detail: true, extra: worn }),
+      red: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x9c2f24, rough: 0.6, metal: 0.3, detail: true }),
+      ochre: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0xc28a2e, rough: 0.6, metal: 0.3, detail: true }),
+      grey: pbrMat('corrugated_iron', { repeat: 1, ao: true, fallback: 0x6e767c, rough: 0.55, metal: 0.4, detail: true }),
+      lining: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xd8d2c4, rough: 0.9, detail: true }),
       steel,
       rail: steel,
-      tank: pbrMat('rusty_metal_sheet', { repeat: 1, ao: true, fallback: 0xd6d6d0, rough: 0.6, metal: 0.2, detail: true, extra: worn }),
+      tank: pbrMat('rusty_metal_sheet', { repeat: 1, ao: true, fallback: 0xd6d6d0, rough: 0.6, metal: 0.2, detail: true }),
       // Containers, fir needles, paint and the backdrop: the colour is per face (vertex colours).
       container: pbrMat('box_profile_metal_sheet', { repeat: 1, ao: true, fallback: 0xffffff, rough: 0.55, metal: 0.3, detail: true, extra: { vertexColors: true } }),
-      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn }),
+      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 }),
       trunk: pbrMat('rough_wood', { repeat: 1, ao: true, fallback: 0x5a4636, rough: 0.95 }),
       fir: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true, side: THREE.DoubleSide }),
       paint: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, vertexColors: true }),
@@ -67,19 +56,10 @@ export const SNOW = {
       black: new THREE.MeshStandardMaterial({ color: 0x161718, roughness: 0.8 }),
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
-      // The detail pass, coloured per piece by the GLB: hardware, matte paint (Lambert is the
-      // cheaper shader and looks the same on it) and lamp lenses and sign text, which are unlit.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
-      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
-      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
-      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
-      tmark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
-      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, emitters, the small fittings and the
-   * paint, and everything past the fence. */
-  noCast: ['snow', 'drift', 'mound', 'track', 'ice', 'floor', 'dark', 'glow', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, and everything past the fence. */
+  noCast: ['snow', 'drift', 'track', 'ice', 'floor', 'dark', 'glow', 'far'],
 
   look: {
     background: 0xd9d6d8,

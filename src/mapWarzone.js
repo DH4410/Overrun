@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
-import { typeAtlas } from './typeAtlas.js';
 
 /**
  * WARZONE: a ruined town on open ground under a smoky afternoon sky, modelled in Blender
@@ -28,29 +27,23 @@ export const WARZONE = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
-    // Walls, roofs, steel and timber carry vertex colours: dirt gathered at the foot and soft
-    // patches (the wear pass in roundkit_dh.py), multiplied over the texture.
-    const worn = { vertexColors: true };
     return {
       ground: pbrMat('dry_ground_rocks', { repeat: 1, ao: true, fallback: 0x6f6654, rough: 0.95 }),
       outer: pbrMat('dry_ground_rocks', { repeat: 1, fallback: 0x6f6654, rough: 0.95 }),
       road: pbrMat('asphalt_02', { repeat: 1, ao: true, fallback: 0x3c3c3e, rough: 0.95, extra: decal(1) }),
       lines: new THREE.MeshStandardMaterial({ color: 0xcdb866, roughness: 0.85, ...decal(2) }),
       paving: pbrMat('cobblestone_floor_04', { repeat: 1, ao: true, fallback: 0x87806f, rough: 0.9, extra: decal(1) }),
-      brick: pbrMat('broken_brick_wall', { repeat: 1, ao: true, fallback: 0x8a4e3a, rough: 0.9, extra: worn }),
-      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9, extra: worn }),
-      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92, extra: worn }),
-      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true, extra: worn }),
-      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95, extra: worn }),
+      brick: pbrMat('broken_brick_wall', { repeat: 1, ao: true, fallback: 0x8a4e3a, rough: 0.9 }),
+      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9 }),
+      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92 }),
+      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true }),
+      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95 }),
       floor: pbrMat('concrete_floor_damaged_01', { repeat: 1, ao: true, fallback: 0x625f59, rough: 0.9, extra: decal(1) }),
-      roof: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x6b4a40, rough: 0.6, metal: 0.3, extra: worn }),
-      rubble: pbrMat('rubble', { repeat: 1, ao: true, fallback: 0x75706a, rough: 0.95, extra: worn }),
-      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6, extra: worn }),
+      roof: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x6b4a40, rough: 0.6, metal: 0.3 }),
+      rubble: pbrMat('rubble', { repeat: 1, ao: true, fallback: 0x75706a, rough: 0.95 }),
+      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6 }),
       rail: new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.5, metalness: 0.6 }),
-      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn }),
-      // precast trim (plinths, cornices, lintels, sills, copings, parapets): no collider
-      trim: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0xa9a699, rough: 0.9, detail: true, extra: worn }),
-      tyre: new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.95 }),
+      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 }),
       trunk: pbrMat('rough_wood', { repeat: 1, ao: true, fallback: 0x4a3c30, rough: 0.95 }),
       // Containers, vehicles and sandbags: the colour is per face (vertex colours); the texture
       // only adds its scratches and weave, as luminance.
@@ -60,21 +53,10 @@ export const WARZONE = {
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
       far: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: true }),
-      // The detail pass (warzonedetail.py): hardware, paint, stains, sign text. No collider, and
-      // the scenery detail switch and the battery saver hide all of it.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.4, vertexColors: true }),
-      // Standard, not Lambert: only Standard takes the scene's environment light, and on a hazy day that is
-      // most of what a wall in shade receives, so a Lambert decal would sit dark on its own wall.
-      mark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, ...decal(3) }),
-      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
-      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
-      tmark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
-      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, emitters, the detail pass (too small to
-   * shade) and everything past the wall. */
-  noCast: ['ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, and everything past the wall. */
+  noCast: ['ground', 'outer', 'road', 'lines', 'paving', 'floor', 'dark', 'glow', 'far'],
 
   look: {
     background: 0xb9b6ae,

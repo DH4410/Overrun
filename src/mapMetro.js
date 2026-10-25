@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
-import { typeAtlas } from './typeAtlas.js';
 
 /**
  * METRO: an underground station hub, modelled in Blender (scripts/blender/build_metro.py).
@@ -46,18 +45,10 @@ export const METRO = {
       signblue: new THREE.MeshBasicMaterial({ color: 0x2a6cf0 }),
       signgreen: new THREE.MeshBasicMaterial({ color: 0x2ee07a }),
       signred: new THREE.MeshBasicMaterial({ color: 0xf0301f }),
-      // The detail pass, coloured per piece by the GLB: hardware, matte paint (Lambert is the
-      // cheaper shader and looks the same on it) and sign text, which is unlit like the lamps.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
-      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
-      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
-      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
-      tmark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
-      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Ground, paint, emitters and the small fittings stay out of the shadow pass; so does the ceiling, so light reaches the floor. */
-  noCast: ['ballast', 'floor', 'lines', 'dark', 'glass', 'glow', 'signblue', 'signgreen', 'signred', 'ceil', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
+  /** Ground, paint and emitters stay out of the shadow pass; so does the ceiling, so light reaches the floor. */
+  noCast: ['ballast', 'floor', 'lines', 'dark', 'glass', 'glow', 'signblue', 'signgreen', 'signred', 'ceil'],
 
   look: {
     background: 0x14161a,

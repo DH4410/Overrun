@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
-import { typeAtlas } from './typeAtlas.js';
 
 /**
  * DEPOT: a warehouse hall for the one-on-one duel, modelled in Blender (scripts/blender/build_depot.py).
@@ -27,42 +26,25 @@ export const DEPOT = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
-    // Block, concrete, steel, timber and plaster also carry vertex colours: dirt gathered at the
-    // foot and soft patches (the wear pass in roundkit_dh.py). Every key that has them has them on
-    // every mesh, or a mesh without would draw black.
-    const worn = { vertexColors: true };
     return {
-      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92, extra: worn }),
-      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95, extra: worn }),
-      // precast and dressed detail (plinths, capitals, cornices, hoods): no collider
-      trim: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0xa5a4a0, rough: 0.9, detail: true, extra: worn }),
-      // pipes, ducts, hangers, frames, housings and hinges: dark painted steel
-      metal: new THREE.MeshStandardMaterial({ color: 0x3b3e42, roughness: 0.55, metalness: 0.45, vertexColors: true }),
+      cmu: pbrMat('concrete_slab_wall', { repeat: 1, ao: true, fallback: 0x8f8d86, rough: 0.92 }),
+      concrete: pbrMat('rough_concrete', { repeat: 1, ao: true, fallback: 0x8c8a84, rough: 0.95 }),
       floor: pbrMat('concrete_floor_damaged_01', { repeat: 1, ao: true, fallback: 0x625f59, rough: 0.9 }),
       lines: new THREE.MeshStandardMaterial({ color: 0xcdb866, roughness: 0.85, ...decal(2) }),
       roof: pbrMat('corrugated_iron_02', { repeat: 1, ao: true, fallback: 0x6b6a68, rough: 0.6, metal: 0.3 }),
-      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6, extra: worn }),
-      rail: new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.5, metalness: 0.6, vertexColors: true }),
-      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn }),
-      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9, extra: worn }),
-      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true, extra: worn }),
+      steel: pbrMat('metal_plate', { repeat: 1, ao: true, fallback: 0x575b5f, rough: 0.5, metal: 0.6 }),
+      rail: new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.5, metalness: 0.6 }),
+      wood: pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 }),
+      stucco: pbrMat('peeling_painted_wall', { repeat: 1, ao: true, fallback: 0xb5a584, rough: 0.9 }),
+      plaster: pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xc2bba8, rough: 0.9, detail: true }),
       container: pbrMat('box_profile_metal_sheet', { repeat: 1, ao: true, fallback: 0xffffff, rough: 0.55, metal: 0.3, detail: true, extra: { vertexColors: true } }),
-      // hazard stripes, extinguishers, signs and column bands: the colour is per face
-      paint: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, vertexColors: true, ...decal(1) }),
       dark: new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.9, ...decal(1) }),
-      glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),      skylight: new THREE.MeshBasicMaterial({ color: 0xcfe4ff }),
-      // The detail pass, coloured per piece by the GLB: hardware, matte paint (Lambert is the
-      // cheaper shader and looks the same on it) and lamp lenses and sign text, which are unlit.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, vertexColors: true }),
-      mark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, ...decal(3) }),
-      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
-      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
-      tmark: new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
-      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
+      glow: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
+      skylight: new THREE.MeshBasicMaterial({ color: 0xcfe4ff }),
     };
   },
-  /** The roof stays out of the shadow pass so the sun reaches the floor through it; so do the small fittings and the paint. */
-  noCast: ['floor', 'lines', 'dark', 'glow', 'skylight', 'roof', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
+  /** The roof stays out of the shadow pass so the sun reaches the floor through it. */
+  noCast: ['floor', 'lines', 'dark', 'glow', 'skylight', 'roof'],
 
   look: {
     background: 0x15181c,

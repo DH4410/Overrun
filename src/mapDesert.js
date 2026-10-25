@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import { MAP_DATA } from './sim/mapData.js';
-import { typeAtlas } from './typeAtlas.js';
 
 /**
  * DESERT: a walled desert town at mid-afternoon, modelled in Blender
@@ -27,30 +26,22 @@ export const DESERT = {
   /** One Poly Haven material per mesh. The GLB's UVs are metres / tile size, so repeat is 1. */
   materials(pbrMat) {
     const decal = (n) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n });
+    const sand = pbrMat('dense_sand', { repeat: 1, ao: true, fallback: 0xc29d6c, rough: 0.95 });
+    const wood = pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85 });
     // The plasters and the paving keep a chosen colour and take only their texture's detail, so
     // the town stays one warm palette whatever each scan's own tint.
-    // Walls, timber and stone carry vertex colours: dirt gathered at the foot and soft patches
-    // (the wear pass in roundkit_dh.py), multiplied over the texture. Keys that share a material
-    // (lime and dome, wood and beam) all carry them, or a mesh without would draw black.
-    const worn = { vertexColors: true };
-    const sand = pbrMat('dense_sand', { repeat: 1, ao: true, fallback: 0xc29d6c, rough: 0.95 });
-    const wood = pbrMat('weathered_planks', { repeat: 1, ao: true, fallback: 0x76583c, rough: 0.85, extra: worn });
-    const lime = pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xe8dfce, rough: 0.9, detail: true, extra: worn });
+    const lime = pbrMat('plastered_wall_03', { repeat: 1, ao: true, fallback: 0xe8dfce, rough: 0.9, detail: true });
     return {
       sand,
       dune: sand,
       paving: pbrMat('red_sandstone_pavement', { repeat: 1, ao: true, fallback: 0xa88a6c, rough: 0.9, detail: true, extra: decal(1) }),
-      stone: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xb89e7a, rough: 0.9, extra: worn }),
-      plaster: pbrMat('yellow_plaster', { repeat: 1, ao: true, fallback: 0xcaa479, rough: 0.92, detail: true, extra: worn }),
-      mud: pbrMat('clay_plaster', { repeat: 1, ao: true, fallback: 0x94694a, rough: 0.95, extra: worn }),
+      stone: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xb89e7a, rough: 0.9 }),
+      plaster: pbrMat('yellow_plaster', { repeat: 1, ao: true, fallback: 0xcaa479, rough: 0.92, detail: true }),
+      mud: pbrMat('clay_plaster', { repeat: 1, ao: true, fallback: 0x94694a, rough: 0.95 }),
       lime,
       dome: lime,
       wood,
       beam: wood,
-      // precast and dressed detail (copings, cornices, sills, voussoirs): tinted per piece, no collider
-      trim: pbrMat('sandstone_blocks_08', { repeat: 1, ao: true, fallback: 0xc4a982, rough: 0.9, detail: true, extra: worn }),
-      // jars, baskets, produce and sacks: the colour is per piece
-      clay: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, vertexColors: true }),
       trunk: pbrMat('rough_wood', { repeat: 1, ao: true, fallback: 0x6b5641, rough: 0.95 }),
       // Awnings and palm leaves: the colour is per face (vertex colours).
       cloth: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true }),
@@ -60,20 +51,10 @@ export const DESERT = {
       water: new THREE.MeshStandardMaterial({ color: 0x2c3f3a, roughness: 0.15, metalness: 0.1 }),
       metal: new THREE.MeshStandardMaterial({ color: 0x3a3632, roughness: 0.5, metalness: 0.6 }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
-      // The detail pass (desertdetail.py): colour per piece, no collider.
-      fit: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.05, vertexColors: true }),
-      // Standard, not Lambert: only Standard takes the scene's environment light, and at env 0.5 that is
-      // most of what a wall in shade receives, so a Lambert decal would sit dark on its own wall.
-      mark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, ...decal(3) }),
-      glyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, ...decal(4) }),
-      // Sign text, a quad per character sampling the glyph atlas: painted (lit) and lamp (unlit).
-      tmark: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(5) }),
-      tglyph: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: typeAtlas(), alphaTest: 0.4, ...decal(6) }),
     };
   },
-  /** Meshes that stay out of the shadow pass: ground, decals, emitters, everything past the wall, and
-   *  the detail pass (too small to throw a shadow worth drawing). */
-  noCast: ['sand', 'dune', 'paving', 'dark', 'lamp', 'far', 'water', 'fit', 'mark', 'glyph', 'tmark', 'tglyph'],
+  /** Meshes that stay out of the shadow pass: ground, decals, emitters, and everything past the wall. */
+  noCast: ['sand', 'dune', 'paving', 'dark', 'lamp', 'far', 'water'],
 
   look: {
     background: 0xe6d6ba,

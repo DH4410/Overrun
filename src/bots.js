@@ -56,6 +56,14 @@ export const AIM = {
   /** Time constant, in seconds, of how fast aim height and lead catch up with a target that
    *  drops or changes direction. It is what makes crouching and strafe-jiggling a dodge. */
   trackLag: 0.32,
+  /** Rounds an automatic weapon fires before the bot lets off the trigger at range. 0 = holds
+   *  the trigger down. Inside BURST_SPRAY_RANGE a bot sprays regardless, like a person does. */
+  burst: 0,
+  /** Seconds it waits between bursts, stretched with distance. */
+  burstPause: 0.3,
+  /** Chance that a strafe reversal comes with a short planted pause (a person stops to line
+   *  up a shot). Zero for the tiers that already counter-strafe. */
+  strafePause: 0.0,
 };
 
 /** Resolve a tier's aim profile against the defaults. */
@@ -78,9 +86,9 @@ export const BOT_RANGE_BAND = {
 };
 
 export const DIFFICULTY = {
-  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85, aim: { trackLag: 0.45 } },
-  medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10, speed: 1.0 },
-  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18, aim: { trackLag: 0.22 } },
+  easy:   { label: 'EASY',   accuracy: 0.40, reaction: 0.80, bots: 3, aggression: 0.55, fireMult: 1.35, speed: 0.85, aim: { trackLag: 0.45, burst: 4, burstPause: 0.55, strafePause: 0.35 } },
+  medium: { label: 'MEDIUM', accuracy: 0.65, reaction: 0.50, bots: 4, aggression: 0.75, fireMult: 1.10, speed: 1.0, aim: { burst: 6, burstPause: 0.4, strafePause: 0.3 } },
+  hard:   { label: 'HARD',   accuracy: 0.85, reaction: 0.20, bots: 5, aggression: 0.95, fireMult: 1.0, speed: 1.18, aim: { trackLag: 0.22, burst: 8, burstPause: 0.28, strafePause: 0.2 } },
 
   /**
    * The 1v1 duel opponent. Not "hard with bigger numbers" — a different shooter.
@@ -200,6 +208,10 @@ const ST = {
 // noticed regardless of which way the bot is looking.
 const BOT_FOV_COS = Math.cos((65 * Math.PI) / 180);
 const BOT_AWARE_NEAR = 6;
+// Inside this range a bot holds the trigger down instead of firing in bursts.
+const BURST_SPRAY_RANGE = 9;
+// Teammates this close hear a callout when one of them spots an enemy.
+const CALLOUT_RANGE = 28;
 
 /**
  * Fallback planar speeds (m/s) for locomotion clips that carry no root motion to measure.
@@ -766,7 +778,11 @@ class Bot {
     this.mag = WEAPON_BY_ID[this.weaponId].mag;
     this.reloading = 0;
     this.fireCd = 0;
-    this.burst = 0;
+    this.burst = 0;             // rounds left in the current burst (see shootAt)
+    this.lastVel = new THREE.Vector3();   // target's velocity when last seen, to guess where it went
+    this.searchYaw = 0;
+    this.searching = false;     // ALERT after losing a chase: scan the area instead of one noise
+    this.strafePause = 0;       // planted seconds left at a strafe reversal
     this.nadeCd = rand(6, 16);
     this.deathTimer = 0;
     this.respawnTimer = 0;
@@ -1193,8 +1209,27 @@ class Bot {
 
     this.mag--;
     this.fireCd = w.cooldown * this.diff.fireMult * (w.auto ? 1 : rand(1.0, 1.5));
+    // Burst discipline: at range a person taps off a few rounds and re-aims rather than
+    // holding the trigger, so a burst is survivable and its pauses are a window to move.
+    if (w.auto && A.burst > 0 && dist > BURST_SPRAY_RANGE) {
+      if (this.burst <= 0) this.burst = randInt(Math.max(2, A.burst - 2), A.burst + 2);
+      if (--this.burst <= 0) this.fireCd += A.burstPause * rand(0.7, 1.4) * (1 + dist / 45);
+    } else this.burst = 0;
     fireWeapon(this, w, muzzle.clone(), _v2, A.weaponSpreadMult);
     if (this.mag <= 0) this.reloading = w.reload;
+  }
+
+  /** A bot that spots an enemy tells nearby teammates where, as players do on comms. */
+  callOut() {
+    if (this.team === TEAM.SOLO || !this.target) return;
+    for (const b of bots) {
+      if (b === this || !b.alive || b.team !== this.team) continue;
+      if (b.state !== ST.PATROL && b.state !== ST.ALERT) continue;
+      if (b.body.position.distanceTo(this.body.position) > CALLOUT_RANGE) continue;
+      b.lastKnown.copy(this.target.pos);
+      b.searching = false;
+      b.setState(ST.ALERT);
+    }
   }
 
   /** True while the bot is deliberately planted to take an accurate shot. */
@@ -1262,10 +1297,22 @@ class Bot {
       this.hasLOS = this.acquire();
       if (this.hasLOS) {
         this.lastKnown.copy(this.target.pos);
-        if (!had) this.reactTimer = this.diff.reaction;
+        this.lastVel.set(this.target.vel.x, 0, this.target.vel.z);
+        if (!had) {
+          // A person's reaction is never the same twice.
+          this.reactTimer = this.diff.reaction * rand(0.8, 1.4);
+          this.callOut();
+        }
+      } else if (had && this.target) {
+        // Lost them: head for where they were going, not where they were.
+        this.lastKnown.addScaledVector(this.lastVel, 0.8);
+        this.repathTimer = 0;
       }
     }
     this.reactTimer = Math.max(0, this.reactTimer - dt);
+    // Top the magazine up while nobody is being shot at, instead of being caught empty.
+    if (this.reloading <= 0 && !this.hasLOS && this.mag < WEAPON_BY_ID[this.weaponId].mag * 0.4
+        && this.state !== ST.NADE) this.reloading = WEAPON_BY_ID[this.weaponId].reload;
 
     const hpFrac = this.health / 100;
     const dist = this.target ? this.body.position.distanceTo(this.target.pos) : Infinity;
@@ -1290,6 +1337,15 @@ class Bot {
 
       case ST.ALERT: {
         this.setPlanarVelocity(0, 0);
+        if (this.searching) {
+          // Lost them at the end of a chase: stand and scan left and right, the way a player
+          // checks corners, before giving up.
+          const a = this.searchYaw + Math.sin(this.stateTime * 2.1) * 1.5;
+          this.faceDir(Math.sin(a), Math.cos(a), dt, 6);
+          if (this.hasLOS) { this.searching = false; this.setState(ST.CHASE); break; }
+          if (this.stateTime > 2.6) { this.searching = false; this.setState(ST.PATROL); }
+          break;
+        }
         // Sweep the area the noise came from. The sweep amplitude scales with (1 - accuracy):
         // a weak bot flails around the remembered angle, while an elite one pre-aims it and
         // barely drifts, so peeking a bot that heard you is a real risk rather than a freebie.
@@ -1312,7 +1368,11 @@ class Bot {
         if (!this.path || this.repathTimer <= 0) this.repath(dest);
         const done = this.followPath(this.moveSpeed('chase'), dt);
         if (this.hasLOS) this.faceTarget(dt);
-        if (done && !this.hasLOS) this.setState(ST.PATROL);
+        if (done && !this.hasLOS) {
+          this.searchYaw = this.yaw;
+          this.setState(ST.ALERT);
+          this.searching = true;
+        }
         break;
       }
 
@@ -1453,7 +1513,7 @@ class Bot {
     this.animate(frameDt);
   }
 
-  setState(s) { this.state = s; this.stateTime = 0; if (s === ST.COVER) this.findCover(); }
+  setState(s) { this.state = s; this.stateTime = 0; if (s !== ST.ALERT) this.searching = false; if (s === ST.COVER) this.findCover(); }
 
   /**
    * Movement while actually engaging someone.
@@ -1489,7 +1549,9 @@ class Bot {
       if (dir !== this.strafeDir) this.sinceFlip = 0;
       this.strafeDir = dir;
       this.strafeTimer = rand(0.7, 1.8);
+      if (Math.random() < this.aim.strafePause) this.strafePause = rand(0.2, 0.45);
     }
+    this.strafePause = Math.max(0, this.strafePause - dt);
 
     // Look before stepping, so a bot turns back at a wall or a drop instead of finding it.
     const rangeSign = dist < band.min ? -1 : dist > band.max ? 1 : 0;
@@ -1528,7 +1590,7 @@ class Bot {
     }
     // Always some lateral movement so a bot is never a stationary target — unless both ways
     // are walled off, in which case it holds rather than grinding into the geometry.
-    if (!this.strafeBlocked) {
+    if (!this.strafeBlocked && this.strafePause <= 0) {
       vx += rx * this.strafeDir * speed * 0.75;
       vz += rz * this.strafeDir * speed * 0.75;
     }
@@ -1900,7 +1962,7 @@ class Bot {
     this.stateTime = 0;
     this.target = null; this.hasLOS = false; this.path = null;
     this.wishVx = 0; this.wishVz = 0;
-    this.peekTimer = 0;
+    this.peekTimer = 0; this.searching = false; this.burst = 0; this.strafePause = 0;
     this.nodeBest = Infinity; this.stuckTime = 0; this.stuckCount = 0; this.sidestepTimer = 0;
     this.blockedTime = 0; this.sinceFlip = 0;
     this.weaponId = this.fixedWeaponId ?? pick(BOT_GUN_IDS);
@@ -2091,6 +2153,7 @@ function alertBots(origin, shooter) {
     if (b.body.position.distanceTo(origin) > 20) continue;
     if (b.state === ST.SHOOT || b.state === ST.CHASE || b.state === ST.NADE) continue;
     b.lastKnown.set(origin.x, 1.0, origin.z);
+    b.searching = false;
     b.setState(ST.ALERT);
   }
 }

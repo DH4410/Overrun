@@ -198,7 +198,7 @@ export function newAi(spec, rng) {
   return {
     spec, target: null, retargetAt: 0, losAt: 0, los: false, seenAt: -9, path: null, pi: 0, replanAt: 0, replanFrom: null,
     way: null, wayAt: 0, yaw: rng() * Math.PI * 2, pitch: 0, eYaw: 0, eP: 0, eAt: 0,
-    firing: false, switchAt: 0, phase: Math.floor(rng() * 24),
+    firing: false, switchAt: 0, react: null, plantUntil: 0, phase: Math.floor(rng() * 24),
     strafe: rng() < 0.5 ? -1 : 1, strafeAt: 0, lastX: 0, lastZ: 0, stuckAt: 0, unstickUntil: 0, unstickDir: 1,
   };
 }
@@ -234,21 +234,25 @@ export function botCommand(room, p) {
   if (t >= ai.losAt) {
     ai.losAt = t + 0.16 + rng() * 0.05;
     const los = dist < 80 && room.losClear(p.eye, tgt.pos);
-    if (los && !ai.los) ai.seenAt = t;
+    if (los && !ai.los) { ai.seenAt = t; ai.react = spec.reaction * (0.8 + rng() * 0.6); }   // a person's reaction is never the same twice
     ai.los = los;
   }
-  const canShoot = !spec.melee && ai.los && t - ai.seenAt >= spec.reaction && dist <= spec.reach;
+  const canShoot = !spec.melee && ai.los && t - ai.seenAt >= (ai.react ?? spec.reaction) && dist <= spec.reach;
 
   // Where to walk: strafe and hold a distance when it can see you, otherwise follow a route to you.
   const g = room.nav;
   let mx = 0, mz = 0, sprint = false;
   const holding = !spec.melee && ai.los && dist <= spec.hold * 1.4;
   if (holding) {
-    if (t >= ai.strafeAt) { ai.strafe = -ai.strafe; ai.strafeAt = t + 0.7 + rng() * 1.1; }
+    if (t >= ai.strafeAt) {
+      ai.strafe = -ai.strafe; ai.strafeAt = t + 0.7 + rng() * 1.1;
+      if (rng() < 0.3) ai.plantUntil = t + 0.15 + rng() * 0.2;   // stop dead for a moment to line a shot up, as a person does
+    }
     const ux = dx / (dist || 1), uz = dz / (dist || 1);
     const radial = dist > spec.hold ? 0.6 : dist < spec.hold * 0.5 ? -0.8 : 0;
-    mx = -uz * ai.strafe + ux * radial;
-    mz = ux * ai.strafe + uz * radial;
+    const side = t < ai.plantUntil ? 0 : ai.strafe;
+    mx = -uz * side + ux * radial;
+    mz = ux * side + uz * radial;
   } else if (g) {
     if (t >= ai.replanAt) {
       ai.replanAt = t + 0.9 + rng() * 0.5;

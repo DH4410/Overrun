@@ -43,6 +43,14 @@ One global, server-authoritative room: up to 10 players plus about 16 spectators
 - Client: `src/net/zone.js` (ring, beam, chip `#mp-zone`), zombies are the soldier skins tinted green with no gun (`roster.zombie`).
 - Defaults chosen without asking: 10 s hold, zone opens at 60 s, 25 s reinforcement, cap of 5 + 3 per person + 1 per 25 s (up to 28, +40% while the zone is held).
 
+## Hardpoint and Gun Game (protocol v8)
+
+- **Hardpoint (`hp`)** is team deathmatch plus a hill: `pickHardpoint`, `hardpointOwner` and `stepHardpoint` in `server/room.js`. The hill moves on a timer; the team with players inside and none of the other team's scores. The hill rides the same `zone` message and `src/net/zone.js` ring as Zombie Escape, tinted by owner.
+- **Gun Game (`gg`)** is free-for-all on the shared `GUN_LADDER` in `src/sim/modes.js`. Every kill climbs one rung (`climbLadder`, the server swaps the gun in `applyLoadout`); the first to finish the ladder wins (`checkWin`).
+- **Gun finishes.** The client sends the worn skin per gun in `hello` and `gear`; the room cleans it (`cleanGunSkins`) and relays it in the roster, and `Bot.setGunSkins` paints it on the puppet's gun.
+- **Kill cam** online is through the killer's eyes, with their aim zoom, rebuilt from the last 42 snapshots.
+- **Hostile bots** (survival waves) react after a varied time, and sometimes plant for a moment at a strafe reversal.
+
 ## Run it locally
 
 ```sh

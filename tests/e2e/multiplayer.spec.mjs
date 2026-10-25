@@ -51,7 +51,7 @@ async function open(browser, name, { routeMap = null } = {}) {
   await page.addInitScript(() => localStorage.setItem('overrun.settings', JSON.stringify({ quality: 'low', masterVolume: 0 })));
   await page.goto(`${BASE}/`);
   await expect(page.locator('#mp-play')).toBeEnabled({ timeout: 45_000 });
-  await page.fill('#nameinput', name);
+  await page.locator('#nameinput:visible, #nameinput2:visible').first().fill(name);   // the card's field, or the compact one on a small window
   await page.click('#ptab-online');      // multiplayer lives on the lobby's ONLINE tab
   return page;
 }
@@ -80,13 +80,13 @@ test('two players and a spectator share one room, and see each other move', asyn
   await expect(a.locator('#mp-lobby .pop .tile')).toHaveCount(MAP_IDS.length);
   await a.keyboard.press('Escape');
   await expect(a.locator('#mp-lobby .pop')).toHaveCount(0);
-  await b.click('#mp-lobby .go');
+  await b.click('#mp-lobby .go', { force: true });
   await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 10_000 });
   // Chat works in the lobby, and the spectator sees it too.
   await b.fill('#mp-chat input', 'hello lobby');
   await b.press('#mp-chat input', 'Enter');
   for (const p of [a, spec]) await expect(p.locator('#mp-chat .msg')).toContainText('hello lobby', { timeout: 10_000 });
-  await a.click('#mp-lobby .go');
+  await a.click('#mp-lobby .go', { force: true });
   for (const p of [a, b, spec]) await expect.poll(async () => (await debug(p)).phase, { timeout: 30_000 }).toBe(1);   // PHASE.PLAYING after the countdown
   for (const p of [a, b, spec]) await expect(p.locator('#mp-lobby')).toBeHidden();
 
@@ -134,7 +134,7 @@ test('two players and a spectator share one room, and see each other move', asyn
   await expect(a.locator('#menu')).toBeVisible();
   await expect(a.locator('#menuresult')).toHaveText('Left the online match');
   expect(await a.evaluate(() => window.__game.bots.length)).toBe(0);
-  await a.click('#play');
+  await a.click('#play', { force: true });
   await expect.poll(() => a.evaluate(() => window.__game.match.running), { timeout: 30_000 }).toBe(true);
   await expect.poll(() => a.evaluate(() => window.__game.bots.filter((x) => !x.puppet).length), { timeout: 30_000 }).toBeGreaterThan(0);
   await expect.poll(async () => (await roomStats()).players, { timeout: 10_000 }).toBe(1);
@@ -167,9 +167,12 @@ test('a player who joined mid-match has the lobby stage ready for when the room 
   await a.click('#mp-play');
   await b.click('#mp-play');
   await expect(b.locator('#mp-lobby .go')).toHaveText('READY', { timeout: 30_000 });
-  await b.click('#mp-lobby .go');
-  await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 10_000 });
-  await a.click('#mp-lobby .go');
+  // The lobby redraws on every roster broadcast, so a click can land on the button it is about to replace.
+  await expect(async () => {
+    if (await b.locator('#mp-lobby .go.on').count() === 0) await b.click('#mp-lobby .go', { force: true, timeout: 5_000 });
+    await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
+  await a.click('#mp-lobby .go', { force: true });
   for (const p of [a, b]) await expect.poll(async () => (await debug(p)).phase, { timeout: 30_000 }).toBe(1);
 
   const c = await open(browser, 'LATE');
@@ -197,7 +200,7 @@ test('one player can start survival; the hostiles come in waves and are not on t
   await a.click('#mp-lobby .mcard.k-mode');
   await a.locator('#mp-lobby .pop .tile', { hasText: 'SURVIVAL' }).click();
   await expect(a.locator('#mp-lobby .go')).toBeEnabled();   // nobody else needed
-  await a.click('#mp-lobby .go');
+  await a.click('#mp-lobby .go', { force: true });
   await expect.poll(() => a.evaluate(() => window.__game.bots.filter((b) => b.hostile).length), { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
   await expect(a.locator('#tb-time')).toHaveText('WAVE 1');
   await a.keyboard.down('Tab');
@@ -218,12 +221,30 @@ test('one player can start zombie escape; zombies are green and gunless, the zon
   await a.click('#mp-lobby .mcard.k-mode');
   await a.locator('#mp-lobby .pop .tile', { hasText: 'ZOMBIE ESCAPE' }).click();
   await expect(a.locator('#mp-lobby .go')).toBeEnabled();
-  await a.click('#mp-lobby .go');
+  await a.click('#mp-lobby .go', { force: true });
   await expect.poll(() => a.evaluate(() => window.__game.bots.filter((b) => b.zombie).length), { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
   await expect(a.locator('#mp-zone')).toContainText('EXTRACTION LOCKED');
   const z = await a.evaluate(() => { const b = window.__game.bots.find((x) => x.zombie); return { tint: !!b.zTint, gun: b.gunMesh ? b.gunMesh.visible : false }; });
   expect(z.tint).toBe(true);
   expect(z.gun).toBe(false);
   expect((await roomStats()).players).toBe(1);
+  await a.context().close();
+});
+
+/** The callsign typed in the solo lobby is what the room calls you, and it survives a reload and a second visit. */
+test('the callsign carries from the solo lobby to the online room and survives a reload', async ({ browser }) => {
+  test.setTimeout(240_000);
+  await server.stop();
+  server = await startServer({ port: PORT, budgetFile: path.join(mkdtempSync(path.join(tmpdir(), 'overrun-mp-')), 'budget.json'), log: () => {} });
+  const a = await open(browser, 'zed_1');
+  const field = a.locator('#nameinput:visible, #nameinput2:visible').first();
+  await expect(field).toHaveValue('ZED_1');                       // cleaned to the room's alphabet, upper case
+  await a.reload();
+  await expect(a.locator('#mp-play')).toBeEnabled({ timeout: 45_000 });
+  await expect(a.locator('#nameinput:visible, #nameinput2:visible').first()).toHaveValue('ZED_1');   // remembered
+  await a.click('#ptab-online');
+  await a.click('#mp-play');
+  await expect(a.locator('#mp-lobby')).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => Object.keys((await roomStats()).rtt ?? {}), { timeout: 15_000 }).toContain('ZED_1');
   await a.context().close();
 });

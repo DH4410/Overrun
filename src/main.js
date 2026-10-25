@@ -37,6 +37,7 @@ import { createEffects } from './effects.js';
 import { AFTER_TIME, createKillcam } from './killcam.js';
 import { createHardpoint } from './hardpoint.js';
 import { createAccount } from './account.js';
+import { initDima } from './dima.js';
 import { createFriends } from './friends.js';
 import { hudIcons } from './gunicons.js';
 import { createCareer } from './career.js';
@@ -1479,6 +1480,7 @@ addEventListener('overrun:profile', () => account.profileSaved());
  */
 {
   const input = $('nameinput');
+  const compact = $('nameinput2');           // the same field, for windows too small for the player card
   const KEY = 'overrun.callsign';
   const clean = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9_\- ]/g, '').slice(0, 12);
   const read = () => { try { return clean(localStorage.getItem(KEY)); } catch { return ''; } };
@@ -1493,14 +1495,24 @@ addEventListener('overrun:profile', () => account.profileSaved());
       if (input.value) { remembered = input.value; write(remembered); }
     });
     input.addEventListener('blur', () => { if (!input.value.trim()) input.value = remembered; });
+    const mirror = () => { if (compact) compact.value = input.value; };
+    input.addEventListener('input', mirror);
+    mirror();
+    compact?.addEventListener('input', () => { input.value = compact.value; input.dispatchEvent(new Event('input')); compact.value = input.value; });
+    compact?.addEventListener('blur', () => { if (!compact.value.trim()) { input.value = remembered; mirror(); } });
     addEventListener('overrun:auth', (e) => {
       const user = e.detail?.user;
-      input.readOnly = !!user;
-      input.title = user ? 'Your account name' : 'Click to change your callsign';
+      for (const f of [input, compact]) {
+        if (!f) continue;
+        f.readOnly = !!user;
+        f.title = user ? 'Your account name' : 'Click to change your callsign';
+      }
       input.value = user ? clean(user) : remembered;
+      mirror();
     });
   }
 }
+initDima();   // the owner's Cloudflare gauge; only ever shows for the callsign DIMA
 const friends = createFriends({
   getElement: $,
   account,

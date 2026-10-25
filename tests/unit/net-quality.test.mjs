@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { InterpController, qualityReadout, INTERP_CEIL, INTERP_FLOOR } from '../../src/net/netQuality.js';
+import { InterpController, qualityReadout, effectiveInputRate, CALM_MIN_RATE, INTERP_CEIL, INTERP_FLOOR } from '../../src/net/netQuality.js';
 
 function feed(ctl, late, n, t0 = 0) {
   for (let i = 0; i < n; i++) ctl.onSnapshot(typeof late === 'function' ? late(i) : late, 0, t0 + i * 50);
@@ -56,4 +56,13 @@ test('readout levels', () => {
   assert.equal(lim.level, 'bad');
   assert.match(lim.text, /PING 350 ms/);
   assert.match(lim.text, /LAG-COMP LIMIT/);
+});
+
+test('input rate: full in a fight, about half outside one, never below the floor, never above what the server asked', () => {
+  assert.equal(effectiveInputRate(20, true), 20);
+  assert.equal(effectiveInputRate(20, false), 10);
+  assert.equal(effectiveInputRate(15, false), 8);
+  assert.equal(effectiveInputRate(10, false), 5 < CALM_MIN_RATE ? CALM_MIN_RATE : 5);
+  assert.ok(effectiveInputRate(6, false) <= 6);   // a server asking for less is never exceeded
+  for (const r of [6, 10, 15, 20]) assert.ok(effectiveInputRate(r, false) <= r);
 });

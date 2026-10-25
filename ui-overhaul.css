@@ -1597,7 +1597,7 @@ body:has(#menu.hidden) #topnav { display: none; }
 .sc-name { padding-right: 0; font-size: clamp(19px, 2.9vh, 23px); }
 .sc-change { position: static; font-size: 22px; letter-spacing: 0; }
 .sc-change::after { content: none; }
-@media (max-height: 700px) { .sc-desc { display: block; } .sc-art { width: clamp(60px, 6vw, 84px); } }
+@media (max-height: 700px) { .sc-desc { display: block; } .sc-desc.chips { display: flex; } .sc-art { width: clamp(60px, 6vw, 84px); } }
 
 /* ---- the Mode and Map pickers: two rows that always fit the window ---- */
 .pop-card { width: min(1080px, 94vw); max-height: 96vh; gap: clamp(8px, 1.6vh, 16px); }
@@ -1944,3 +1944,25 @@ body.lobby-on #store-close { display: none; }
 #mp-chat .hint kbd { font: inherit; padding: 1px 5px; margin: 0 2px; border: 1px solid var(--ink-4); border-radius: 3px; color: var(--ink-2); }
 #mp-chat.typing .hint, #mp-chat.dock .hint { display: none; }
 .mpe-reward { color: var(--accent); font-family: var(--f-display); font-weight: 700; font-size: 16px; letter-spacing: 2px; padding: 4px 0; }
+
+/* Callsign on windows too small for the player card (it is hidden below 560px tall / 900px wide),
+   so a name can always be seen and changed, and an online match never falls back to PLAYER. */
+#pc-compact { display: none; align-items: center; gap: 10px; padding: 7px 12px; background: rgba(9, 14, 24, .93); border-left: 3px solid var(--accent); font-family: var(--f-display); }
+#pc-compact span { font-size: 11px; font-weight: 600; letter-spacing: 3px; color: var(--ink-3); }
+#pc-compact input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: 700 18px var(--f-display); letter-spacing: 2px; text-transform: uppercase; }
+#pc-compact input[readonly] { color: var(--ink-2); }
+@media (max-height: 560px), (max-width: 900px) { #pc-compact { display: flex; } }
+#menu.ops #pc-compact { display: none; }
+
+/* The owner's Cloudflare gauge (src/dima.js): a chip that opens into the numbers. */
+#dima-panel { position: fixed; left: 12px; top: 12px; z-index: 60; max-width: min(320px, calc(100vw - 24px)); font-family: var(--f-display); color: var(--ink); }
+#dima-panel[hidden] { display: none; }
+body.lobby-on #dima-panel { top: 72px; }
+#dima-panel .dp-chip { display: block; max-width: 100%; padding: 5px 10px; font: 700 11px/1.3 var(--f-display); letter-spacing: 1.4px; color: var(--accent); background: rgba(8, 12, 20, .86); border: 1px solid rgba(255, 255, 255, .14); cursor: pointer; text-align: left; white-space: normal; }
+#dima-panel .dp-body { margin-top: 4px; padding: 8px 10px 9px; background: rgba(8, 12, 20, .92); border: 1px solid rgba(255, 255, 255, .14); }
+#dima-panel .dp-body[hidden] { display: none; }
+#dima-panel .dp-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 11px; letter-spacing: 1.2px; color: var(--ink-2); }
+#dima-panel .dp-row b { color: var(--ink); text-align: right; }
+#dima-panel .dp-bar { height: 4px; margin: 3px 0 6px; background: rgba(255, 255, 255, .14); }
+#dima-panel .dp-bar i { display: block; height: 100%; background: var(--accent); }
+#dima-panel p { margin: 6px 0 0; font: 400 11px/1.4 var(--f-body, sans-serif); color: var(--ink-2); letter-spacing: 0; }

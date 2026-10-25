@@ -597,7 +597,15 @@ function buildSoldierMesh(_teamColor, gltf) {
     o.material = o.material.clone();
     o.castShadow = true;
     o.receiveShadow = true;
-    o.frustumCulled = false;                  // skinned bounds are the bind pose, not the pose
+    // A skinned mesh is culled by a sphere fitted to its bind pose, which is the widest the body
+    // ever is (arms out), so a generous one cannot clip a limb mid-animation — and a soldier
+    // behind you costs nothing to draw instead of a full pass of a ~30k triangle body.
+    if (o.isSkinnedMesh && o.geometry.attributes.position) {
+      o.geometry.computeBoundingSphere();
+      o.boundingSphere = o.geometry.boundingSphere.clone();
+      o.boundingSphere.radius *= 1.7;
+      o.frustumCulled = true;
+    } else o.frustumCulled = false;
   });
   g.add(model);
   // No team kit. The armbands this replaced were open cylinders fitted to the arm's bind pose,

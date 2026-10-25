@@ -11,14 +11,14 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v72';
+const CACHE = 'overrun-v74';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
   './src/audio.js', './src/bots.js', './src/config.js', './src/effects.js', './src/gunicons.js', './src/gunmodels.js', './src/gunskins.js', './src/gunTextures.js', './src/crateDrop.js', './src/crateModel.js', './src/store.js', './assets/models/crate/supply-crate.glb', './assets/textures/crate/panel.jpg', './assets/textures/crate/bump.jpg', './assets/textures/crate/end.jpg', './assets/textures/crate/endbump.jpg', './assets/textures/guns/carbon.jpg', './assets/textures/guns/brushed.jpg', './assets/textures/guns/speckle.jpg', './assets/textures/guns/camo_wood.jpg', './assets/textures/guns/camo_desert.jpg', './assets/textures/guns/camo_urban.jpg', './assets/textures/guns/rust.jpg', './assets/textures/guns/scales.jpg', './assets/textures/guns/leather.jpg', './assets/textures/guns/magma.jpg', './assets/textures/guns/marble.jpg', './assets/textures/guns/hex.jpg', './assets/textures/guns/circuit.jpg', './assets/textures/guns/hazard.jpg', './assets/textures/guns/facets.jpg', './assets/textures/guns/damascus.jpg', './assets/textures/guns/swirl.jpg', './src/hardpoint.js', './src/friends.js', './src/hitflash.js', './src/hud.js',
   './src/keybinds.js', './src/killicons.js', './src/main.js', './src/mapArena.js', './src/mapBastion.js','./src/mapDepot.js','./src/mapDesert.js', './src/mapGlb.js', './src/mapMetro.js', './src/mapPort.js', './src/mapSnow.js', './src/mapWarzone.js', './src/maps.js', './src/match.js', './src/perf.js', './src/physics.js', './src/skins.js',
   './src/pickups.js', './src/loading.js', './src/loadout.js', './src/locker.js', './src/minimap.js', './src/emotes.js', './src/emoteMusic.js', './src/itemModels.js', './src/healAnim.js', './src/healProp.js',
-  './src/profile.js', './src/playercard.js', './src/lobby.js', './src/lobbyBackdrop.js', './src/operators.js', './src/killcam.js', './src/rewards.js', './src/shop.js', './src/account.js', './src/career.js', './src/online.js',
+  './src/profile.js', './src/playercard.js', './src/lobby.js', './src/lobbyBackdrop.js', './src/operators.js', './src/killcam.js', './src/rewards.js', './src/shop.js', './src/account.js', './src/dima.js', './src/career.js', './src/online.js',
   './src/player.js', './src/projectiles.js', './src/rendering.js', './src/settings.js',
   './src/typeAtlas.js', './src/ui.js', './src/utils.js', './src/weapons.js',
   // Shared with the multiplayer server (tests/unit/sw-precache.test.mjs keeps this list whole).

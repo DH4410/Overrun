@@ -23,7 +23,7 @@ import { createZone } from './zone.js';
 import { loadScreen } from '../loading.js';
 import { createLobby, historyRow, loadHistory, pushHistory } from './lobby.js';
 import { Predictor } from './predict.js';
-import { InterpController, qualityReadout } from './netQuality.js';
+import { FIGHT_HOLD, FIGHT_RANGE, InterpController, effectiveInputRate, qualityReadout } from './netQuality.js';
 import { createStage } from './stage.js';
 
 /**
@@ -90,6 +90,7 @@ export function createNetClient(d) {
   let inputRate = 20, budgetFlags = 0;
   let pred = null, started = false;
   let seq = 0, lastSent = null, sentAt = 0, tickAcc = 0;
+  let fightAt = -Infinity, prevHealth = 100;   // when this player last shot, aimed or was hurt (see inFight)
   const pending = [];
   let selected = null, reloadLatch = false;
   // The item you asked to use. It stays asked for until the server's channel ends (or never began),
@@ -991,6 +992,7 @@ export function createNetClient(d) {
     // A shot or an emote should not wait for the next 20 Hz packet: up to 50 ms of that is pure input lag,
     // and the packet's view tick is stamped when it leaves, so a late one also aims at a later picture.
     if (!idle && ((cmd.buttons & BTN.FIRE && !(L?.buttons & BTN.FIRE)) || cmd.emote !== (L?.emote ?? 0))) urgentSend = true;
+    if (cmd.buttons & (BTN.FIRE | BTN.AIM | BTN.FRAG | BTN.SMOKE)) fightAt = performance.now();
     if (!idle) { seq++; pending.push(cmd); lastSent = cmd; }
     pred.tick(cmd, idle ? null : seq, phase === PHASE.PLAYING, fx);
     d.stepBullets(STEP);
@@ -1001,11 +1003,31 @@ export function createNetClient(d) {
     return performance.now() / 1000 * TICK_HZ + clockOffset - interp * TICK_HZ;
   }
 
+  /**
+   * Whether anything is going on that the server needs this player's input quickly for: they have
+   * just shot, aimed or been hurt, or somebody who is not on their team is close. Otherwise the
+   * input rate is halved (netQuality.js effectiveInputRate), which is most of a match's running about.
+   */
+  function inFight(now) {
+    const hp = pred.p.health;
+    if (hp < prevHealth) fightAt = now;
+    prevHealth = hp;
+    if (now - fightAt < FIGHT_HOLD * 1000) return true;
+    const mine = pred.p.body.position, team = player.team;
+    for (const b of puppets.values()) {
+      if (!b.alive || (team !== TEAM.SOLO && b.team === team)) continue;
+      const q = b.mesh.position;
+      if ((q.x - mine.x) ** 2 + (q.z - mine.z) ** 2 < FIGHT_RANGE * FIGHT_RANGE) return true;
+    }
+    return false;
+  }
+
   function flush() {
     if (!pending.length) return;
     const now = performance.now();
-    // Urgent sends skip the 20 Hz wait but never go out closer than 20 ms apart, so the rate stays bounded.
-    if (now - sentAt < (urgentSend ? Math.min(20, 1000 / inputRate) : 1000 / inputRate)) return;
+    const rate = effectiveInputRate(inputRate, inFight(now));
+    // Urgent sends skip the wait but never go out closer than 20 ms apart, so the rate stays bounded.
+    if (now - sentAt < (urgentSend ? Math.min(20, 1000 / rate) : 1000 / rate)) return;
     urgentSend = false;
     sentAt = now;
     const view = Math.max(0, Math.floor(renderTick()));

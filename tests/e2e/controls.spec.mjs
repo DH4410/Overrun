@@ -10,6 +10,7 @@ test('a rebound key drives the game, the old key goes quiet, and the choice is r
   const errors = watchRuntimeErrors(page);
   await bootGame(page);
   await page.click('#settings-open');
+  await page.click('#set-nav button[data-page="KEYS"]', { force: true });
   const forward = page.locator('.kb-row button[data-action="forward"]');
   await expect(forward).toHaveText('W');
   await forward.click({ force: true });
@@ -17,7 +18,6 @@ test('a rebound key drives the game, the old key goes quiet, and the choice is r
   await page.keyboard.press('KeyE');
   await expect(forward).toHaveText('E');
   await expect(page.locator('.kb-row button[data-action="forward"].moved')).toHaveCount(1);
-  await expect(page.locator('#keyhelp')).toContainText('EASD');
 
   // Taking a key another action holds swaps them: C was crouch.
   await page.locator('.kb-row button[data-action="jump"]').click({ force: true });

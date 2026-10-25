@@ -101,3 +101,22 @@ export function qualityReadout({ rtt, jitterMs, lossPct, delayMs }) {
     text: `PING ${Math.round(rtt)} ms · JITTER ${Math.round(jitterMs)} · LOSS ${loss}%${limited ? ' · LAG-COMP LIMIT' : ''}`,
   };
 }
+
+/** A player nobody can see and nothing is shooting at: the most input rate the server can save on. */
+export const CALM_MIN_RATE = 8;
+/** An enemy this close (metres) counts as a fight, whether or not anyone has fired yet. */
+export const FIGHT_RANGE = 45;
+/** Seconds a fight keeps the full rate after the last shot fired, aimed or taken. */
+export const FIGHT_HOLD = 2.5;
+
+/**
+ * Input packets per second to send. The server bills every incoming message against a free daily
+ * budget (server/governor.js) and tells clients a rate from it. A player running across the map
+ * does not need that rate: nobody can tell their position was sent every 100 ms instead of every
+ * 50 ms, and their own movement is predicted locally regardless. In a fight the full rate
+ * applies, so aim and hit registration are unchanged. Roughly halves what a player costs outside
+ * combat, which is what stretches the budget before the governor has to slow everyone down.
+ */
+export function effectiveInputRate(rate, inFight) {
+  return inFight ? rate : Math.max(Math.min(rate, CALM_MIN_RATE), Math.round(rate / 2));
+}

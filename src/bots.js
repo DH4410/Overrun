@@ -7,7 +7,8 @@ import { G_BODY, MAT_BODY, RAY_OPTS, world } from './physics.js';
 import { HB_BOT } from './projectiles.js';
 import { matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
-import { buildGunModel, gunMaterials } from './gunmodels.js';
+import { applyGunSkin, buildGunModel, gunMaterials } from './gunmodels.js';
+import { gunSkinInfo } from './gunskins.js';
 import { BOT_GUN_IDS, WEAPON_BY_ID } from './weapons.js';
 import { SKINS } from './skins.js';
 
@@ -884,6 +885,19 @@ class Bot {
    * otherwise a character fitted to BOT_TARGET_HEIGHT hands its bot a gun scaled by the
    * same factor. Characters with no hand bone (the blocky fallback) keep the old anchor.
    */
+  /** A puppet's gun wears the finish its player chose for that gun (cosmetic, relayed by the room). */
+  setGunSkins(skins) {
+    const next = skins && typeof skins === 'object' ? skins : null;
+    if (JSON.stringify(next) === JSON.stringify(this.gunSkins ?? null)) return;
+    this.gunSkins = next;
+    this.paintGun();
+  }
+
+  paintGun() {
+    const id = this.gunSkins?.[this.weaponId];
+    applyGunSkin(this.gunMesh, id ? gunSkinInfo(id) : null);
+  }
+
   attachGun() {
     if (!this.mesh.userData.bones?.RightHand) {
       this.gunMesh.position.copy(this.gunAnchor());
@@ -1985,6 +1999,7 @@ class Bot {
 
     this.gunMesh.removeFromParent();
     this.gunMesh = buildBotGun(this.weaponId);
+    this.paintGun();
     this.attachGun();
     this.mesh.rotation.x = 0;
     this.aimPitch = 0;
@@ -2019,6 +2034,7 @@ class Bot {
         this.weaponId = s.weapon;
         this.gunMesh.removeFromParent();
         this.gunMesh = buildBotGun(s.weapon);
+        this.paintGun();
         this.attachGun();
       }
       const foot = s.y - (s.crouching ? CONFIG.CROUCH_RADIUS : CONFIG.PLAYER_RADIUS);

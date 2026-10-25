@@ -11,6 +11,8 @@ import { ZOMBIE_HOLD } from '../sim/modes.js';
  */
 
 const LOCKED = 0xff5a4e, OPEN = 0x62ff9a;
+// Hardpoint: who is on the point (0 nobody, 1 blue, 2 red, 3 both).
+const HP_OWNER = [0xe8eef6, 0x4d9dff, 0xff4d4d, 0xffc233];
 
 export function createZone({ scene }) {
   const ring = new THREE.Mesh(
@@ -43,10 +45,10 @@ export function createZone({ scene }) {
   function paint(open) {
     if (open === wasOpen) return;
     wasOpen = open;
-    const c = open ? OPEN : LOCKED;
+    const c = zone?.hp ? HP_OWNER[open] ?? HP_OWNER[0] : open ? OPEN : LOCKED;
     ring.material.color.setHex(c); disc.material.color.setHex(c); beam.material.color.setHex(c);
     beam.material.opacity = open ? 0.26 : 0.14;
-    chip.classList.toggle('open', open);
+    chip.classList.toggle('open', !zone?.hp && !!open);
   }
 
   function set(z) {
@@ -55,16 +57,33 @@ export function createZone({ scene }) {
     chip.classList.toggle('on', !!zone);
     wasOpen = null;
     if (!zone) return;
-    root.position.set(zone.x, zone.y + 0.06, zone.z);
-    root.scale.set(zone.r, 1, zone.r);
+    place();
     scene.add(root);
-    paint(false);
+    paint(zone.hp ? zone.owner ?? 0 : false);
   }
 
-  /** `score` is the snapshot's score word, `from` the camera. */
-  function update(dt, score, from) {
+  function place() {
+    root.position.set(zone.x, zone.y + 0.06, zone.z);
+    root.scale.set(zone.r, 1, zone.r);
+  }
+
+  /** `score` is the snapshot's score word, `from` the camera, `team` the player's team. */
+  function update(dt, score, from, team) {
     if (!zone) return;
     t += dt;
+    if (zone.hp) {
+      const owner = zone.owner ?? 0;
+      paint(owner);
+      ring.scale.set(1 + Math.sin(t * 3) * 0.02, 1 + Math.sin(t * 3) * 0.02, 1);
+      disc.material.opacity = owner === 1 || owner === 2 ? 0.2 : 0.1;
+      const away = from ? Math.round(Math.hypot(from.x - zone.x, from.z - zone.z)) : 0;
+      const mine = team === 1 ? 1 : team === 2 ? 2 : 0;
+      text.textContent = away < zone.r
+        ? (owner === 3 ? 'CONTESTED' : owner === mine ? 'HOLDING THE POINT' : owner ? 'ENEMY ON THE POINT' : 'ON THE POINT')
+        : `HARDPOINT \u00b7 ${away} M`;
+      fill.style.transform = 'scaleX(0)';
+      return;
+    }
     const open = score > 0, held = open ? (score - 1) / 10 : 0;
     paint(open);
     const pulse = 1 + Math.sin(t * 3) * 0.02;

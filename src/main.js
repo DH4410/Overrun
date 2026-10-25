@@ -1410,6 +1410,7 @@ const locker = createLocker({
     if (id) guns[gun] = id; else delete guns[gun];
     wear({ guns });
     applyWornSkin();
+    net.gear(worn().operator, player.loadout);   // the room shows everyone the new finish
   },
   ownedSkins: () => loadProfile().owned.map(skinIdOf).filter(Boolean).map(gunSkinInfo).filter(Boolean)
     .sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)),
@@ -1647,6 +1648,7 @@ net = createNetClient({
   showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
   setPaused: () => { appState = APP_STATE.PAUSED; },
   warmScene, setSharp,
+  getGunSkins: () => worn().guns ?? {},
   onEnter: () => {
     // Nothing of single player runs online: no bots, no local match, and the player is not
     // something local bullets can hit.

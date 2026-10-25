@@ -10,7 +10,7 @@ import {
   ITEM_MASK, ITEM_SHIFT, USE, addItem, canCarry, cancelUse, emptyItems, lootFor, rollDrop, stepUse, tierMult,
 } from '../src/sim/items.js';
 import { MAP_DATA, MAP_IDS } from '../src/sim/mapData.js';
-import { DEFAULT_SETTINGS, MODE_INFO, PLAYABLE, ZOMBIE_HOLD, cleanSettings, teamMode, teamScore } from '../src/sim/modes.js';
+import { DEFAULT_SETTINGS, GUN_LADDER, MODE_INFO, PLAYABLE, ZOMBIE_HOLD, ladderGun, cleanSettings, teamMode, teamScore } from '../src/sim/modes.js';
 import { createPlayerBody, setCrouch, syncPlayerPoints } from '../src/sim/movement.js';
 import {
   BTN, BUDGET, CHARACTER_IDS, CLOSE, EV, HIT_BREAK, HIT_LETHAL, HIT_SHIELD, MAX_PLAYERS, MAX_SPECTATORS,
@@ -35,6 +35,16 @@ import { Governor } from './governor.js';
 
 export const INTERMISSION = 15;          // s the results are shown for
 export const COUNTDOWN = 5;              // s between everyone being ready and the first shot
+/** Gun finishes are cosmetic and only relayed: gun -> skin id, shaped and bounded here so a hand-made message cannot bloat the roster. */
+export function cleanGunSkins(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [gun, id] of Object.entries(raw).slice(0, 16)) {
+    if (WEAPON_IDS.includes(gun) && typeof id === 'string' && /^[a-z0-9_.-]{1,40}$/i.test(id)) out[gun] = id;
+  }
+  return out;
+}
+
 export const LATE_JOIN_CUTOFF = 10;      // s: with less than this left in a round, a newcomer waits for the next lobby
 const CHAT_MAX = 120;
 const STEP_MS = 1000 / TICK_HZ;
@@ -54,6 +64,8 @@ const CONSUMABLE_RESPAWN = { health: 30, shield: 35 };    // s; what a spot hold
 const DROP_RANGE = 1.6, DROP_LIFE = 40, MAX_DROPS = 14;
 const NADE_ROLL_SPEED = 2.6;
 /** Zombie Escape: the zone opens OPEN_AT s in, holding it for HOLD s escapes; a fallen survivor is reinforced after REINFORCE s while a friend still stands. */
+/** Hardpoint: one zone, a point a second to the team holding it alone, and it moves on every ROTATE s. */
+const HP = { RADIUS: 4.5, ROTATE: 45, MIN_JUMP: 16 };
 const ZB = { OPEN_AT: 60, HOLD: ZOMBIE_HOLD, ZONE_R: 5, CLAW_RANGE: 1.9, REINFORCE: 25, SPAWN_EVERY: 1.1, FIRST_SPAWN: 6 };
 const BOT_ID0 = 100, BOT_IDS = 150;      // hostile ids count up from here, so a seat id and a hostile id never meet
 const BOT_SKINS = ['gasmask', 'trooper', 'crypto', 'swat'].filter((id) => CHARACTER_IDS.includes(id));
@@ -110,6 +122,7 @@ export class Room {
     this.roundReset = 0;
     this.flags = [];
     this.zb = null;                      // zombie escape: { zone, age, hold, open, spawnIn, counter, nextId }
+    this.hp = null;                      // hardpoint: { zone: { x, y, z, r, hp, owner }, age, acc }
     this.sv = null;                      // survival: { wave, state, breakT, queue, cap, spawnIn, counter, nextId }
     this.rosterDirty = false;
     this.kicked = new Map();             // token -> time it may rejoin
@@ -293,7 +306,7 @@ export class Room {
       return;
     }
     c.hello = true;
-    c.helloMsg = { name: m.name, character: m.character, loadout: m.loadout };
+    c.helloMsg = { name: m.name, character: m.character, loadout: m.loadout, skins: m.skins };
     let p = null;
     // A token resumes its seat: a held one, or one whose old connection is still "open" because the
     // network under it died without a close (poor wifi). Without the second case the returning
@@ -348,6 +361,7 @@ export class Room {
       name: cleanName(m.name),
       character: CHARACTER_IDS.includes(m.character) ? m.character : CHARACTER_IDS[0],
       loadout: validLoadout(m.loadout) ? [...m.loadout] : [...DEFAULT_LOADOUT],
+      skins: cleanGunSkins(m.skins),
     });
     p.chosen = [...p.loadout];
     this.world.addBody(p.body);
@@ -410,7 +424,7 @@ export class Room {
 
   roster() {
     return this.players.filter((p) => p.connected).map((p) => ({
-      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready, ...(p.bot ? { bot: true } : {}), ...(p.zombie ? { zombie: true } : {}),
+      id: p.id, name: p.name, character: p.character, team: p.team, loadout: p.loadout, ready: p.ready, ...(p.skins && Object.keys(p.skins).length ? { skins: p.skins } : {}), ...(p.bot ? { bot: true } : {}), ...(p.zombie ? { zombie: true } : {}),
     }));
   }
 
@@ -437,7 +451,7 @@ export class Room {
 
   matchInfo() {
     return {
-      mode: this.mode, map: this.mapId, phase: this.phase, timeLeft: this.timeLeft, flags: flagsWire(this), zone: this.zb ? this.zb.zone : null,
+      mode: this.mode, map: this.mapId, phase: this.phase, timeLeft: this.timeLeft, flags: flagsWire(this), zone: this.zb ? this.zb.zone : this.hp ? this.hp.zone : null,
       maps: MAP_IDS, modes: PLAYABLE, roster: this.roster(), ...this.lobbyInfo(),
     };
   }
@@ -621,6 +635,7 @@ export class Room {
       if (this.mode === 'duel') this.stepDuel(dt);
       else if (this.mode === 'survival') this.stepSurvival(dt);
       else if (this.mode === 'zombie') this.stepZombie(dt);
+      else if (this.mode === 'hp') { this.stepHardpoint(dt); if (this.phase === PHASE.PLAYING && (this.timeLeft -= dt) <= 0) this.endOnTime(); }
       else if (this.mode !== 'war' && (this.timeLeft -= dt) <= 0) this.endOnTime();
     } else if (this.phase === PHASE.COUNTDOWN) {
       if (this.seated().length < MODE_INFO[this.mode].min) this.toLobby('NOT ENOUGH PLAYERS');
@@ -802,6 +817,7 @@ export class Room {
     if (source && source !== target) {
       source.kills++;
       if (headshot) source.headshots++;
+      if (this.mode === 'gg' && source.kills < GUN_LADDER.length) this.climbLadder(source);
       if (this.mode === 'tdm' && source.team !== target.team) {
         if (source.team === TEAM.BLUE) this.scoreA++; else if (source.team === TEAM.RED) this.scoreB++;
       }
@@ -1032,6 +1048,10 @@ export class Room {
 
   /** The locker, opened in the lobby: a new skin and loadout, shown to everyone at once. */
   onGear(p, m) {
+    if (m.skins !== undefined) {
+      p.skins = cleanGunSkins(m.skins);
+      if (this.phase !== PHASE.LOBBY) { this.broadcastRoster(); return; }   // a finish is cosmetic: the pause-menu locker may change it mid-round
+    }
     if (this.phase !== PHASE.LOBBY) return;
     if (CHARACTER_IDS.includes(m.character) && m.character !== CHARACTER_IDS[0]) p.character = m.character;
     if (validLoadout(m.loadout)) { p.loadout = [...m.loadout]; p.chosen = [...m.loadout]; }
@@ -1084,14 +1104,14 @@ export class Room {
 
   /** The loadout a round is played with: each player's own, or the one gun the host chose. */
   applyLoadout(p) {
-    p.loadout = this.settings.weapons === 'loadout' ? [...p.chosen] : [this.settings.weapons];
+    p.loadout = this.mode === 'gg' ? [ladderGun(0)] : this.settings.weapons === 'loadout' ? [...p.chosen] : [this.settings.weapons];
   }
 
   /** Everything a round starts from: the map, teams, loadouts, scores and everyone at a spawn. */
   prepareRound(mode, mapId) {
     if (mapId !== this.mapId) this.loadMap(mapId);
     this.clearBots();
-    this.sv = null; this.zb = null;
+    this.sv = null; this.zb = null; this.hp = null;
     this.mode = mode;
     this.scoreA = 0; this.scoreB = 0;
     this.flags = [];
@@ -1109,6 +1129,7 @@ export class Room {
     seated.forEach((p, i) => { p.team = MODE_INFO[mode].coop ? TEAM.BLUE : teamScore(mode) ? (i % 2 ? TEAM.RED : TEAM.BLUE) : TEAM.SOLO; });
     if (mode === 'ctf') ctfInit(this);
     if (mode === 'survival') this.sv = { wave: 0, state: 'break', breakT: 4, queue: 0, cap: 8, spawnIn: 0, counter: 0, nextId: BOT_ID0 };
+    if (mode === 'hp') this.hp = { zone: this.pickHardpoint(null), age: 0, acc: 0 };
     if (mode === 'zombie') this.zb = { zone: this.pickZone(), age: 0, hold: 0, open: false, spawnIn: ZB.FIRST_SPAWN, counter: 0, nextId: BOT_ID0 };
     for (const p of this.players) {
       p.kills = 0; p.deaths = 0; p.headshots = 0; p.damage = 0; p.captures = 0; p.ready = false;
@@ -1226,6 +1247,62 @@ export class Room {
     const cands = this.spawns.filter((sp) => !this.humanSpawns.includes(sp)).sort((a, b) => far(b) - far(a));
     const sp = cands.find((c) => !this.nav || findPath(this.nav, home.x, home.z, c.x, c.z)) ?? cands[0] ?? home;
     return { x: sp.x, y: sp.y, z: sp.z, r: ZB.ZONE_R };
+  }
+
+  /** Gun Game: the killer's next gun, in hand at once with a full magazine. The roster carries it to every client. */
+  climbLadder(p) {
+    p.loadout = [ladderGun(p.kills)];
+    resetAmmo(p);
+    p.current = p.loadout[0];
+    p.reloading = 0;
+    p.cooldown = 0.35;
+    p.cooking = null;
+    this.broadcastRoster();
+  }
+
+  /** The next hardpoint: a spawn far from the last zone, leaning toward the middle of the map so the fight is fair. */
+  pickHardpoint(last) {
+    const pool = this.spawns.filter((sp) => !last || Math.hypot(sp.x - last.x, sp.z - last.z) >= HP.MIN_JUMP);
+    const list = pool.length ? pool : this.spawns;
+    const cx = list.reduce((a, sp) => a + sp.x, 0) / list.length, cz = list.reduce((a, sp) => a + sp.z, 0) / list.length;
+    let best = list[0], bd = Infinity;
+    for (const sp of list) {
+      const d = ((sp.x - cx) ** 2 + (sp.z - cz) ** 2) * (0.6 + this.rng() * 0.8);
+      if (d < bd) { bd = d; best = sp; }
+    }
+    return { x: best.x, y: best.y, z: best.z, r: HP.RADIUS, hp: true, owner: 0 };
+  }
+
+  /** Who is on the point: 0 nobody, 1 blue alone, 2 red alone, 3 both (contested). */
+  hardpointOwner() {
+    const z = this.hp.zone;
+    let blue = 0, red = 0;
+    for (const p of this.players) {
+      if (!p.alive || p.zombie || Math.abs(p.pos.y - z.y) > 3 || Math.hypot(p.pos.x - z.x, p.pos.z - z.z) >= z.r) continue;
+      if (p.team === TEAM.BLUE) blue++; else if (p.team === TEAM.RED) red++;
+    }
+    return blue && red ? 3 : blue ? 1 : red ? 2 : 0;
+  }
+
+  stepHardpoint(dt) {
+    const hp = this.hp;
+    if (!hp) return;
+    hp.age += dt; hp.acc += dt;
+    let changed = false;
+    if (hp.age >= HP.ROTATE) {
+      hp.age = 0;
+      hp.zone = this.pickHardpoint(hp.zone);
+      this.say('THE HARDPOINT HAS MOVED');
+      changed = true;
+    }
+    const owner = this.hardpointOwner();
+    if (owner !== hp.zone.owner) { hp.zone.owner = owner; changed = true; }
+    if (changed) this.broadcastJson({ t: 'zone', zone: hp.zone });
+    if (hp.acc >= 1) {
+      hp.acc -= 1;
+      if (owner === 1) this.scoreA++; else if (owner === 2) this.scoreB++;
+      if (owner === 1 || owner === 2) this.checkWin();
+    }
   }
 
   stepZombie(dt) {
@@ -1362,7 +1439,7 @@ export class Room {
     this.mode = this.settings.mode;
     this.flags = [];
     this.clearBots();
-    this.sv = null; this.zb = null;
+    this.sv = null; this.zb = null; this.hp = null;
     for (const p of this.players) { p.ready = false; p.team = TEAM.SOLO; p.loadout = [...p.chosen]; }
     for (const c of this.clients.values()) {
       if (!c.queued || c.player || this.humanSeats().length >= MAX_PLAYERS) continue;
@@ -1382,7 +1459,7 @@ export class Room {
       const win = this.scoreA >= limit ? TEAM.BLUE : this.scoreB >= limit ? TEAM.RED : null;
       const w = win === null ? null : this.players.find((p) => p.team === win);
       if (w) this.endMatch(`${w.name} WINS`, `${Math.max(this.scoreA, this.scoreB)} - ${Math.min(this.scoreA, this.scoreB)} in rounds`, { id: w.id });
-    } else if (this.mode === 'dm') {
+    } else if (this.mode === 'dm' || this.mode === 'gg') {
       const top = this.players.reduce((a, p) => (!a || p.kills > a.kills ? p : a), null);
       if (top && top.kills >= limit) this.endMatch(`${top.name} WINS`, `${top.kills} kills`, { id: top.id });
     } else if (this.scoreA >= limit) this.endMatch('BLUE TEAM WINS', `${this.scoreA} - ${this.scoreB}`, { team: TEAM.BLUE });

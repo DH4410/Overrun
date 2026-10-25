@@ -248,3 +248,44 @@ test('the callsign carries from the solo lobby to the online room and survives a
   await expect.poll(async () => Object.keys((await roomStats()).rtt ?? {}), { timeout: 15_000 }).toContain('ZED_1');
   await a.context().close();
 });
+
+/** Two players start a mode from the lobby: the host picks it, the guest readies, the host starts. */
+async function startTwo(browser, modeLabel) {
+  await server.stop();
+  server = await startServer({ port: PORT, budgetFile: path.join(mkdtempSync(path.join(tmpdir(), 'overrun-mp-')), 'budget.json'), log: () => {} });
+  const a = await open(browser, 'HOST');
+  const b = await open(browser, 'GUEST');
+  await a.click('#mp-play');
+  await b.click('#mp-play');
+  await expect(a.locator('#mp-lobby')).toBeVisible({ timeout: 30_000 });
+  await a.click('#mp-lobby .mcard.k-mode');
+  await a.locator('#mp-lobby .pop .tile', { hasText: modeLabel }).click();
+  await expect(b.locator('#mp-lobby .go')).toHaveText('READY', { timeout: 30_000 });
+  await expect(async () => {
+    if (await b.locator('#mp-lobby .go.on').count() === 0) await b.click('#mp-lobby .go', { force: true, timeout: 5_000 });
+    await expect(a.locator('#mp-lobby .go')).toBeEnabled({ timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
+  await a.click('#mp-lobby .go', { force: true });
+  for (const p of [a, b]) await expect.poll(async () => (await debug(p)).phase, { timeout: 45_000 }).toBe(1);
+  return [a, b];
+}
+
+test('hardpoint online: both players see the zone chip, and it is the same room mode', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const [a, b] = await startTwo(browser, 'HARDPOINT');
+  for (const p of [a, b]) {
+    await expect(p.locator('#mp-zone')).toContainText(/HARDPOINT|POINT/, { timeout: 30_000 });
+    expect((await debug(p)).mode).toBe('hp');
+  }
+  for (const p of [a, b]) await p.context().close();
+});
+
+test('gun game online: everyone starts on the first gun', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const [a, b] = await startTwo(browser, 'GUN GAME');
+  for (const p of [a, b]) {
+    expect((await debug(p)).mode).toBe('gg');
+    expect(await p.evaluate(() => window.__game.player.loadout)).toEqual(['pistol']);
+  }
+  for (const p of [a, b]) await p.context().close();
+});

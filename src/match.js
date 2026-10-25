@@ -1,3 +1,4 @@
+import { GUN_LADDER, ladderGun } from './sim/modes.js';
 import { BOT_NAMES, DIFFICULTY } from './bots.js';
 import { loadLoadout } from './loadout.js';
 import { killLine } from './sim/killinfo.js';
@@ -19,8 +20,7 @@ export const MODE_LABEL = { dm: 'DEATHMATCH', tdm: 'TEAM DEATHMATCH', sv: 'SURVI
  * ladder runs short barrels to long ones, so the opening kills are at arm's length and the last
  * is a sniper shot. Finish it first to win. Owning the guns is not required: the ladder lends them.
  */
-export const GUN_LADDER = ['pistol', 'mp', 'revolver', 'smg', 'ashotgun', 'shotgun', 'ar', 'lmg', 'dmr', 'sniper'];
-export const ladderGun = (kills) => GUN_LADDER[Math.min(Math.max(0, kills), GUN_LADDER.length - 1)];
+export { GUN_LADDER, ladderGun };
 /**
  * Survival is meant to be a power fantasy you can lose, not a wall. Waves are small, hostiles walk
  * in a few at a time instead of all at once, the early waves are the easy tier whatever the lobby

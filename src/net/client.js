@@ -15,7 +15,7 @@ import { applyMatch, loadProfile, saveProfile } from '../profile.js';
 import { ITEMS, ITEM_SHIFT, TIERS, canUse, lootFor } from '../sim/items.js';
 import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { killLine } from '../sim/killinfo.js';
-import { MODE_INFO, teamScore } from '../sim/modes.js';
+import { GUN_LADDER, MODE_INFO, teamScore } from '../sim/modes.js';
 import { updateHealProp } from '../healProp.js';
 import { createChat } from './chat.js';
 import { createFlags } from './flags.js';
@@ -255,7 +255,7 @@ export function createNetClient(d) {
       if (sock !== ws) return;
       sendJson({
         t: 'hello', v: PROTOCOL_VERSION, hash, name: player.name, character: character(),
-        loadout: player.loadout, token: storage('sessionStorage')?.getItem(TOKEN_KEY) ?? undefined,
+        loadout: player.loadout, skins: d.getGunSkins?.() ?? {}, token: storage('sessionStorage')?.getItem(TOKEN_KEY) ?? undefined,
         spectate: wantSpectate,
       });
     };
@@ -309,12 +309,13 @@ export function createNetClient(d) {
     try { m = JSON.parse(data); } catch { return; }
     switch (m.t) {
       case 'welcome': onWelcome(m); break;
-      case 'roster': setRoster(m.players); setLobbyInfo(m); break;
+      case 'roster': setRoster(m.players); setLobbyInfo(m); climbIfGunGame(); break;
       case 'match': onMatch(m); break;
       case 'end': onEnd(m); break;
       case 'chat': chat.add(m); break;
       case 'toast': d.showToast(m.text); break;
       case 'flags': flagsView.set(m.flags, myId); break;
+      case 'zone': if (mode === 'hp') zoneView.set(m.zone); break;
       case 'closed': refusal = m.reason; break;
       case 'error': refusal = m.reason; break;
       default: break;
@@ -407,7 +408,7 @@ export function createNetClient(d) {
     mode = m.mode; phase = m.phase; timeLeft = m.timeLeft;
     if (m.roster) setRoster(m.roster);
     flagsView.set(m.mode === 'ctf' ? m.flags : [], myId);
-    zoneView.set(m.mode === 'zombie' ? m.zone : null);
+    zoneView.set(m.mode === 'zombie' || m.mode === 'hp' ? m.zone : null);
     setLobbyInfo(m);
     switchToMap(m.map);
   }
@@ -460,6 +461,18 @@ export function createNetClient(d) {
     }
     if (m.phase === PHASE.LOBBY) { drawLobby(); return; }
     Audio.roundStart();
+  }
+
+  /** Gun Game hands out a gun per kill through the roster: take the new one and say which rung it is. */
+  function climbIfGunGame() {
+    if (mode !== 'gg' || phase !== PHASE.PLAYING || !pred) return;
+    const gun = roster.get(myId)?.loadout?.[0];
+    if (!gun || pred.p.loadout[0] === gun) return;
+    pred.p.loadout = [gun];
+    player.loadout = [gun];
+    selected = gun;
+    const rung = GUN_LADDER.indexOf(gun) + 1;
+    d.showToast(`${rung} / ${GUN_LADDER.length}  \u00b7  ${WEAPON_BY_ID[gun]?.name ?? gun.toUpperCase()}`);
   }
 
   function onEnd(m) {
@@ -690,6 +703,7 @@ export function createNetClient(d) {
       puppets.set(id, b);
       bots.push(b);
     }
+    b.setGunSkins?.(r.skins);
     return b;
   }
 
@@ -1410,7 +1424,7 @@ export function createNetClient(d) {
     const staged = stageStep(dt);
     if (!staged) updateRemotes(dt);
     flagsView.update(dt);
-    zoneView.update(dt, mode === 'zombie' ? scoreA : 0, camera.position);
+    zoneView.update(dt, mode === 'zombie' ? scoreA : 0, camera.position, player.team);
     hud();
     // The match opens: the world replaces the stage, and the mouse has to be taken back.
     if (prevPhase === PHASE.COUNTDOWN && phase === PHASE.PLAYING && !d.isPointerLocked()) showPause(true, 'GET READY');
@@ -1530,7 +1544,7 @@ export function createNetClient(d) {
     /** The locker changed skin or loadout: remember it for the next room, and tell this one. */
     gear(character, loadout) {
       try { storage('sessionStorage')?.setItem(CHAR_KEY, character); } catch { /* private mode */ }
-      if (active && welcomed && !spectator) sendJson({ t: 'gear', character, loadout });
+      if (active && welcomed && !spectator) sendJson({ t: 'gear', character, loadout, skins: d.getGunSkins?.() ?? {} });
     },
     debug: () => ({
       myId, spectator, phase, mode, mapId, rtt, interp, inputRate, budgetFlags, started, seq,

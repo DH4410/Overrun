@@ -51,6 +51,8 @@ const ICON = {
   dm: '<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
   tdm: '<circle cx="8" cy="7" r="3"/><circle cx="16" cy="7" r="3"/><path d="M2 20c0-4 3-6 6-6s6 2 6 6M10 20c0-4 3-6 6-6s6 2 6 6"/>',
   duel: '<path d="M4 4l10 10M20 4L10 14M3 17l4 4M21 17l-4 4M6 15l3 3M18 15l-3 3"/>',
+  gg: '<path d="M4 20h4v-5h4v-5h4V5h4"/>',
+  hp: '<circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="3"/>',
   ctf: '<path d="M6 21V3M6 4h12l-3 4 3 4H6"/>',
   survival: '<path d="M2 15c3-3 5 3 8 0s5 3 8 0 3-1 4-1M2 20c3-3 5 3 8 0s5 3 8 0 3-1 4-1M12 3l2 5h-4z"/>',
   zombie: '<circle cx="12" cy="9" r="5"/><path d="M9 8h.01M15 8h.01M9 12h6M5 21c0-4 3-6 7-6s7 2 7 6"/>',

@@ -28,6 +28,10 @@ export const SKINS = [
   { id: 'operative', name: 'Operative', tag: 'AGENT' },
   { id: 'scout', name: 'Scout', tag: 'CIVILIAN' },
   { id: 'runner', name: 'Runner', tag: 'CIVILIAN' },
+  { id: 'peasant', name: 'Peasant', tag: 'CIVILIAN' },
+  { id: 'boss', name: 'Boss', tag: 'CIVILIAN' },
+  { id: 'amy', name: 'Amy', tag: 'CIVILIAN' },
+  { id: 'jolleen', name: 'Jolleen', tag: 'FOREST' },
 ];
 
 const SKIN_KEY = 'overrun-skin';

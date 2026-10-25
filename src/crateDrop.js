@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-import { buildCrate } from './crateModel.js';
+import { buildCrate, preloadCrate } from './crateModel.js';
 import { applyGunSkin, buildGunModel } from './gunmodels.js';
 import { RARITY, RARITY_ORDER } from './gunskins.js';
 import { freshPattern } from './gunTextures.js';
@@ -20,6 +20,8 @@ import { freshPattern } from './gunTextures.js';
  * The beats are driven by the clock, not by frames, so a slow machine sees fewer frames of the same
  * sequence instead of a longer one; and the buttons appear on a timer, so they never wait on WebGL.
  */
+
+preloadCrate();             // fetch the modelled crate while the menus are open
 
 const FALL = 2100;          // ms: the crate touches down
 const LOCK = 3300;          // the seam stops flickering and shows the rarity
@@ -233,6 +235,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     const built = buildCrate();
     track({ dispose: built.dispose });
     const { crate, lid, seamMat } = built;
+    built.actions?.idle?.play();
     crate.position.y = START_Y;
     scene.add(crate);
 
@@ -299,7 +302,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     gun.visible = false;
     scene.add(gun);
 
-    S = { crate, chute, lid, seamMat, glowLight, pool, ring, beam, core, waves, wave, P, sparks, gun, lineMat, canopy, key,
+    S = { crate, chute, lid, built, seamMat, glowLight, pool, ring, beam, core, waves, wave, P, sparks, gun, lineMat, canopy, key,
       fired: { land: false, lock: false, burst: false }, lidV: new THREE.Vector3(), lidSpin: new THREE.Vector3(), lidT: 0, chuteV: 0, shake: 0, gunT: -1, gunSize };
     const top = RARITY_ORDER.indexOf(rarity);
     wave(0, 5 + top, 0.9);
@@ -348,6 +351,8 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     if (t >= FALL && !fired.land) {
       fired.land = true;
       crate.position.y = 0; crate.rotation.z = 0;
+      const A = S.built.actions;
+      if (A) { A.idle.stop(); A.land.reset().play(); }
       S.chuteV = 0.4;
       if (!quiet) emit(46, { speed: 2.6, up: 0.7, spread: 1.6, from: [0, 0.05, 0], life: 0.9, white: 0.9 });
       sfx('thud', rarity);
@@ -383,9 +388,15 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       pool.material.opacity = 0.08 + warm * 0.3;
       pool.material.color.copy(seamMat.color);
       const amp = quiet ? 0 : (0.004 + warm * 0.032) * (t < LOCK ? 0.6 : 1.4);
-      crate.position.x = (Math.random() - 0.5) * amp * 2;
-      crate.position.z = (Math.random() - 0.5) * amp;
-      crate.rotation.z = (Math.random() - 0.5) * amp * 0.9;
+      if (S.built.actions) {
+        const A = S.built.actions;
+        if (t >= FALL + 800 && !A.shake.isRunning()) A.shake.reset().play();
+        A.shake.setEffectiveWeight(0.2 + warm * 1.6);
+      } else {
+        crate.position.x = (Math.random() - 0.5) * amp * 2;
+        crate.position.z = (Math.random() - 0.5) * amp;
+        crate.rotation.z = (Math.random() - 0.5) * amp * 0.9;
+      }
       if (!quiet && Math.random() < 0.5) emit(1, { speed: 0.5, up: 1.6, spread: 0.6, from: [(Math.random() - 0.5) * 1.3, 0.92, (Math.random() - 0.5) * 0.9], life: 0.7, white: 0.5 });
     } else if (t < FALL) {
       seamMat.color.copy(SEAM_IDLE);
@@ -397,6 +408,8 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       crate.position.set(0, 0, 0); crate.rotation.z = 0;
       S.lidV.set((Math.random() < 0.5 ? -1 : 1) * (1 + Math.random()), 7.5 + top, -2.5 - Math.random() * 1.5);   // up and away from the camera
       S.lidSpin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
+      const A = S.built.actions;
+      if (A) { A.shake.stop(); A.open.reset().play(); }
       S.shake = quiet ? 0 : [0.05, 0.1, 0.17, 0.3][top];
       if (!quiet) emit([90, 140, 230, 400][top], { speed: 4.4 + top, up: 6 + top * 1.5, spread: 1, from: [0, 1, 0], life: 1.5, white: 0.5 });
       const fl = q('#drop-flash');
@@ -407,10 +420,12 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       const b = (t - BURST) / 1000;
       // Lid
       S.lidT += dt;
-      S.lidV.y -= 16 * dt;
-      lid.position.addScaledVector(S.lidV, dt);
-      lid.rotation.x += S.lidSpin.x * dt; lid.rotation.y += S.lidSpin.y * dt; lid.rotation.z += S.lidSpin.z * dt;
-      lid.visible = S.lidT < 1.1;
+      if (!S.built.actions) {
+        S.lidV.y -= 16 * dt;
+        lid.position.addScaledVector(S.lidV, dt);
+        lid.rotation.x += S.lidSpin.x * dt; lid.rotation.y += S.lidSpin.y * dt; lid.rotation.z += S.lidSpin.z * dt;
+        lid.visible = S.lidT < 1.1;
+      }
       // Beam: shoots up, settles to a steady glow
       const grow = ease.out(clamp01(b / 0.35));
             // A flash of light that eases to a faint haze, so the gun is what you look at.
@@ -458,6 +473,18 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
         gun.rotation.set(drag.pitch, drag.yaw, 0);
         if (!quiet && Math.random() < 0.6) emit(1, { speed: 0.6, up: 1.4, spread: 1.3, from: [0, 1.0, 0], life: 1.6, white: 0.3 });
       }
+    }
+
+    // The clips run on the drop's own clock (t), so a skip or a faked clock lands them in the right place
+    const M = S.built.mixer;
+    if (M) {
+      const A = S.built.actions;
+      if (fired.burst) A.open.time = Math.min((t - BURST) / 1000, A.open.getClip().duration);
+      else if (fired.land) {
+        A.land.time = Math.min((t - FALL) / 1000, A.land.getClip().duration);
+        if (A.shake.isRunning()) A.shake.time = (t - FALL - 800) / 1000 % A.shake.getClip().duration;
+      } else A.idle.time = t / 1000 % A.idle.getClip().duration;
+      M.update(0);
     }
 
     // Sparks

@@ -59,6 +59,7 @@ import {
   world,
 } from './physics.js';
 import { IDLE_FPS, LOBBY_FPS, createFrameGate, createResScaler } from './perf.js';
+import { classifyDevice, createAutoGovernor, readDevice } from './device.js';
 import { markShared } from './rendering.js';
 import {
   ZONE_MULT,
@@ -93,12 +94,15 @@ import {
 } from './config.js';
 import {
   QUALITY,
+  activeQuality,
   adsFov,
   hipFov,
   initPower,
   loadSettings,
+  qualityKey,
   saveSettings,
   saverActive,
+  setAutoTier,
   settings,
   tuning,
 } from './settings.js';
@@ -166,7 +170,11 @@ addEventListener('pointerover', (e) => {
  */
 loadSettings();
 loadKeybinds();
-const bootQuality = QUALITY[settings.quality];
+// AUTO needs the machine's GPU, cores and window size, which are known now but not later (the context
+// below is created with the preset's antialias).
+const detected = classifyDevice(readDevice());
+if (settings.quality === 'auto') setAutoTier(detected.tier);
+const bootQuality = activeQuality();
 
 const renderer = new THREE.WebGLRenderer({
   antialias: bootQuality.antialias,
@@ -423,6 +431,7 @@ const {
   fireWeapon,
   grenades,
   throwGrenade,
+  grenadeSpecimens,
   clearGrenades,
   predictThrow,
   showThrowArc,
@@ -516,6 +525,30 @@ function warmUpShaders() {
   heal.showAll(false);
   vmRig.visible = vw;
 
+  // Two programs that otherwise first appear mid-fight, each a stall of several hundred ms on an
+  // integrated GPU: a grenade in flight (a new shadow caster) and a bot fading out as it dies (a
+  // transparent material is a different program from an opaque one). Forced into one shadowed frame
+  // here: visible, never culled, bots faded, then put back exactly as they were.
+  const specimens = grenadeSpecimens();
+  for (const m of specimens) scene.add(m);
+  const undo = [];
+  for (const b of bots) {
+    undo.push([b.mesh, 'visible', b.mesh.visible]);
+    b.mesh.visible = true;
+    b.mesh.traverse((o) => {
+      if (!o.isMesh) return;
+      undo.push([o, 'frustumCulled', o.frustumCulled], [o.material, 'transparent', o.material.transparent]);
+      o.frustumCulled = false;
+      o.material.transparent = true;
+    });
+  }
+  for (const m of specimens) m.frustumCulled = false;
+  scene.updateMatrixWorld(true);
+  renderer.shadowMap.needsUpdate = true;
+  renderer.render(scene, camera);
+  for (const [obj, key, was] of undo) obj[key] = was;
+  scene.remove(...specimens);
+
   for (const m of hidden) m.visible = false;
   lightSlots.forEach((l, i) => { l.intensity = saved[i]; });
 
@@ -562,7 +595,7 @@ async function warmScene(tick = async () => {}) {
  * recompiles the light pool exists to prevent.
  */
 function applySettings() {
-  const q = QUALITY[settings.quality];
+  const q = activeQuality();
   document.body.classList.toggle('hc', !!settings.highContrast);
   document.body.classList.toggle('saver', saverActive());
   // The battery saver (manual, or automatic while unplugged) only ever lowers these.
@@ -618,6 +651,7 @@ let hudScale = 1;
 
 const frameGate = createFrameGate();
 const resScaler = createResScaler();
+const autoGovernor = createAutoGovernor();
 
 /** The lobby stage is a still, simple scene: draw it at full resolution, supersampled, so edges are clean. */
 let sharp = false;
@@ -1198,6 +1232,14 @@ function frame() {
     if (resScaler.sample(interval, budget || 1 / 60) !== null) applyRenderScale();
   } else {
     resScaler.reset();
+  }
+  // AUTO: once adaptive resolution has no pixels left to give (or is off) and frames are still late,
+  // step the preset itself down. The one recompile this costs is cheaper than minutes of stutter.
+  if (settings.quality === 'auto' && appState === APP_STATE.PLAYING) {
+    const lower = autoGovernor.sample(interval, budget || 1 / 60, !settings.adaptiveRes || resScaler.exhausted, qualityKey());
+    if (lower) { setAutoTier(lower); applySettings(); }
+  } else {
+    autoGovernor.reset();
   }
 
   if (net.active) {

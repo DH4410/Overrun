@@ -152,8 +152,10 @@ const SETTINGS_SCHEMA = [
   { group: 'VIDEO', icon: 'M3 5h18v11H3zM8 20h8M12 16v4' },
   {
     key: 'quality', type: 'choice', label: 'Quality preset',
-    options: Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label })),
-    hint: 'Shadows are ~95% of the frame cost. Drop to PERFORMANCE if you see stutter.',
+    options: [{ value: 'auto', label: 'AUTO' }, ...Object.keys(QUALITY).map((k) => ({ value: k, label: QUALITY[k].label }))],
+    hint: 'AUTO picks a preset from your GPU, screen size, cores and memory, then lowers it if frames '
+        + 'stay late. It only ever steps down. Shadows are ~95% of the frame cost, so '
+        + 'PERFORMANCE is the manual fix for stutter.',
   },
   {
     key: 'frameCap', type: 'choice', label: 'Frame rate cap',

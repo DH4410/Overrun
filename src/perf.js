@@ -118,6 +118,9 @@ export function createResScaler({ floor = RES_FLOOR, step = 0.1 } = {}) {
   return {
     get scale() { return scale; },
 
+    /** True when no more pixels can be taken: at the floor, or a step down already proved useless. */
+    get exhausted() { return frozen || scale <= floor; },
+
     /** Forget the sample window. Used whenever the frame stream is not steady-state play. */
     reset() { mean = 0; samples = 0; },
 

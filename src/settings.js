@@ -21,6 +21,15 @@ export const QUALITY = {
 };
 
 /**
+ * AUTO is not a preset of its own: it names whichever preset suits the machine. main.js sets the tier
+ * from the device at boot (see device.js), and the frame governor may lower it while playing.
+ */
+let autoTier = 'medium';
+export const setAutoTier = (tier) => { if (QUALITY[tier]) autoTier = tier; };
+export const qualityKey = () => (settings.quality === 'auto' ? autoTier : settings.quality);
+export const activeQuality = () => QUALITY[qualityKey()] || QUALITY.medium;
+
+/**
  * Render-rate caps offered in the settings panel; 0 means "as fast as the display".
  *
  * A cap is the bluntest battery lever there is. An uncapped loop on a 144 Hz laptop panel
@@ -30,7 +39,7 @@ export const QUALITY = {
 export const FRAME_CAPS = [30, 60, 120, 0];
 
 export const DEFAULT_SETTINGS = {
-  quality: 'medium',
+  quality: 'auto',
   frameCap: 60,
   adaptiveRes: true,
   powerSaver: false,
@@ -64,7 +73,7 @@ export const DEFAULT_SETTINGS = {
   lowAmmoCue: true,
   diegeticAmmo: true,
   rawInput: true,
-  version: 2,
+  version: 3,
 };
 
 export const settings = { ...DEFAULT_SETTINGS };
@@ -86,7 +95,7 @@ export const CRITICAL_BATTERY = 0.15;
  * lowers them, so a Performance profile is never raised by it.
  */
 export function tuning() {
-  const q = QUALITY[settings.quality] || QUALITY.medium;
+  const q = activeQuality();
   if (!saverActive()) {
     return { renderScale: q.renderScale, maxPixelRatio: q.maxPixelRatio, particles: q.particles, lights: q.lights,
       decals: q.decals, frameCap: settings.frameCap, detail: settings.sceneryDetail, halfRateShadows: false, halfRateMinimap: false };
@@ -139,8 +148,11 @@ export function loadSettings() {
   // sprint switches are gone because sprint is always on.
   if (!(settings.version >= 2)) settings.crosshairColor = DEFAULT_SETTINGS.crosshairColor;
   delete settings.autoSprint; delete settings.toggleSprint;
+  // Version 3: AUTO picks the preset from the machine. A profile from before it keeps a deliberate
+  // PERFORMANCE choice, but Balanced was the old default and so tells us nothing about intent.
+  if (!(settings.version >= 3) && settings.quality !== 'low') settings.quality = 'auto';
   settings.version = DEFAULT_SETTINGS.version;
-  if (!QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
+  if (settings.quality !== 'auto' && !QUALITY[settings.quality]) settings.quality = DEFAULT_SETTINGS.quality;
   // A cap that is not one of the offered values would be paced against nonsense, and a profile
   // saved before the setting existed carries no cap at all.
   if (!FRAME_CAPS.includes(settings.frameCap)) settings.frameCap = DEFAULT_SETTINGS.frameCap;

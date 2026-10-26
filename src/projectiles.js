@@ -255,6 +255,18 @@ function throwGrenade(owner, origin, dir, power, kind, fuseLeft) {
   return g;
 }
 
+/**
+ * One of each grenade body, built the way throwGrenade builds them but never added to the scene or
+ * the physics world, so the shader warm-up can draw them once. A grenade is a new shadow caster the
+ * first time it flies, and that compiles a shadow program in the middle of a fight unless it already has.
+ */
+function grenadeSpecimens() {
+  return [new THREE.Mesh(fragGeo, fragMat), new THREE.Mesh(smokeCanGeo, smokeCanMat)].map((m) => {
+    m.castShadow = true;
+    return m;
+  });
+}
+
 /** A throw's launch velocity: the throw, a little loft, and the thrower's own motion. */
 function launchVelocity(owner, dir, power, out) {
   const inherited = owner?.body?.velocity;
@@ -439,6 +451,7 @@ return {
   fireWeapon,
   grenades,
   throwGrenade,
+  grenadeSpecimens,
   clearGrenades,
   predictThrow,
   showThrowArc,

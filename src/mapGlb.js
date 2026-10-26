@@ -5,6 +5,12 @@ import { markShared } from './rendering.js';
 import { tuning } from './settings.js';
 import { buildMapColliders } from './sim/colliders.js';
 
+/**
+ * Part of every map GLB's URL. The service worker serves .glb cache-first by URL, so a map that is
+ * rebuilt under the same name keeps coming from the old cache; change this with the files.
+ */
+export const MAP_ASSET_VERSION = 'orig1';
+
 /** The detail pass's material keys: dressing only, hidden by the scenery detail switch and the battery saver. */
 const DETAIL_KEYS = new Set(['fit', 'mark', 'glyph', 'tmark', 'tglyph', 'tuft']);
 
@@ -31,7 +37,7 @@ export function createGlbMap(def, {
   async function load() {
     try {
       const [gltf, data] = await Promise.all([
-        new GLTFLoader().loadAsync(`assets/maps/${def.file}.glb`),
+        new GLTFLoader().loadAsync(`assets/maps/${def.file}.glb?v=${MAP_ASSET_VERSION}`),
         fetch(`assets/maps/${def.file}.json`).then((r) => {
           if (!r.ok) throw new Error(`${def.file}.json ${r.status}`);
           return r.json();

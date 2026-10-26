@@ -20,7 +20,7 @@ function walk(dir) {
 test('every PRECACHE entry exists', () => {
   for (const p of list) {
     if (p === '') continue;
-    assert.ok(existsSync(join(ROOT, p)), `sw.js precaches a missing file: ${p}`);
+    assert.ok(existsSync(join(ROOT, p.split('?')[0])), `sw.js precaches a missing file: ${p}`);
   }
 });
 

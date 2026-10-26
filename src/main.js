@@ -1243,6 +1243,7 @@ function frame() {
       player.respawnTimer -= realDt;
       updateBursts(realDt);
       updateLights();
+      updateHudTimers(realDt);
     } else {
 
       if (player.invulnTimer > 0) player.invulnTimer = Math.max(0, player.invulnTimer - dt);
@@ -1632,6 +1633,11 @@ $('tab-operators')?.addEventListener('click', () => { leaveOverlays(); $('settin
 killcam = createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
+  // What the replay needs to draw the killer's own screen: the first-person gun, flash, numbers.
+  fp: {
+    vmRig, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
+    hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
+  },
 });
 /** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
 function skipKillcam() {

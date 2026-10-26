@@ -3,18 +3,23 @@ import { expect, test } from '@playwright/test';
 import { bootGame, pumpFrames, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
 
 /** Put the arena in a state where bot 0 is close, recording, and about to kill you. */
-async function setUpKill(page) {
+async function setUpKill(page, sniper = false) {
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
-  await page.evaluate(() => {
+  await page.evaluate((sniper) => {
     const g = globalThis.__game;
     const bot = g.bots[0];
     // Stand the killer 9 m in front of you, then let it run so there is something to replay.
     const p = g.player.body.position;
     bot.body.position.set(p.x + 9, p.y, p.z);
+    bot.yaw = -Math.PI / 2;                 // squared up to you, so the replay looks your way from the first frame
     bot.updateTransforms();
     bot.target = g.player;
     g.player.invulnTimer = 0;
-  });
+    if (sniper) {
+      bot.weaponId = 'sniper';
+      Object.defineProperty(bot, 'aimW', { get: () => 1, set() {} });   // shouldered the whole time, recording included
+    }
+  }, sniper);
   await pumpFrames(page, 150);   // 2.5 s of recorded history
 }
 
@@ -126,4 +131,88 @@ test('no cam in a duel, and none when you kill yourself', async ({ page }) => {
     g.killCombatant(g.player, g.bots[0], false);
   });
   expect(await phase(page)).toBe('off');
+});
+
+test('the replay is the killer\'s own screen: scope, gun in hand, hit markers and damage numbers', async ({ page }) => {
+  const errors = watchRuntimeErrors(page);
+  await bootGame(page);
+  await setUpKill(page, true);
+  // A sniper kills you in three hits; the hit before the last lands a moment earlier.
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.player.armor = 0;
+    const at = g.player.body.position.clone();
+    g.applyDamage(g.player, 30, g.bots[0], at, false, 'body', 'sniper');
+    g.applyDamage(g.player, 40, g.bots[0], at, true, 'head', 'sniper');
+  });
+  await pumpFrames(page, 40);
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.applyDamage(g.player, 500, g.bots[0], g.player.body.position.clone(), false, 'body', 'sniper');
+  });
+  expect(await phase(page)).toBe('zoom');
+
+  // Into the replay, at the end of which the shots have landed: first-person sniper view.
+  await page.evaluate(() => {
+    globalThis.__nums = 0;
+    new MutationObserver((ms) => { for (const m of ms) globalThis.__nums += m.addedNodes.length; })
+      .observe(document.getElementById('dmgnums'), { childList: true });
+  });
+  await pumpFrames(page, 135);
+  expect(await phase(page)).toBe('replay');
+  // The killer had been raising the rifle as the recording began; give it a moment to be shouldered.
+  for (let i = 0; i < 80 && !(await page.evaluate(() => document.getElementById('scope').classList.contains('on'))); i++) {
+    await pumpFrames(page, 3);
+  }
+  const first = await page.evaluate(() => {
+    const g = globalThis.__game;
+    return {
+      scope: getComputedStyle(document.getElementById('scope')).display !== 'none',
+      vm: g.vmRig.visible,
+      fov: g.camera.fov,
+    };
+  });
+  expect(first.scope).toBe(true);          // the scope the killer looked through
+  expect(first.vm).toBe(false);            // which replaces the gun model
+  expect(first.fov).toBeLessThan(30);      // the sniper's own zoom
+  // No letterbox: the frame is theirs. The bars retract over a CSS transition, so wait it out.
+  for (let i = 0; i < 40; i++) {
+    if ((await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.kc-bar.top')).height))) < 2) break;
+    await page.waitForTimeout(50);
+  }
+  expect(await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.kc-bar.top')).height))).toBeLessThan(2);
+
+  // The hits the killer landed on you appear as numbers, whatever this player's setting says.
+  for (let i = 0; i < 100 && (await page.evaluate(() => globalThis.__nums)) < 2; i++) await pumpFrames(page, 3);
+  expect(await page.evaluate(() => globalThis.__nums)).toBeGreaterThanOrEqual(2);
+  await shot(page, '5-scope');
+  expect(errors).toEqual([]);
+});
+
+test('the replay shows the killer\'s gun in their hands when they are not scoped', async ({ page }) => {
+  await bootGame(page);
+  await setUpKill(page);
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.bots[0].weaponId = 'ar';
+    Object.defineProperty(g.bots[0], 'aimW', { get: () => 1, set() {} });
+  });
+  await killPlayer(page, false);
+  await pumpFrames(page, 150);
+  expect(await phase(page)).toBe('replay');
+  const s = await page.evaluate(() => {
+    const g = globalThis.__game;
+    return {
+      scope: document.getElementById('scope').classList.contains('on'),
+      vm: g.vmRig.visible,
+      model: g.vmModels.ar.visible,
+      other: Object.entries(g.vmModels).some(([id, m]) => id !== 'ar' && m.visible),
+      ghost: g.bots.every((b) => !b.mesh || !b.mesh.visible),
+    };
+  });
+  expect(s).toEqual({ scope: false, vm: true, model: true, other: false, ghost: true });
+  await shot(page, '6-gun-in-hand');
+  await pumpFrames(page, 400);
+  expect(await phase(page)).toBe('off');
+  expect(await page.evaluate(() => document.getElementById('scope').classList.contains('on'))).toBe(false);
 });

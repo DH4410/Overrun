@@ -1220,8 +1220,17 @@ body.mp-lobby #mp-zone { display: none; }
 #killcam.cut .kc-static { animation: kc-cut .45s linear; }
 @keyframes kc-cut { 0% { opacity: 0; } 20% { opacity: .9; } 70% { opacity: .75; transform: translateY(14px); } 100% { opacity: 0; } }
 /* While it runs, the combat HUD steps aside. */
-body.killcam #hud > *:not(#feed):not(#topbar):not(#toast) { display: none !important; }
+body.killcam:not(.killcam-replay) #hud > *:not(#feed):not(#topbar):not(#toast) { display: none !important; }
 body.killcam #pause { display: none !important; }
+/* The replay is the killer's own screen: their scope, crosshair, hit markers and damage numbers stay, and the letterbox and vignette go. */
+body.killcam.killcam-replay #hud > *:not(#feed):not(#topbar):not(#toast):not(#scope):not(#crosshair):not(#dmgnums):not(#hitmarker):not(#hsflash) { display: none !important; }
+body.killcam-replay #hud > #dmgnums, body.killcam-replay #hud > #hitmarker, body.killcam-replay #hud > #scope { z-index: 21; }
+#killcam.replay .kc-bar { height: 0; }
+#killcam.replay::before { display: none; }
+#killcam.replay .kc-rec { top: 64px; }
+#killcam.replay .kc-card { bottom: 26px; }
+#killcam.replay .kc-prog { bottom: 0; }
+#killcam.replay .kc-skip { bottom: 14px; }
 
 /* ==========================================================================
    Streaks and kill reactions: the counter, the headshot bloom, what a streak cost you.

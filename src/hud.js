@@ -185,11 +185,16 @@ function applyCrosshairStyle() {
 
 const _dmgProj = new THREE.Vector3();
 
-/** Float the damage dealt above the point of impact, projected to screen space. */
-function showDamageNumber(worldPos, amount, headshot, zone = 'body', armored = false, lethal = false) {
-  if (!el.dmgNums || amount <= 0 || !settings.showDamageNumbers) return;
+/**
+ * Float the damage dealt above the point of impact, projected to screen space. `force` shows it
+ * whatever the setting says: the kill cam replays what the killer saw.
+ */
+function showDamageNumber(worldPos, amount, headshot, zone = 'body', armored = false, lethal = false, force = false) {
+  if (!el.dmgNums || amount <= 0 || !(settings.showDamageNumbers || force)) return;
+  // In front of the lens, however far: a long sniper kill sits past the far plane, where
+  // project() reports z > 1 although the point is plainly ahead.
+  if (_dmgProj.copy(worldPos).applyMatrix4(camera.matrixWorldInverse).z > 0) return;
   _dmgProj.copy(worldPos).project(camera);
-  if (_dmgProj.z > 1) return;                       // behind the camera
   const d = document.createElement('div');
   d.className = `dmg-num ${headshot ? 'head' : zone}${armored ? ' armored' : ''}${lethal ? ' kill' : ''}`;
   // Round up, never down: a hit that landed must never print as 0, and printing 8 for 8.6

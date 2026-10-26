@@ -9,7 +9,8 @@ import { clamp, lerp } from './utils.js';
  * world runs in slow motion, then the screen rewinds into a replay of the last few seconds at
  * real speed, through the killer's own eyes: their posed skeleton, gun and aim as they were
  * drawn, so what you see is what they saw (the sights, the shots, you), and every shot they
- * fired. After it, a short respawn wait.
+ * fired, with the first-person gun in the hands, the scope when they were scoped, and the damage
+ * numbers and hit markers they saw as each shot landed on you. After it, a short respawn wait.
  *
  * What is recorded is the drawn pose, not the simulation, so the replay is exactly what the
  * game showed, and nothing here can change a result. Single player only.
@@ -30,13 +31,14 @@ const SKIP_AFTER = 0.9;
 
 export function createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId, losClear, Audio, spawnBlood, spawnSparks, WEAPON_BY_ID,
+  fp = null,
 }) {
   const $ = (id) => document.getElementById(id);
   let now = 0, acc = 0;
   const rings = new Map();              // bot -> { head, n, frames[] }
   const me = [];                        // my own recorded states, newest last
   const shots = [];                     // { t, bot, o: Vector3, d: Vector3, w }
-  const hits = [];                      // { t, bot, p: Vector3 }
+  const hits = [];                      // { t, bot, p: Vector3, dmg, head, zone, armored, lethal }
 
   /* ------------------------------- recording ------------------------------- */
 
@@ -106,12 +108,14 @@ export function createKillcam({
     if (last && last.bot === shooter && now - last.t < 0.02) return;
     shots.push({ t: now, bot: shooter, o: origin.clone(), d: dir.clone(), w: weaponId });
   }
-  function noteHit(source, pos) { if (source && source !== player) hits.push({ t: now, bot: source, p: pos.clone() }); }
+  function noteHit(source, pos, info = {}) {
+    if (source && source !== player) hits.push({ t: now, bot: source, p: pos.clone(), ...info });
+  }
 
   /* ------------------------------- playback ------------------------------- */
 
   let phase = 'off', t = 0;
-  let killer = null, killerName = '', killerWeapon = '', headshot = false;
+  let killer = null, killerName = '', killerWeapon = '', headshot = false, kWeapon = null;
   let ghostK = null, ghostMe = null, meAction = null;
   let frames = null, startT = 0, endT = 0;
   let hid = [];                         // live bot meshes hidden for the replay
@@ -176,7 +180,8 @@ export function createKillcam({
     if (!source || source === player || !source.alive || !source.mesh) return 0;
     killer = source;
     killerName = source.name;
-    killerWeapon = WEAPON_BY_ID[source.weaponId]?.name ?? '';
+    kWeapon = WEAPON_BY_ID[source.weaponId] ?? null;
+    killerWeapon = kWeapon?.name ?? '';
     headshot = !!wasHeadshot;
     frames = framesOf(source);
     if (frames) {
@@ -214,7 +219,8 @@ export function createKillcam({
     for (const x of tracers) scene.remove(x.mesh);
     for (const x of flashes) scene.remove(x.sprite);
     tracers.length = 0; flashes.length = 0;
-    killer = null; frames = null;
+    killer = null; frames = null; kWeapon = null;
+    endFirstPerson();
     document.body.classList.remove('killcam', 'killcam-replay');
     $('killcam')?.classList.remove('on', 'replay', 'cut');
   }
@@ -273,7 +279,11 @@ export function createKillcam({
     }
     g.visible = true;
     g.updateMatrixWorld(true);
-    return { a, aim: lerp(a.aim, b.aim, k) };
+    // The replay is the killer's own view: no one sees their body, only the gun in their hands.
+    if (fp) g.visible = false;
+    const span = b.t - a.t;
+    const speed = span > 0 ? Math.hypot(b.px - a.px, b.pz - a.pz) / span : 0;
+    return { a, aim: lerp(a.aim, b.aim, k), speed };
   }
 
   function meAt(time) {
@@ -312,10 +322,23 @@ export function createKillcam({
 
   function fireVisual(s, mePos) {
     const o = s.o;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    sp.position.copy(o); sp.scale.setScalar(0.28);
-    scene.add(sp);
-    flashes.push({ sprite: sp, life: 0.06 });
+    if (fpOn) {
+      const w = WEAPON_BY_ID[s.w] ?? kWeapon;
+      vmKick += w?.kick ?? 0.05;
+      const model = fp.vmModels[w?.id ?? kWeapon?.id];
+      if (model && !fpScoped) {
+        fp.vmRig.updateMatrixWorld(true);
+        const mz = model.userData.muzzle.getWorldPosition(_c);
+        fp.triggerMuzzleFlash(mz.clone(), o);
+      } else if (fpScoped) {
+        fp.triggerMuzzleFlash(_c.set(0, -9, 0), o);     // only the room lights up through a scope
+      }
+    } else {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      sp.position.copy(o); sp.scale.setScalar(0.28);
+      scene.add(sp);
+      flashes.push({ sprite: sp, life: 0.06 });
+    }
     let len = 30;
     if (mePos) {
       _a.set(mePos.x, mePos.y + 0.2, mePos.z).sub(o);
@@ -344,6 +367,50 @@ export function createKillcam({
     $('killcam')?.classList.add('replay');
     const who = $('kc-who'); if (who) who.textContent = 'KILL CAM';
     Audio.rewind?.();
+  }
+
+  /* ----------------------- what the killer saw on screen ----------------------- */
+
+  let fpOn = false, fpScoped = false, vmKick = 0;
+  const _vmHip = new THREE.Vector3(), _vmAim = new THREE.Vector3(), _vmPos = new THREE.Vector3();
+
+  /** Their gun in their hands, their sights or scope, their crosshair: set once a frame. */
+  function firstPerson(time, dt, ks) {
+    const w = kWeapon;
+    const model = w && fp.vmModels[w.id];
+    if (!model) { endFirstPerson(); return; }
+    fpOn = true;
+    for (const id in fp.vmModels) fp.vmModels[id].visible = id === w.id;
+    const aim = clamp(ks.aim, 0, 1);
+    fpScoped = !!w.zoom && aim > 0.85;
+    const ads = w.zoom ? 0 : aim;                       // a scope replaces the model; other sights raise it
+    _vmHip.copy(fp.homePositions[w.id] ?? fp.homePositions.ar);
+    fp.adsPosition(w.id, _vmAim);
+    _vmPos.lerpVectors(_vmHip, _vmAim, ads);
+    const hip = 1 - ads;
+    const bob = Math.min(ks.speed / CONFIG.WALK_SPEED, 1.6) * (0.15 + 0.85 * hip);
+    const tt = time * 1;
+    _vmPos.x += Math.sin(tt * 7) * 0.008 * bob;
+    _vmPos.y += Math.abs(Math.cos(tt * 7)) * 0.007 * bob;
+    vmKick *= Math.pow(0.0005, dt);
+    _vmPos.z += vmKick * 0.6;
+    fp.vmRig.position.copy(_vmPos);
+    fp.vmRig.rotation.set(-0.02 * hip - vmKick * 1.1, 0.07 * hip, 0.03 * hip);
+    fp.vmRig.visible = !fpScoped;
+    fp.updateMuzzleFlash(dt);
+    $('scope')?.classList.toggle('on', fpScoped);
+    $('crosshair')?.classList.toggle('off', fpScoped);
+    camera.fov = fpScoped ? w.zoomFov : lerp(fp.hipFov(), w.zoom ? w.zoomFov : fp.adsFov(), aim);
+    camera.updateProjectionMatrix();
+  }
+
+  function endFirstPerson() {
+    if (!fp || !fpOn) return;
+    fpOn = fpScoped = false; vmKick = 0;
+    fp.vmRig.visible = false;
+    fp.updateMuzzleFlash(1);
+    $('scope')?.classList.remove('on');
+    $('crosshair')?.classList.add('off');
   }
 
   /* ------------------------------- the timeline ------------------------------- */
@@ -391,8 +458,8 @@ export function createKillcam({
     const time = startT + Math.min(t, total);
     const ks = poseKiller(time);
     const mp = poseMe(time, dt);
+    if (fp) firstPerson(time, dt, ks);
     while (playedShots < replayShots.length && replayShots[playedShots].t <= time) { fireVisual(replayShots[playedShots], mp); playedShots++; }
-    while (playedHits < replayHits.length && replayHits[playedHits].t <= time) { spawnBlood(replayHits[playedHits].p); playedHits++; }
 
     // Through the killer's eyes: from their head, looking where they look. Shouldered, that is down
     // the gun's own line (their sights are a hand's breadth in front of the eye); carried low, it is
@@ -410,8 +477,18 @@ export function createKillcam({
     camera.position.copy(_a).addScaledVector(_b, 0.05);
     _tmp.lookAt(camera.position, _c.copy(camera.position).add(_b), _up);
     camera.quaternion.setFromRotationMatrix(_tmp);
-    camera.fov = lerp(80, 64, ks.aim);
+    if (!fpOn) camera.fov = lerp(80, 64, ks.aim);       // first person sets its own: the scope's, or the sights'
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);                      // the numbers below are projected through it
+    while (playedHits < replayHits.length && replayHits[playedHits].t <= time) {
+      const h = replayHits[playedHits++];
+      spawnBlood(h.p);
+      if (fpOn && h.dmg > 0) {
+        // The numbers and marker the killer saw as it landed, whatever this player's own setting says.
+        fp.showDamageNumber(h.p, h.dmg, !!h.head, h.zone ?? 'body', !!h.armored, !!h.lethal, true);
+        fp.showHitMarker(h.lethal ? 'kill' : h.head ? 'head' : 'body', !!h.head);
+      }
+    }
 
     for (const x of tracers) { x.life -= dt; if (x.life <= 0) { scene.remove(x.mesh); } }
     for (let i = tracers.length - 1; i >= 0; i--) if (tracers[i].life <= 0) tracers.splice(i, 1);

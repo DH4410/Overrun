@@ -171,7 +171,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
     if (shield === 'break') Audio.shieldBreak(true);
     else if (shield) Audio.shieldHit(true);
     else Audio.hurt();
-    if (source && source !== player) { showDamageDirection(source.pos); onPlayerHit?.(source, hitPos || target.pos); }
+    if (source && source !== player) { showDamageDirection(source.pos); onPlayerHit?.(source, hitPos || target.pos, { dmg, head: headshot, zone, armored: soaked > 0.5, lethal: target.health <= 0 }); }
     addShake(0.035);
   } else {
     if (source === player) {

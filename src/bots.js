@@ -9,7 +9,7 @@ import { matte } from './rendering.js';
 import { clamp, lerp, pick, rand, randInt } from './utils.js';
 import { applyGunSkin, buildGunModel, gunMaterials } from './gunmodels.js';
 import { gunSkinInfo } from './gunskins.js';
-import { BOT_GUN_IDS, WEAPON_BY_ID } from './weapons.js';
+import { WEAPON_BY_ID } from './weapons.js';
 import { SKINS } from './skins.js';
 
 /**
@@ -191,6 +191,43 @@ const SEP_STRENGTH = 3.2;     // m/s of push at zero distance
 const BOT_ACCEL = 26;
 const BOT_DECEL = 34;
 // Seconds without getting any closer to the next path node before a bot counts as stuck.
+/**
+ * Bot personalities. Every bot rolls one at birth and keeps it, so a lobby is not six copies of
+ * the same fighter: the rusher shoves a shotgun in your face and never sits still, the anchor
+ * holds a long gun from a crouch and moves only when it is hit, and the two between them swap
+ * the lot. A style picks the gun the bot carries (and what it keeps on its hip), how close it
+ * likes to fight, how often it drops to a knee, how fast it changes direction, how quickly it
+ * switches guns when the range stops suiting one, and how readily it ducks behind cover to
+ * reload. None of it touches the aim model: a style changes WHERE and HOW a bot fights, the
+ * difficulty tier still decides how well it shoots.
+ */
+const STYLES = {
+  rusher: {
+    weapons: ['shotgun', 'smg', 'mp', 'ashotgun', 'smg', 'shotgun'], side: ['pistol', 'revolver'],
+    range: 0.7, crouchy: 0.1, strafe: 0.75, react: 0.9, switchy: 0.7, twitch: 0.6, cautious: 0.1,
+  },
+  anchor: {
+    weapons: ['sniper', 'dmr', 'dmr', 'lmg', 'ar'], side: ['pistol', 'mp', 'smg', 'revolver'],
+    range: 1.25, crouchy: 0.75, strafe: 1.3, react: 1.1, switchy: 0.8, twitch: 1.0, cautious: 0.6,
+  },
+  skirmisher: {
+    weapons: ['ar', 'ar', 'ar', 'dmr', 'smg', 'shotgun'], side: ['pistol', 'revolver', 'mp'],
+    range: 1.0, crouchy: 0.35, strafe: 1.0, react: 1.0, switchy: 0.6, twitch: 0.8, cautious: 0.35,
+  },
+  flanker: {
+    weapons: ['smg', 'ar', 'mp', 'shotgun', 'revolver', 'ar'], side: ['pistol', 'mp'],
+    range: 0.9, crouchy: 0.25, strafe: 0.9, react: 0.95, switchy: 0.5, twitch: 1.3, cautious: 0.2,
+  },
+};
+const STYLE_NAMES = Object.keys(STYLES);
+/** Drawing a gun takes a moment; nothing fires, and the muzzle drops, until it is up. */
+const SWITCH_TIME = 0.42;
+/** How far the eye and chest drop in a crouch, in metres (measured off the Crouch clip). */
+const CROUCH_EYE = 0.36;
+const CROUCH_CHEST = 0.28;
+/** A crouched bot's cone is this much tighter: a planted, braced shot. */
+const CROUCH_STEADY = 0.3;
+
 const STUCK_AFTER = 0.8;
 // How far ahead combat footwork looks for walls and edges, in metres.
 const PROBE_AHEAD = 1.1;
@@ -783,8 +820,9 @@ class Bot {
     this.repathTimer = 0;
     this.patrolWp = randInt(0, Math.max(0, waypoints.length - 1));
 
-    this.weaponId = weaponId ?? pick(BOT_GUN_IDS);
-    this.mag = WEAPON_BY_ID[this.weaponId].mag;
+    this.styleName = pick(STYLE_NAMES);
+    this.style = STYLES[this.styleName];
+    this.rollLoadout();
     this.reloading = 0;
     this.fireCd = 0;
     this.burst = 0;             // rounds left in the current burst (see shootAt)
@@ -809,6 +847,26 @@ class Bot {
     // Locomotion wish, applied under an acceleration limit in applyLocomotion().
     this.wishVx = 0; this.wishVz = 0;
     this.peekTimer = 0;      // COVER: >0 while leaning out, <=0 while tucked back in
+    // Stance, hurt reactions, and the idle habits of a patrol (see updateStance, onHurt).
+    this.crouching = false;
+    this.crouchW = 0;        // 0 standing .. 1 fully down, eased
+    this.crouchHold = 0;     // seconds left on a deliberate crouch
+    this.crouchCd = rand(1, 3);
+    this.stanceTick = 0;
+    this.hurtTimer = 0;
+    this.hpPrev = 100;
+    this.swapT = 0;          // seconds left drawing a gun
+    this.switchCd = 0;
+    this.switchTick = rand(0, 0.25);
+    this.noLosTime = 0;
+    this.reloadCover = false;
+    this.reloadDecided = false;
+    this.glanceIn = rand(1.5, 4);
+    this.glanceT = 0;
+    this.glanceYaw = 0;
+    this.pauseIn = rand(6, 14);
+    this.pauseT = 0;
+    this.pauseYaw = 0;
     // Path-following watchdog (see followPath / unstick).
     this.nodeBest = Infinity;
     this.stuckTime = 0;
@@ -827,6 +885,7 @@ class Bot {
     this.mesh.scale.setScalar(BOT_MESH_SCALE);
     this.hb = HB_BOT;
     this.gunMesh = buildBotGun(this.weaponId);
+    this.slots[0].mesh = this.gunMesh;
     this.attachGun();
     scene.add(this.mesh);
 
@@ -855,6 +914,141 @@ class Bot {
 
     this.plate = makePlate(name, color);
     this.updateTransforms();
+  }
+
+  /**
+   * What this bot carries: a primary its style likes and, unless the loadout is pinned (a duel,
+   * Gun Game), a sidearm. Slots keep their own magazines, so drawing the pistol after the rifle
+   * runs dry costs a moment, not a reload.
+   */
+  rollLoadout() {
+    const S = this.style;
+    const primary = this.fixedWeaponId ?? pick(S.weapons);
+    const slots = [{ id: primary, mag: WEAPON_BY_ID[primary].mag, mesh: null }];
+    if (this.fixedWeaponId == null) {
+      const side = WEAPON_BY_ID[primary].slot === 1 ? pick(['ar', 'smg']) : pick(S.side);
+      slots.push({ id: side, mag: WEAPON_BY_ID[side].mag, mesh: null });
+    }
+    this.slots = slots;
+    this.slot = 0;
+    this.weaponId = primary;
+    this.mag = slots[0].mag;
+    this.switchCd = 0; this.swapT = 0;
+  }
+
+  /** The range this bot likes to fight a gun at: the gun's own band, stretched by its style. */
+  bandFor(id) {
+    const b = BOT_RANGE_BAND[id] || BOT_RANGE_BAND.ar;
+    const k = this.style?.range ?? 1;
+    return { min: b.min * k, max: b.max * k };
+  }
+
+  /** Draw the gun in the other slot. Cancels a reload, as putting the gun away does. */
+  equip(i) {
+    const cur = this.slots[this.slot];
+    cur.id = this.weaponId; cur.mag = this.mag;
+    const next = this.slots[i];
+    if (!next || i === this.slot) return false;
+    this.slot = i;
+    this.weaponId = next.id;
+    this.mag = next.mag;
+    this.reloading = 0;
+    this.burst = 0;
+    this.gunMesh.removeFromParent();
+    next.mesh ??= buildBotGun(next.id);
+    this.gunMesh = next.mesh;
+    this.gunMesh.visible = true;
+    this.paintGun();
+    this.attachGun();
+    this.swapT = SWITCH_TIME;
+    this.fireCd = Math.max(this.fireCd, SWITCH_TIME * rand(0.9, 1.25));
+    this.switchCd = rand(2.5, 4.5);
+    return true;
+  }
+
+  /** Out of rounds mid-fight: pull the sidearm instead of reloading in the open, if it is worth it. */
+  swapOnEmpty(target) {
+    const other = this.slots[1 - this.slot];
+    if (!other || other.mag <= 0) return false;
+    const dist = this.eye.distanceTo(target.pos);
+    const w = WEAPON_BY_ID[this.weaponId];
+    if (dist > 30 && w.reload < 2.2) return false;       // far, and a quick reload: just reload
+    if (Math.random() > 0.55 + 0.4 * this.style.switchy) return false;
+    return this.equip(1 - this.slot);
+  }
+
+  /**
+   * Is the other gun a better fit for this range? Several metres inside a sniper's band, or far
+   * outside a shotgun's, a bot that can will draw the other one rather than fight badly.
+   */
+  considerSwitch(dist) {
+    const other = this.slots[1 - this.slot];
+    if (!other || other.mag <= 0 || this.switchCd > 0 || this.swapT > 0) return;
+    const misfit = (id) => {
+      const b = this.bandFor(id);
+      return dist < b.min ? (b.min - dist) / b.min : dist > b.max ? (dist - b.max) / b.max : 0;
+    };
+    const cur = misfit(this.weaponId), alt = misfit(other.id);
+    if (cur > 0.45 && alt < cur - 0.3 && Math.random() < 0.35 + 0.6 * this.style.switchy) this.equip(1 - this.slot);
+  }
+
+  /**
+   * Stand, or go down on a knee. A bot crouches to hold a long gun steady, to brace a burst at
+   * range, and to reload behind cover; it stands the instant it is hit and moves. It never
+   * crouches in the middle of a move, so a bot you see going down has stopped to shoot.
+   */
+  updateStance(dt, dist) {
+    this.hurtTimer = Math.max(0, this.hurtTimer - dt);
+    this.crouchCd = Math.max(0, this.crouchCd - dt);
+    const speed = Math.hypot(this.body.velocity.x, this.body.velocity.z);
+    const w = WEAPON_BY_ID[this.weaponId];
+    let want = false;
+    if (this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8) want = true;
+    else if (this.state === ST.SHOOT && this.hasLOS && this.target) {
+      if (this.hurtTimer > 0) this.crouchHold = 0;
+      if (this.crouchHold > 0) { this.crouchHold -= dt; want = true; }
+      else if (this.crouchCd <= 0 && this.reactTimer <= 0 && this.hurtTimer <= 0) {
+        this.stanceTick -= dt;
+        if (this.stanceTick <= 0) {
+          this.stanceTick = 0.4;
+          const band = this.bandFor(this.weaponId);
+          const longGun = !!w.zoom && dist > band.min * 1.1;
+          const room = dist > band.min * 1.2 ? 1 : 0.3;
+          const p = longGun ? 0.9 : this.style.crouchy * 0.35 * room * (this.reloading > 0 ? 2 : 1);
+          if (Math.random() < p) {
+            this.crouchHold = longGun ? rand(2.2, 4.5) : rand(0.9, 2.0);
+            this.crouchCd = this.crouchHold + rand(1.2, 3.2);
+          }
+        }
+      }
+    } else this.crouchHold = 0;
+    this.crouching = want;
+    this.crouchW += ((want ? 1 : 0) - this.crouchW) * Math.min(1, 7 * dt);
+    if (this.swapT > 0) this.swapT = Math.max(0, this.swapT - dt);
+    if (this.switchCd > 0) this.switchCd = Math.max(0, this.switchCd - dt);
+  }
+
+  /** Took damage this step. Turn on whoever did it, and stop being an easy target. */
+  onHurt() {
+    this.hurtTimer = 0.9;
+    const src = this.lastHurtBy;
+    const foe = src && src.alive && src !== this && (this.team === TEAM.SOLO || src.team !== this.team);
+    if (foe && (!this.hasLOS || this.target !== src)) {
+      this.lastKnown.copy(src.pos);
+      if (this.state === ST.PATROL || this.state === ST.ALERT) {
+        this.searching = false;
+        this.setState(ST.ALERT);
+        this.reactTimer = this.diff.reaction * 0.5;
+      }
+    }
+    this.crouchHold = 0;
+    this.crouchCd = Math.max(this.crouchCd, rand(1.5, 3));
+    if (this.state === ST.SHOOT && this.sinceFlip > 0.3) {
+      this.strafeDir *= -1;
+      this.strafeTimer = rand(0.6, 1.2);
+      this.sinceFlip = 0;
+      this.probeTimer = 0;
+    }
   }
 
   dispose() {
@@ -913,8 +1107,9 @@ class Bot {
 
   updateTransforms() {
     const p = this.body.position;
-    this.pos.set(p.x, p.y + BOT_CHEST, p.z);
-    this.eye.set(p.x, p.y + BOT_EYE, p.z);
+    const cw = this.crouchW ?? 0;
+    this.pos.set(p.x, p.y + BOT_CHEST - CROUCH_CHEST * cw, p.z);
+    this.eye.set(p.x, p.y + BOT_EYE - CROUCH_EYE * cw, p.z);
     this.vel.set(this.body.velocity.x, this.body.velocity.y, this.body.velocity.z);
     this.mesh.position.set(p.x, p.y + BOT_MESH_Y, p.z);
     // The mesh always faces the bot's heading. faceDir() used to be the only thing that wrote
@@ -1174,8 +1369,8 @@ class Bot {
   shootAt(target, dt) {
     const w = WEAPON_BY_ID[this.weaponId];
     if (this.reloading > 0) return;
-    if (this.mag <= 0) { this.reloading = w.reload; return; }
-    if (this.fireCd > 0) return;
+    if (this.mag <= 0) { if (!this.swapOnEmpty(target)) this.reloading = w.reload; return; }
+    if (this.fireCd > 0 || this.swapT > 0) return;
 
     const muzzle = this.gunMesh.userData.muzzle.getWorldPosition(_v1);
     const aimAt = this.aimPoint(target, _v3);
@@ -1207,12 +1402,13 @@ class Bot {
     const lateral = Math.hypot(target.vel.x, target.vel.z);
     const ownSpeed = Math.hypot(this.body.velocity.x, this.body.velocity.z);
     const freshness = clamp(1 - this.aimSettle, 0, 1);           // 1 right after acquiring
-    const spread = A.floor
+    const steady = 1 - CROUCH_STEADY * this.crouchW;               // braced on a knee
+    const spread = steady * (A.floor
                  + (1 - skill) * A.base
                  + (dist / 100) * (1 - skill) * A.range          // range penalty
                  + lateral * A.tracking * (1 - skill * 0.5)      // tracking penalty
                  + ownSpeed * A.moveSpread                       // shooting on the move
-                 + freshness * A.snap * (1 - skill * 0.6);       // snap-shot penalty
+                 + freshness * A.snap * (1 - skill * 0.6));      // snap-shot penalty
 
     // Random-walk the persistent offset, then clamp it so it cannot drift absurdly wide.
     const drift = spread * 0.55;
@@ -1238,7 +1434,7 @@ class Bot {
       if (--this.burst <= 0) this.fireCd += A.burstPause * rand(0.7, 1.4) * (1 + dist / 45);
     } else this.burst = 0;
     fireWeapon(this, w, muzzle.clone(), _v2, A.weaponSpreadMult);
-    if (this.mag <= 0) this.reloading = w.reload;
+    if (this.mag <= 0 && !this.swapOnEmpty(target)) this.reloading = w.reload;
   }
 
   /** A bot that spots an enemy tells nearby teammates where, as players do on comms. */
@@ -1294,6 +1490,8 @@ class Bot {
       this.trackY += (tt.pos.y - this.trackY) * k;
       this.trackVel.lerp(tt.vel, k);
     }
+    if (this.alive && this.health < this.hpPrev - 0.01) this.onHurt();
+    this.hpPrev = this.health;
     this.stepTimer = Math.max(0, this.stepTimer - dt);
     this.stateTime += dt;
     this.repathTimer -= dt;
@@ -1322,7 +1520,7 @@ class Bot {
         this.lastVel.set(this.target.vel.x, 0, this.target.vel.z);
         if (!had) {
           // A person's reaction is never the same twice.
-          this.reactTimer = this.diff.reaction * rand(0.8, 1.4);
+          this.reactTimer = this.diff.reaction * rand(0.8, 1.4) * this.style.react;
           this.callOut();
         }
       } else if (had && this.target) {
@@ -1338,6 +1536,17 @@ class Bot {
 
     const hpFrac = this.health / 100;
     const dist = this.target ? this.body.position.distanceTo(this.target.pos) : Infinity;
+    this.updateStance(dt, dist);
+    this.noLosTime = this.hasLOS ? 0 : this.noLosTime + dt;
+    if (!this.hasLOS && this.slot !== 0 && this.noLosTime > 1.8 && this.swapT <= 0) this.equip(0);
+    if (this.noLosTime > 3 && this.reloading <= 0) {
+      // Out of the fight, the gun on the hip gets topped up too.
+      for (const sl of this.slots) if (sl !== this.slots[this.slot]) sl.mag = WEAPON_BY_ID[sl.id].mag;
+    }
+    if (this.hasLOS && this.reactTimer <= 0 && this.state !== ST.NADE) {
+      this.switchTick -= dt;
+      if (this.switchTick <= 0) { this.switchTick = 0.25; this.considerSwitch(dist); }
+    }
 
     switch (this.state) {
       case ST.SPAWN:
@@ -1346,6 +1555,21 @@ class Bot {
 
       case ST.PATROL: {
         if (this.hasLOS) { this.setState(ST.CHASE); break; }
+        // Now and then a patrolling bot stops to listen and look about, as a person does at a corner.
+        if (this.pauseT > 0) {
+          this.pauseT -= dt;
+          this.setPlanarVelocity(0, 0);
+          const a = this.pauseYaw + Math.sin((1.8 - this.pauseT) * 2.2) * 1.0;
+          this.faceDir(Math.sin(a), Math.cos(a), dt, 4);
+          break;
+        }
+        this.pauseIn -= dt;
+        if (this.pauseIn <= 0) {
+          this.pauseIn = rand(7, 16) / this.style.twitch;
+          this.pauseT = rand(0.9, 1.8);
+          this.pauseYaw = this.yaw;
+          break;
+        }
         // A new destination only once the old one is reached. This used to pick a fresh random
         // waypoint every two seconds, so a patrolling bot turned round and headed somewhere new
         // before it had got anywhere — which looked exactly like confusion.
@@ -1354,6 +1578,16 @@ class Bot {
           this.repath(waypoints[this.patrolWp].pos);
         }
         this.followPath(this.moveSpeed('patrol'), dt);
+        // A glance down a side passage while walking: the head goes, the feet keep on.
+        this.glanceIn -= dt;
+        if (this.glanceT > 0) {
+          this.glanceT -= dt;
+          this.faceDir(Math.sin(this.glanceYaw), Math.cos(this.glanceYaw), dt, 8);
+        } else if (this.glanceIn <= 0) {
+          this.glanceIn = rand(2.5, 6) / this.style.twitch;
+          this.glanceT = rand(0.5, 0.9);
+          this.glanceYaw = this.yaw + rand(0.7, 1.3) * (Math.random() < 0.5 ? -1 : 1);
+        }
         break;
       }
 
@@ -1371,12 +1605,14 @@ class Bot {
         // Sweep the area the noise came from. The sweep amplitude scales with (1 - accuracy):
         // a weak bot flails around the remembered angle, while an elite one pre-aims it and
         // barely drifts, so peeking a bot that heard you is a real risk rather than a freebie.
-        const sweep = 6 * (1 - this.diff.accuracy * 0.9);
+        // Just shot: no sweeping, straight round at whoever it was, quickly.
+        const hurt = this.hurtTimer > 0;
+        const sweep = hurt ? 0 : 6 * (1 - this.diff.accuracy * 0.9);
         this.faceDir(
           this.lastKnown.x - this.body.position.x + Math.sin(this.stateTime * 4) * sweep,
-          this.lastKnown.z - this.body.position.z + Math.cos(this.stateTime * 4) * sweep, dt, 4);
+          this.lastKnown.z - this.body.position.z + Math.cos(this.stateTime * 4) * sweep, dt, hurt ? 12 : 4);
         if (this.hasLOS) { this.setState(ST.CHASE); break; }
-        if (this.stateTime > 1.5) this.setState(ST.PATROL);
+        if (this.stateTime > (hurt ? 2.4 : 1.5)) this.setState(ST.PATROL);
         break;
       }
 
@@ -1405,6 +1641,17 @@ class Bot {
           if (this.stateTime > 0.6) this.setState(ST.CHASE);
           break;
         }
+        // A long reload in the open: a careful bot slips behind cover for it, if cover is close.
+        if (this.reloading > 0.8) {
+          if (!this.reloadDecided) {
+            this.reloadDecided = true;
+            if (dist > 7 && Math.random() < this.style.cautious && this.pickCover(196)) {
+              this.setState(ST.COVER);
+              this.reloadCover = true;
+              break;
+            }
+          }
+        } else this.reloadDecided = false;
         this.combatMove(dist, dt);
         if (this.reactTimer <= 0) this.shootAt(this.target, dt);
         if (this.nadeCd <= 0 && dist > 6 && dist < 15) { this.setState(ST.NADE); break; }
@@ -1423,7 +1670,7 @@ class Bot {
         if (!inCover) break;
 
         this.setPlanarVelocity(0, 0);
-        if (this.peekTimer <= -PEEK_HIDE) this.peekTimer = PEEK_SHOW;   // lean out
+        if (this.peekTimer <= -PEEK_HIDE && !(this.reloadCover && this.reloading > 0)) this.peekTimer = PEEK_SHOW;   // lean out
         if (this.peekTimer > 0) {
           // Leaning out: sidestep off the cover line and take the shot if one is there.
           this.faceTarget(dt);
@@ -1437,7 +1684,10 @@ class Bot {
           if (this.hasLOS && this.reactTimer <= 0) this.shootAt(this.target, dt);
         }
         // Healthy again (from a pickup) or out of patience — back into the fight.
-        if (this.health / 100 > 0.6 || this.stateTime > 7.0) this.setState(ST.CHASE);
+        const rested = this.reloadCover
+          ? (this.reloading <= 0 && this.stateTime > 0.8) || this.stateTime > 5
+          : this.health / 100 > 0.6 || this.stateTime > 7.0;
+        if (rested) this.setState(ST.CHASE);
         break;
       }
 
@@ -1535,7 +1785,11 @@ class Bot {
     this.animate(frameDt);
   }
 
-  setState(s) { this.state = s; this.stateTime = 0; if (s !== ST.ALERT) this.searching = false; if (s === ST.COVER) this.findCover(); }
+  setState(s) {
+    this.state = s; this.stateTime = 0; this.reloadCover = false;
+    if (s !== ST.ALERT) this.searching = false;
+    if (s === ST.COVER) this.findCover();
+  }
 
   /**
    * Movement while actually engaging someone.
@@ -1548,7 +1802,15 @@ class Bot {
    * metronome, and it reverses early if the bot walks into something.
    */
   combatMove(dist, dt) {
-    const band = BOT_RANGE_BAND[this.weaponId] || BOT_RANGE_BAND.ar;
+    const band = this.bandFor(this.weaponId);
+
+    // Down on a knee: planted, shooting.
+    if (this.crouching) { this.setPlanarVelocity(0, 0); return; }
+    // A long gun at range is held still and fired; it only moves once it has been hit.
+    if (WEAPON_BY_ID[this.weaponId].zoom && dist > band.min * 1.1 && this.hurtTimer <= 0) {
+      this.setPlanarVelocity(0, 0);
+      return;
+    }
 
     // Counter-strafe: plant just before the shot so `moveSpread` is not charged for it.
     // This is the whole reason a tier pays for moveSpread — it buys a visible, punishable
@@ -1570,7 +1832,8 @@ class Bot {
       const dir = Math.random() < 0.5 ? -1 : 1;
       if (dir !== this.strafeDir) this.sinceFlip = 0;
       this.strafeDir = dir;
-      this.strafeTimer = rand(0.7, 1.8);
+      // Quick taps up close, longer runs from range, and each bot has its own rhythm.
+      this.strafeTimer = rand(0.7, 1.8) * clamp(dist / 14, 0.55, 1.4) * this.style.strafe;
       if (Math.random() < this.aim.strafePause) this.strafePause = rand(0.2, 0.45);
     }
     this.strafePause = Math.max(0, this.strafePause - dt);
@@ -1630,16 +1893,21 @@ class Bot {
   }
 
   /** Nearest waypoint flagged as cover that the current target cannot see into. */
-  findCover() {
+  pickCover(maxD2 = 900) {
     let best = null, bd = Infinity;
     for (const wp of waypoints) {
       if (!wp.cover) continue;
       const d = wp.pos.distanceToSquared(this.pos);
-      if (d > 900 || d >= bd) continue;
+      if (d > maxD2 || d >= bd) continue;
       if (this.target && losClear(this.target.pos.x, this.target.pos.y, this.target.pos.z,
                                  wp.pos.x, wp.pos.y + 0.5, wp.pos.z)) continue;
       bd = d; best = wp;
     }
+    return best;
+  }
+
+  findCover() {
+    const best = this.pickCover();
     this.repath(best ? best.pos : waypoints[randInt(0, waypoints.length - 1)].pos);
   }
 
@@ -1706,17 +1974,19 @@ class Bot {
     put('StrafeRight', share(parts.right));
     put('StrafeLeft', share(parts.left));
 
-    const hiding = this.state === ST.COVER && this.peekTimer <= 0 && speed < 0.8;
+    // Down on a knee: the crouch takes over as it eases in, whatever the legs were doing.
+    const cw = clips.Crouch ? this.crouchW ?? 0 : 0;
     if (this.emoteAction) {
       // An online player's puppet dancing: the emote clip has the whole body.
       for (const key of Object.keys(want)) want[key] = 0;
-    } else if (hiding && clips.Crouch) {
-      for (const key of Object.keys(want)) want[key] = 0;
-      want.Crouch = 1;
     } else {
       let used = 0;
       for (const key of Object.keys(want)) used += want[key];
       want.Idle = Math.max(0, 1 - used);
+      if (cw > 0.02) {
+        for (const key of Object.keys(want)) want[key] *= 1 - cw;
+        want.Crouch = cw;
+      }
     }
     const k = Math.min(1, 8 * dt);
     for (const [name, target] of Object.entries(want)) {
@@ -1738,7 +2008,7 @@ class Bot {
     if (this.emoteAction) { this.updateHitboxes(); return; }
 
     // Aim: raised whenever there is someone to point at, lowered to a ready carry otherwise.
-    const engaging = this.target && this.hasLOS && (this.state === ST.SHOOT || this.state === ST.NADE
+    const engaging = this.swapT <= 0 && this.target && this.hasLOS && (this.state === ST.SHOOT || this.state === ST.NADE
       || this.state === ST.CHASE || (this.state === ST.COVER && this.peekTimer > 0));
     let pitch = 0;
     if (engaging) {
@@ -1987,9 +2257,13 @@ class Bot {
     this.peekTimer = 0; this.searching = false; this.burst = 0; this.strafePause = 0;
     this.nodeBest = Infinity; this.stuckTime = 0; this.stuckCount = 0; this.sidestepTimer = 0;
     this.blockedTime = 0; this.sinceFlip = 0;
-    this.weaponId = this.fixedWeaponId ?? pick(BOT_GUN_IDS);
-    this.mag = WEAPON_BY_ID[this.weaponId].mag;
+    for (const sl of this.slots) if (sl.mesh && sl.mesh !== this.gunMesh) sl.mesh.removeFromParent();
+    this.rollLoadout();
     this.reloading = 0;
+    this.hpPrev = 100; this.hurtTimer = 0;
+    this.crouching = false; this.crouchW = 0; this.crouchHold = 0; this.crouchCd = rand(1, 3);
+    this.reloadCover = false; this.reloadDecided = false; this.noLosTime = 0;
+    this.glanceT = 0; this.pauseT = 0;
     this.nadeCd = rand(6, 16);
     this.body.type = CANNON.Body.DYNAMIC;   // undo die(): back under gravity and the solver
     this.body.collisionResponse = true;
@@ -1999,6 +2273,7 @@ class Bot {
 
     this.gunMesh.removeFromParent();
     this.gunMesh = buildBotGun(this.weaponId);
+    this.slots[0].mesh = this.gunMesh;
     this.paintGun();
     this.attachGun();
     this.mesh.rotation.x = 0;
@@ -2044,6 +2319,8 @@ class Bot {
       this.health = s.health;
       const engaged = s.aiming || s.firing;
       this.state = s.crouching ? ST.COVER : (engaged ? ST.SHOOT : ST.PATROL);
+      this.crouching = !!s.crouching;
+      this.crouchW += ((s.crouching ? 1 : 0) - this.crouchW) * Math.min(1, 7 * dt);
       this.peekTimer = engaged ? 1 : 0;
       this.hasLOS = engaged;
       // A point 20 m down the view, for the gun and the chest to aim at.

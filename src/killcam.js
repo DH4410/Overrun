@@ -90,6 +90,7 @@ export function createKillcam({
       f.px = b.mesh.position.x; f.py = b.mesh.position.y; f.pz = b.mesh.position.z;
       f.ry = b.mesh.rotation.y; f.rx = b.mesh.rotation.x;
       f.aim = b.aimW ?? 0;
+      f.wid = b.weaponId;
       const bones = skin.skeleton.bones;
       for (let i = 0, k = 0; i < bones.length; i++, k += 7) {
         const bn = bones[i];
@@ -395,7 +396,7 @@ export function createKillcam({
 
   /** Their gun in their hands, their sights or scope, their crosshair: set once a frame. */
   function firstPerson(time, dt, ks) {
-    const w = kWeapon;
+    const w = WEAPON_BY_ID[ks.a.wid] ?? kWeapon;                // the gun in hand at this moment: they may have switched
     const model = w && fp.vmModels[w.id];
     if (!model) { endFirstPerson(); return; }
     fpOn = true;

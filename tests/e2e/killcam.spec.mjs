@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test';
 import { bootGame, pumpFrames, startMatch, watchRuntimeErrors } from './helpers/game.mjs';
 
 /** Put the arena in a state where bot 0 is close, recording, and about to kill you. */
-async function setUpKill(page, sniper = false) {
+async function setUpKill(page, sniper = false, gun = null) {
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
-  await page.evaluate((sniper) => {
+  await page.evaluate(({ sniper, gun }) => {
     const g = globalThis.__game;
     const bot = g.bots[0];
     // Stand the killer 9 m in front of you, then let it run so there is something to replay.
@@ -18,8 +18,12 @@ async function setUpKill(page, sniper = false) {
     if (sniper) {
       bot.weaponId = 'sniper';
       Object.defineProperty(bot, 'aimW', { get: () => 1, set() {} });   // shouldered the whole time, recording included
+    } else if (gun) {
+      bot.weaponId = gun;
+      Object.defineProperty(bot, 'aimW', { get: () => 1, set() {} });
     }
-  }, sniper);
+    bot.slots.length = 1;                   // one gun: the killer does not switch away from the one under test
+  }, { sniper, gun });
   await pumpFrames(page, 150);   // 2.5 s of recorded history
 }
 
@@ -191,12 +195,7 @@ test('the replay is the killer\'s own screen: scope, gun in hand, hit markers an
 
 test('the replay shows the killer\'s gun in their hands when they are not scoped', async ({ page }) => {
   await bootGame(page);
-  await setUpKill(page);
-  await page.evaluate(() => {
-    const g = globalThis.__game;
-    g.bots[0].weaponId = 'ar';
-    Object.defineProperty(g.bots[0], 'aimW', { get: () => 1, set() {} });
-  });
+  await setUpKill(page, false, 'ar');
   await killPlayer(page, false);
   await pumpFrames(page, 150);
   expect(await phase(page)).toBe('replay');

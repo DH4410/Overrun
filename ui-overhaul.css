@@ -1225,6 +1225,10 @@ body.killcam #pause { display: none !important; }
 /* The replay is the killer's own screen: their scope, crosshair, hit markers and damage numbers stay, and the letterbox and vignette go. */
 body.killcam.killcam-replay #hud > *:not(#feed):not(#topbar):not(#toast):not(#scope):not(#crosshair):not(#dmgnums):not(#hitmarker):not(#hsflash) { display: none !important; }
 body.killcam-replay #hud > #dmgnums, body.killcam-replay #hud > #hitmarker, body.killcam-replay #hud > #scope { z-index: 21; }
+/* Their aim has to be seen: a white, glowing cross whatever colour you play with. */
+body.killcam-replay #crosshair { z-index: 21; }
+body.killcam-replay #crosshair i { background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .85), 0 0 7px rgba(255, 255, 255, .8); }
+body.killcam-replay #crosshair .ch-dot { width: 4px; height: 4px; left: -2px; top: -2px; border-radius: 50%; }
 #killcam.replay .kc-bar { height: 0; }
 #killcam.replay::before { display: none; }
 #killcam.replay .kc-rec { top: 64px; }

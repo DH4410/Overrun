@@ -24,10 +24,13 @@ export const ZOOM_TIME = 1.7;           // slow-motion zoom on the killer (real 
 const ZOOM_SCALE = 0.3;                 // world speed during it
 const CUT_TIME = 0.45;                  // the rewind between the two
 const REPLAY_MAX = 3.2;                 // seconds of replay (less if less was recorded)
+const LEAD_IN = 0.45;                   // of the killer finding you, before they are aiming
+const MIN_REPLAY = 1.4;                 // never cut shorter than this
 const HOLD_TIME = 0.7;                  // lingering on the moment it lands
 export const AFTER_TIME = 1.3;          // the death screen after the cam, before respawn
 const AVATAR_SCALE = 1.2, AVATAR_FOOT = 0.78;
 const SKIP_AFTER = 0.9;
+const VIEW_EASE = 14;                   // how fast the replay view settles onto its aim, per second
 
 export function createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId, losClear, Audio, spawnBlood, spawnSparks, WEAPON_BY_ID,
@@ -71,7 +74,7 @@ export function createKillcam({
     if (acc < 1 / REC_HZ) return;
     acc = 0;
     const p = player.body.position;
-    me.push({ t: now, x: p.x, y: p.y, z: p.z, yaw: player.yaw, vx: player.body.velocity.x, vz: player.body.velocity.z, crouch: !!player.crouching });
+    me.push({ t: now, x: p.x, y: p.y, z: p.z, cx: player.pos.x, cy: player.pos.y, cz: player.pos.z, yaw: player.yaw, vx: player.body.velocity.x, vz: player.body.velocity.z, crouch: !!player.crouching });
     while (me.length && now - me[0].t > KEEP) me.shift();
     for (const b of bots) {
       if (!b.alive || !b.mesh) continue;
@@ -172,6 +175,20 @@ export function createKillcam({
   }
 
   /**
+   * Where the replay should open. A bot wanders and turns until it has you, and a view that
+   * follows that is no use: start a beat before the last unbroken stretch of it aiming at you.
+   */
+  function engagedFrom(fr, from, to) {
+    let streak = null;
+    for (const f of fr) {
+      if (f.t < from || f.t > to) continue;
+      if (f.aim > 0.5) { if (streak === null) streak = f.t; } else streak = null;
+    }
+    if (streak === null) return from;
+    return Math.max(from, Math.min(streak - LEAD_IN, to - MIN_REPLAY));
+  }
+
+  /**
    * You were just killed by `source`. Returns the seconds the cam will run (0 for none, in which
    * case the ordinary death screen is used).
    */
@@ -187,6 +204,7 @@ export function createKillcam({
     if (frames) {
       endT = now;
       startT = Math.max(frames[0].t, endT - REPLAY_MAX);
+      startT = engagedFrom(frames, startT, endT);
       ghostK = makeGhostOf(source);
       ghostMe = buildCharacterMesh(extra.operatorId ?? getOperatorId());
       if (ghostMe) {
@@ -314,7 +332,7 @@ export function createKillcam({
     }
     ghostMe.userData.mixer.update(dt);
     ghostMe.visible = true;
-    return { x, y, z };
+    return { x, y, z, cx: lerp(a.cx ?? x, b.cx ?? x, k), cy: lerp(a.cy ?? y, b.cy ?? y, k), cz: lerp(a.cz ?? z, b.cz ?? z, k) };
   }
 
   const tracerGeo = new THREE.BoxGeometry(0.02, 0.02, 1);
@@ -351,7 +369,7 @@ export function createKillcam({
     m.position.copy(o).addScaledVector(s.d, len / 2);
     m.lookAt(_a.copy(o).addScaledVector(s.d, len));
     scene.add(m);
-    tracers.push({ mesh: m, life: 0.07 });
+    tracers.push({ mesh: m, life: 0.11 });
     Audio.gunshot?.(WEAPON_BY_ID[s.w]?.sound, o);
   }
 
@@ -364,6 +382,7 @@ export function createKillcam({
     replayShots = shots.filter((s) => s.bot === killer && s.t >= startT && s.t <= endT + 0.05);
     replayHits = hits.filter((h) => h.bot === killer && h.t >= startT && h.t <= endT + 0.05);
     playedShots = 0; playedHits = 0;
+    viewSet = false;
     $('killcam')?.classList.add('replay');
     const who = $('kc-who'); if (who) who.textContent = 'KILL CAM';
     Audio.rewind?.();
@@ -399,7 +418,12 @@ export function createKillcam({
     fp.vmRig.visible = !fpScoped;
     fp.updateMuzzleFlash(dt);
     $('scope')?.classList.toggle('on', fpScoped);
-    $('crosshair')?.classList.toggle('off', fpScoped);
+    const xh = $('crosshair');
+    if (xh) {
+      xh.classList.toggle('off', fpScoped);
+      if (xh.dataset.w !== w.id) xh.dataset.w = w.id;
+      document.documentElement.style.setProperty('--xhair-gap', `${lerp(7, 3, aim)}px`);   // theirs, not the cone you died with
+    }
     camera.fov = fpScoped ? w.zoomFov : lerp(fp.hipFov(), w.zoom ? w.zoomFov : fp.adsFov(), aim);
     camera.updateProjectionMatrix();
   }
@@ -417,6 +441,8 @@ export function createKillcam({
 
   const _look = new THREE.Quaternion(), _tmp = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
   let fovFrom = 78;
+  const viewDir = new THREE.Vector3();
+  let viewSet = false;
 
   /**
    * Once a frame, AFTER the normal camera has been placed. `dt` is real time. Returns what the
@@ -461,9 +487,10 @@ export function createKillcam({
     if (fp) firstPerson(time, dt, ks);
     while (playedShots < replayShots.length && replayShots[playedShots].t <= time) { fireVisual(replayShots[playedShots], mp); playedShots++; }
 
-    // Through the killer's eyes: from their head, looking where they look. Shouldered, that is down
-    // the gun's own line (their sights are a hand's breadth in front of the eye); carried low, it is
-    // straight ahead of the body.
+    // Through the killer's eyes: from their head, looking at you. A bot turns and shifts its body
+    // as it fights, and a view that copied that would swing about instead of showing how it killed
+    // you; what it was aiming at was you, so the view stays on your chest, easing with your
+    // movement rather than snapping, and the sights and the shots read clearly.
     const kg = ghostK;
     if (kg.userData.head) _a.setFromMatrixPosition(kg.userData.head.matrixWorld);
     else _a.set(kg.position.x, kg.position.y + 1.6, kg.position.z);
@@ -474,6 +501,13 @@ export function createKillcam({
       _c.set(0, 0, -1).transformDirection(gun.matrixWorld);            // where the gun points
       _b.lerp(_c, clamp(ks.aim * 1.25, 0, 1)).normalize();
     }
+    if (mp) {
+      _c.set(mp.cx, mp.cy, mp.cz).sub(_a);
+      if (_c.lengthSq() > 0.25) _b.copy(_c.normalize());
+    }
+    if (!viewSet) { viewDir.copy(_b); viewSet = true; }
+    else viewDir.lerp(_b, 1 - Math.exp(-dt * VIEW_EASE)).normalize();
+    _b.copy(viewDir);
     camera.position.copy(_a).addScaledVector(_b, 0.05);
     _tmp.lookAt(camera.position, _c.copy(camera.position).add(_b), _up);
     camera.quaternion.setFromRotationMatrix(_tmp);

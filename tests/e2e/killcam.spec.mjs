@@ -216,3 +216,64 @@ test('the replay shows the killer\'s gun in their hands when they are not scoped
   expect(await phase(page)).toBe('off');
   expect(await page.evaluate(() => document.getElementById('scope').classList.contains('on'))).toBe(false);
 });
+
+test('the replay view holds on you while the killer turns and shifts about', async ({ page }) => {
+  const errors = watchRuntimeErrors(page);
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    const bot = g.bots[0];
+    const p = g.player.body.position;
+    bot.body.position.set(p.x + 9, p.y, p.z);
+    bot.target = g.player;
+    g.player.invulnTimer = 0;
+    // Not aiming for the first second, then aiming; and a body that never stops turning.
+    let frame = 0;
+    Object.defineProperty(bot, 'aimW', { get: () => (frame > 60 ? 1 : 0), set() {} });
+    globalThis.__wobble = () => { frame++; bot.yaw = Math.sin(frame * 0.35) * 2.2 - Math.PI / 2; bot.updateTransforms(); };
+  });
+  for (let i = 0; i < 150; i++) {
+    await page.evaluate(() => globalThis.__wobble());
+    await pumpFrames(page, 1);
+  }
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.player.health = 0;
+    g.killCombatant(g.player, g.bots[0], false);
+  });
+  await pumpFrames(page, 140);
+  for (let i = 0; i < 30 && (await phase(page)) !== 'replay'; i++) await pumpFrames(page, 4);
+  expect(await phase(page)).toBe('replay');
+  // The replay opens on the moment the killer starts aiming, not on the wandering before it.
+  // Skip the first quarter second (the view settling onto them) and sample the rest.
+  await pumpFrames(page, 15);
+  const cross = await page.evaluate(() => {
+    const el = document.querySelector('#crosshair');
+    const dot = el.querySelector('.ch-dot');
+    const r = dot.getBoundingClientRect();
+    const seen = [];
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      seen.push(cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.9);
+    }
+    return { phase: globalThis.__game.killcam.phase, bg: getComputedStyle(dot).backgroundColor, shown: seen.every(Boolean), onCentre: Math.abs(r.left + r.width / 2 - innerWidth / 2) < 2 && Math.abs(r.top + r.height / 2 - innerHeight / 2) < 2 };
+  });
+  const off = [];
+  for (let i = 0; i < 12; i++) {
+    off.push(await page.evaluate(() => {
+      const g = globalThis.__game;
+      const d = g.camera.getWorldDirection(new g.camera.position.constructor());
+      const to = g.player.pos.clone().sub(g.camera.position).normalize();
+      return (Math.acos(Math.min(1, Math.max(-1, d.dot(to)))) * 180) / Math.PI;
+    }));
+    if ((await phase(page)) !== 'replay') break;
+    await pumpFrames(page, 3);
+  }
+  expect(off.length).toBeGreaterThan(4);
+  expect(Math.max(...off)).toBeLessThan(8);
+  // And their aim is on screen: the cross is shown, and bright.
+  expect(cross).toMatchObject({ phase: 'replay', bg: 'rgb(255, 255, 255)', shown: true, onCentre: true });
+  await shot(page, 'locked-on');
+  expect(errors).toEqual([]);
+});

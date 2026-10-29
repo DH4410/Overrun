@@ -3,6 +3,7 @@ import { loadScreen } from './loading.js';
 import { loadProfile } from './profile.js';
 import { renderPlayerCard } from './playercard.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
+import { mapHosts } from './sim/modes.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
 export function createUiRuntime({
@@ -75,7 +76,7 @@ function bindMenu() {
 
   // A map that cannot host the chosen mode (the big one is deathmatch only) greys out, and the
   // choice moves to the first map that can.
-  const hosts = (id) => !MAPS[id]?.modes || MAPS[id].modes.includes(mode);
+  const hosts = (id) => mapHosts(MAPS, id, mode);
   const syncMaps = () => {
     for (const b of document.querySelectorAll('#maps [data-map]')) {
       const off = !hosts(b.dataset.map) || MAPS[b.dataset.map]?.available?.() === false;

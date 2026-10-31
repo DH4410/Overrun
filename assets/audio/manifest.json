@@ -1,0 +1,491 @@
+{
+ "version": 1,
+ "clips": {
+  "gun_pistol": [
+   "sfx/gun_pistol_1.ogg",
+   "sfx/gun_pistol_2.ogg"
+  ],
+  "gunfar_pistol": [
+   "sfx/gunfar_pistol_1.ogg"
+  ],
+  "gun_revolver": [
+   "sfx/gun_revolver_1.ogg",
+   "sfx/gun_revolver_2.ogg"
+  ],
+  "gunfar_revolver": [
+   "sfx/gunfar_revolver_1.ogg"
+  ],
+  "gun_mp": [
+   "sfx/gun_mp_1.ogg",
+   "sfx/gun_mp_2.ogg"
+  ],
+  "gunfar_mp": [
+   "sfx/gunfar_mp_1.ogg"
+  ],
+  "gun_smg": [
+   "sfx/gun_smg_1.ogg",
+   "sfx/gun_smg_2.ogg"
+  ],
+  "gunfar_smg": [
+   "sfx/gunfar_smg_1.ogg"
+  ],
+  "gun_ar": [
+   "sfx/gun_ar_1.ogg"
+  ],
+  "gunfar_ar": [
+   "sfx/gunfar_ar_1.ogg"
+  ],
+  "gun_lmg": [
+   "sfx/gun_lmg_1.ogg"
+  ],
+  "gunfar_lmg": [
+   "sfx/gunfar_lmg_1.ogg"
+  ],
+  "gun_shotgun": [
+   "sfx/gun_shotgun_1.ogg",
+   "sfx/gun_shotgun_2.ogg",
+   "sfx/gun_shotgun_3.ogg"
+  ],
+  "gunfar_shotgun": [
+   "sfx/gunfar_shotgun_1.ogg"
+  ],
+  "gun_ashotgun": [
+   "sfx/gun_ashotgun_1.ogg",
+   "sfx/gun_ashotgun_2.ogg",
+   "sfx/gun_ashotgun_3.ogg"
+  ],
+  "gunfar_ashotgun": [
+   "sfx/gunfar_ashotgun_1.ogg"
+  ],
+  "gun_sniper": [
+   "sfx/gun_sniper_1.ogg",
+   "sfx/gun_sniper_2.ogg",
+   "sfx/gun_sniper_3.ogg"
+  ],
+  "gunfar_sniper": [
+   "sfx/gunfar_sniper_1.ogg"
+  ],
+  "gun_dmr": [
+   "sfx/gun_dmr_1.ogg",
+   "sfx/gun_dmr_2.ogg",
+   "sfx/gun_dmr_3.ogg"
+  ],
+  "gunfar_dmr": [
+   "sfx/gunfar_dmr_1.ogg"
+  ],
+  "empty": [
+   "sfx/empty_1.ogg",
+   "sfx/empty_2.ogg",
+   "sfx/empty_3.ogg"
+  ],
+  "foley_magOut": [
+   "sfx/foley_magOut_1.ogg",
+   "sfx/foley_magOut_2.ogg"
+  ],
+  "foley_magIn": [
+   "sfx/foley_magIn_1.ogg",
+   "sfx/foley_magIn_2.ogg",
+   "sfx/foley_magIn_3.ogg"
+  ],
+  "foley_charge": [
+   "sfx/foley_charge_1.ogg",
+   "sfx/foley_charge_2.ogg"
+  ],
+  "foley_slide": [
+   "sfx/foley_slide_1.ogg",
+   "sfx/foley_slide_2.ogg"
+  ],
+  "foley_shell": [
+   "sfx/foley_shell_1.ogg",
+   "sfx/foley_shell_2.ogg",
+   "sfx/foley_shell_3.ogg"
+  ],
+  "foley_pump": [
+   "sfx/foley_pump_1.ogg",
+   "sfx/foley_pump_2.ogg",
+   "sfx/foley_pump_3.ogg"
+  ],
+  "foley_boltUp": [
+   "sfx/foley_boltUp_1.ogg",
+   "sfx/foley_boltUp_2.ogg"
+  ],
+  "foley_boltDown": [
+   "sfx/foley_boltDown_1.ogg",
+   "sfx/foley_boltDown_2.ogg"
+  ],
+  "equip": [
+   "sfx/equip_1.ogg",
+   "sfx/equip_2.ogg",
+   "sfx/equip_3.ogg"
+  ],
+  "lowammo": [
+   "sfx/lowammo_1.ogg",
+   "sfx/lowammo_2.ogg"
+  ],
+  "reloadclick": [
+   "sfx/reloadclick_1.ogg",
+   "sfx/reloadclick_2.ogg"
+  ],
+  "step_concrete": [
+   "sfx/step_concrete_1.ogg",
+   "sfx/step_concrete_2.ogg",
+   "sfx/step_concrete_3.ogg",
+   "sfx/step_concrete_4.ogg",
+   "sfx/step_concrete_5.ogg",
+   "sfx/step_concrete_6.ogg",
+   "sfx/step_concrete_7.ogg"
+  ],
+  "step_tile": [
+   "sfx/step_tile_1.ogg",
+   "sfx/step_tile_2.ogg",
+   "sfx/step_tile_3.ogg",
+   "sfx/step_tile_4.ogg"
+  ],
+  "step_metal": [
+   "sfx/step_metal_1.ogg",
+   "sfx/step_metal_2.ogg",
+   "sfx/step_metal_3.ogg",
+   "sfx/step_metal_4.ogg"
+  ],
+  "step_grass": [
+   "sfx/step_grass_1.ogg",
+   "sfx/step_grass_2.ogg",
+   "sfx/step_grass_3.ogg",
+   "sfx/step_grass_4.ogg"
+  ],
+  "step_gravel": [
+   "sfx/step_gravel_1.ogg",
+   "sfx/step_gravel_2.ogg",
+   "sfx/step_gravel_3.ogg",
+   "sfx/step_gravel_4.ogg",
+   "sfx/step_gravel_5.ogg"
+  ],
+  "step_wood": [
+   "sfx/step_wood_1.ogg",
+   "sfx/step_wood_2.ogg",
+   "sfx/step_wood_3.ogg",
+   "sfx/step_wood_4.ogg",
+   "sfx/step_wood_5.ogg",
+   "sfx/step_wood_6.ogg"
+  ],
+  "step_water": [
+   "sfx/step_water_1.ogg",
+   "sfx/step_water_2.ogg",
+   "sfx/step_water_3.ogg",
+   "sfx/step_water_4.ogg",
+   "sfx/step_water_5.ogg",
+   "sfx/step_water_6.ogg",
+   "sfx/step_water_7.ogg"
+  ],
+  "step_sand": [
+   "sfx/step_sand_1.ogg",
+   "sfx/step_sand_2.ogg",
+   "sfx/step_sand_3.ogg",
+   "sfx/step_sand_4.ogg"
+  ],
+  "step_snow": [
+   "sfx/step_snow_1.ogg",
+   "sfx/step_snow_2.ogg",
+   "sfx/step_snow_3.ogg"
+  ],
+  "land": [
+   "sfx/land_1.ogg",
+   "sfx/land_2.ogg",
+   "sfx/land_3.ogg"
+  ],
+  "jump": [
+   "sfx/jump_1.ogg",
+   "sfx/jump_2.ogg"
+  ],
+  "slide": [
+   "sfx/slide_1.ogg",
+   "sfx/slide_2.ogg"
+  ],
+  "hit": [
+   "sfx/hit_1.ogg",
+   "sfx/hit_2.ogg",
+   "sfx/hit_3.ogg",
+   "sfx/hit_4.ogg",
+   "sfx/hit_5.ogg"
+  ],
+  "headshot": [
+   "sfx/headshot_1.ogg",
+   "sfx/headshot_2.ogg",
+   "sfx/headshot_3.ogg"
+  ],
+  "hurt": [
+   "sfx/hurt_1.ogg",
+   "sfx/hurt_2.ogg",
+   "sfx/hurt_3.ogg",
+   "sfx/hurt_4.ogg",
+   "sfx/hurt_5.ogg",
+   "sfx/hurt_6.ogg"
+  ],
+  "die": [
+   "sfx/die_1.ogg"
+  ],
+  "kill": [
+   "sfx/kill_1.ogg",
+   "sfx/kill_2.ogg",
+   "sfx/kill_3.ogg",
+   "sfx/kill_4.ogg"
+  ],
+  "killhs": [
+   "sfx/killhs_1.ogg",
+   "sfx/killhs_2.ogg"
+  ],
+  "streak": [
+   "sfx/streak_1.ogg",
+   "sfx/streak_2.ogg",
+   "sfx/streak_3.ogg"
+  ],
+  "revenge": [
+   "sfx/revenge_1.ogg",
+   "sfx/revenge_2.ogg"
+  ],
+  "shieldhit": [
+   "sfx/shieldhit_1.ogg",
+   "sfx/shieldhit_2.ogg",
+   "sfx/shieldhit_3.ogg"
+  ],
+  "shieldbreak": [
+   "sfx/shieldbreak_1.ogg",
+   "sfx/shieldbreak_2.ogg",
+   "sfx/shieldbreak_3.ogg"
+  ],
+  "heartbeat": [
+   "sfx/heartbeat_1.ogg"
+  ],
+  "pickup": [
+   "sfx/pickup_1.ogg",
+   "sfx/pickup_2.ogg",
+   "sfx/pickup_3.ogg"
+  ],
+  "use_bandage": [
+   "sfx/use_bandage_1.ogg",
+   "sfx/use_bandage_2.ogg"
+  ],
+  "done_bandage": [
+   "sfx/done_bandage_1.ogg",
+   "sfx/done_bandage_2.ogg"
+  ],
+  "use_medkit": [
+   "sfx/use_medkit_1.ogg",
+   "sfx/use_medkit_2.ogg"
+  ],
+  "done_medkit": [
+   "sfx/done_medkit_1.ogg",
+   "sfx/done_medkit_2.ogg"
+  ],
+  "use_drink": [
+   "sfx/use_drink_1.ogg",
+   "sfx/use_drink_2.ogg"
+  ],
+  "done_drink": [
+   "sfx/done_drink_1.ogg",
+   "sfx/done_drink_2.ogg"
+  ],
+  "use_shield": [
+   "sfx/use_shield_1.ogg",
+   "sfx/use_shield_2.ogg"
+  ],
+  "done_shield": [
+   "sfx/done_shield_1.ogg",
+   "sfx/done_shield_2.ogg"
+  ],
+  "use_cancel": [
+   "sfx/use_cancel_1.ogg"
+  ],
+  "nade_pin": [
+   "sfx/nade_pin_1.ogg",
+   "sfx/nade_pin_2.ogg"
+  ],
+  "nade_throw": [
+   "sfx/nade_throw_1.ogg",
+   "sfx/nade_throw_2.ogg"
+  ],
+  "nade_bounce": [
+   "sfx/nade_bounce_1.ogg",
+   "sfx/nade_bounce_2.ogg",
+   "sfx/nade_bounce_3.ogg"
+  ],
+  "nade_boom": [
+   "sfx/nade_boom_1.ogg",
+   "sfx/nade_boom_2.ogg",
+   "sfx/nade_boom_3.ogg"
+  ],
+  "smoke_pop": [
+   "sfx/smoke_pop_1.ogg",
+   "sfx/smoke_pop_2.ogg",
+   "sfx/smoke_pop_3.ogg"
+  ],
+  "crate_fall": [
+   "sfx/crate_fall_1.ogg",
+   "sfx/crate_fall_2.ogg"
+  ],
+  "crate_thud": [
+   "sfx/crate_thud_1.ogg",
+   "sfx/crate_thud_2.ogg",
+   "sfx/crate_thud_3.ogg"
+  ],
+  "crate_lock": [
+   "sfx/crate_lock_1.ogg",
+   "sfx/crate_lock_2.ogg"
+  ],
+  "crate_burst": [
+   "sfx/crate_burst_1.ogg",
+   "sfx/crate_burst_2.ogg",
+   "sfx/crate_burst_3.ogg"
+  ],
+  "reveal_common": [
+   "sfx/reveal_common_1.ogg",
+   "sfx/reveal_common_2.ogg"
+  ],
+  "reveal_rare": [
+   "sfx/reveal_rare_1.ogg",
+   "sfx/reveal_rare_2.ogg"
+  ],
+  "reveal_epic": [
+   "sfx/reveal_epic_1.ogg",
+   "sfx/reveal_epic_2.ogg"
+  ],
+  "reveal_legendary": [
+   "sfx/reveal_legendary_1.ogg",
+   "sfx/reveal_legendary_2.ogg",
+   "sfx/reveal_legendary_3.ogg"
+  ],
+  "ui_click": [
+   "sfx/ui_click_1.ogg",
+   "sfx/ui_click_2.ogg",
+   "sfx/ui_click_3.ogg",
+   "sfx/ui_click_4.ogg",
+   "sfx/ui_click_5.ogg"
+  ],
+  "ui_hover": [
+   "sfx/ui_hover_1.ogg",
+   "sfx/ui_hover_2.ogg",
+   "sfx/ui_hover_3.ogg",
+   "sfx/ui_hover_4.ogg",
+   "sfx/ui_hover_5.ogg"
+  ],
+  "ui_select": [
+   "sfx/ui_select_1.ogg",
+   "sfx/ui_select_2.ogg",
+   "sfx/ui_select_3.ogg",
+   "sfx/ui_select_4.ogg",
+   "sfx/ui_select_5.ogg"
+  ],
+  "ui_back": [
+   "sfx/ui_back_1.ogg",
+   "sfx/ui_back_2.ogg",
+   "sfx/ui_back_3.ogg"
+  ],
+  "ui_open": [
+   "sfx/ui_open_1.ogg",
+   "sfx/ui_open_2.ogg",
+   "sfx/ui_open_3.ogg",
+   "sfx/ui_open_4.ogg"
+  ],
+  "ui_close": [
+   "sfx/ui_close_1.ogg",
+   "sfx/ui_close_2.ogg",
+   "sfx/ui_close_3.ogg",
+   "sfx/ui_close_4.ogg"
+  ],
+  "ui_toggle": [
+   "sfx/ui_toggle_1.ogg",
+   "sfx/ui_toggle_2.ogg",
+   "sfx/ui_toggle_3.ogg",
+   "sfx/ui_toggle_4.ogg"
+  ],
+  "ui_switch": [
+   "sfx/ui_switch_1.ogg",
+   "sfx/ui_switch_2.ogg",
+   "sfx/ui_switch_3.ogg",
+   "sfx/ui_switch_4.ogg",
+   "sfx/ui_switch_5.ogg"
+  ],
+  "ui_scroll": [
+   "sfx/ui_scroll_1.ogg",
+   "sfx/ui_scroll_2.ogg",
+   "sfx/ui_scroll_3.ogg"
+  ],
+  "ui_confirm": [
+   "sfx/ui_confirm_1.ogg",
+   "sfx/ui_confirm_2.ogg"
+  ],
+  "ui_error": [
+   "sfx/ui_error_1.ogg",
+   "sfx/ui_error_2.ogg",
+   "sfx/ui_error_3.ogg"
+  ],
+  "ui_buy": [
+   "sfx/ui_buy_1.ogg",
+   "sfx/ui_buy_2.ogg",
+   "sfx/ui_buy_3.ogg"
+  ],
+  "ui_equip": [
+   "sfx/ui_equip_1.ogg",
+   "sfx/ui_equip_2.ogg",
+   "sfx/ui_equip_3.ogg"
+  ],
+  "ui_skin": [
+   "sfx/ui_skin_1.ogg",
+   "sfx/ui_skin_2.ogg",
+   "sfx/ui_skin_3.ogg"
+  ],
+  "ui_tab": [
+   "sfx/ui_tab_1.ogg",
+   "sfx/ui_tab_2.ogg",
+   "sfx/ui_tab_3.ogg"
+  ],
+  "ui_locked": [
+   "sfx/ui_locked_1.ogg",
+   "sfx/ui_locked_2.ogg"
+  ],
+  "countdown": [
+   "sfx/countdown_1.ogg",
+   "sfx/countdown_2.ogg"
+  ],
+  "go": [
+   "sfx/go_1.ogg",
+   "sfx/go_2.ogg"
+  ],
+  "win": [
+   "sfx/win_1.ogg",
+   "sfx/win_2.ogg",
+   "sfx/win_3.ogg"
+  ],
+  "loss": [
+   "sfx/loss_1.ogg",
+   "sfx/loss_2.ogg"
+  ],
+  "draw": [
+   "sfx/draw_1.ogg",
+   "sfx/draw_2.ogg"
+  ],
+  "level_up": [
+   "sfx/level_up_1.ogg",
+   "sfx/level_up_2.ogg",
+   "sfx/level_up_3.ogg"
+  ],
+  "objective": [
+   "sfx/objective_1.ogg",
+   "sfx/objective_2.ogg"
+  ],
+  "zone_tick": [
+   "sfx/zone_tick_1.ogg"
+  ]
+ },
+ "music": {
+  "lobby": [
+   "music/lobby_1.ogg",
+   "music/lobby_2.ogg",
+   "music/lobby_3.ogg"
+  ],
+  "shop": [
+   "music/shop_1.ogg",
+   "music/shop_2.ogg"
+  ]
+ }
+}

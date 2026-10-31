@@ -219,6 +219,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
 /* ----------------------------- movement ----------------------------- */
 
 let crouchLatch = false;
+let heardAim = false, heardCrouch = false;   // what the cloth sounds last reported
 const moveHooks = { land: () => { if (!Audio.cue?.('land')) Audio.step?.(); }, jump: () => Audio.cue?.('jump'), slide: () => Audio.slide?.() };
 const moveCmd = { ix: 0, iz: 0, crouch: false, sprint: false, aiming: false, jump: false };
 
@@ -309,6 +310,9 @@ function readMoveInput(out) {
   out.crouch = settings.toggleCrouch ? crouchLatch : !!(keys.KeyC || keys.GpCrouch);
   out.sprint = wantSprint;
   out.aiming = aiming;
+  // Cloth and straps: raising the sights, dropping to a crouch, standing back up.
+  if (out.aiming !== heardAim) { heardAim = out.aiming; if (player.alive) Audio.cue?.(heardAim ? 'ads_in' : 'ads_out'); }
+  if (out.crouch !== heardCrouch) { heardCrouch = out.crouch; if (player.alive && player.grounded) Audio.cue?.(heardCrouch ? 'crouch' : 'stand'); }
   out.jump = !!(keys.Space || keys.GpJump);
   return out;
 }
@@ -337,7 +341,7 @@ function startReload() {
   if (a.mag >= w.mag || a.reserve <= 0) return;
   player.reloading = w.reload;
   player.reloadTotal = w.reload;
-  Audio.reloadClick();
+  Audio.reloadClick(w.id);
 }
 
 function finishReload() {
@@ -356,14 +360,14 @@ function resetStance() {
 }
 
 function switchWeapon(id) {
-  if (online()) { if (getNet().selectWeapon(id)) { Audio.equip(); aiming = false; } return; }
+  if (online()) { if (getNet().selectWeapon(id)) { Audio.equip(id); aiming = false; } return; }
   if (player.current === id || !WEAPON_BY_ID[id]) return;
   if (id === 'frag' && player.fragCount <= 0) return;
   if (id !== 'frag' && !player.loadout.includes(id)) return;   // not carried
   player.current = id;
   player.reloading = 0;
   player.cooldown = Math.max(player.cooldown, 0.25);
-  Audio.equip();
+  Audio.equip(id);
   // The crouch latch survives a swap: with toggle-crouch on, every swap used to stand you up.
   aiming = false;
   updateAmmoHud();
@@ -376,12 +380,12 @@ function tryFire() {
   if (w.thrown) return;                       // grenades are thrown with G, not LMB
 
   const a = player.ammo[w.id];
-  if (a.mag <= 0) { Audio.cue?.('empty'); startReload(); return; }
+  if (a.mag <= 0) { Audio.cue?.('empty', w.id); startReload(); return; }
 
   a.mag--;
   // The last rounds of a magazine ring a tick on top of the shot, so a reload is called for by ear
   // (the same cue a real gun gives): the last 20% of the magazine, and never fewer than two.
-  if (settings.lowAmmoCue && w.mag > 4 && a.mag > 0 && a.mag <= Math.max(2, Math.round(w.mag * 0.2))) Audio.lowAmmo();
+  if (settings.lowAmmoCue && w.mag > 4 && a.mag > 0 && a.mag <= Math.max(2, Math.round(w.mag * 0.2))) Audio.lowAmmo(w.id);
   player.cooldown = Math.max(0, w.cooldown - player.fireCarry);
   player.fireCarry = 0;
 

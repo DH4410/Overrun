@@ -30,6 +30,7 @@ test('nothing under assets/audio is fetched while the settings are off', async (
 });
 
 test('switching the pack on loads 100+ sounds and the game plays them', async ({ page }) => {
+  test.setTimeout(150_000);
   const urls = audioRequests(page);
   await bootGame(page);
   await page.evaluate(() => {
@@ -116,4 +117,52 @@ test('a missing pack falls back to the synthesized sounds', async ({ page }) => 
   });
   expect(out.cue).toBe(false);
   expect(out.oscillators).toBeGreaterThan(0);
+});
+
+test('every gun has its own clicks and reload sounds, and the world answers shots', async ({ page }) => {
+  test.setTimeout(150_000);
+  await bootGame(page);
+  const manifest = await page.evaluate(async () => (await fetch('/assets/audio/manifest.json')).json());
+  const GUNS = ['pistol', 'mp', 'smg', 'revolver', 'ar', 'dmr', 'ashotgun', 'shotgun', 'lmg', 'sniper'];
+  const missing = [];
+  for (const g of GUNS) for (const k of ['empty', 'equip', 'reloadclick', 'lowammo']) if (!manifest.clips[`${k}_${g}`]?.length) missing.push(`${k}_${g}`);
+  for (const n of ['casing_brass', 'casing_shell', 'impact_concrete', 'impact_metal', 'impact_dirt', 'impact_wood', 'whiz', 'nade_far', 'ads_in', 'ads_out', 'crouch', 'stand', 'spawn']) {
+    if (!manifest.clips[n]?.length) missing.push(n);
+  }
+  expect(missing).toEqual([]);
+  expect(Object.keys(manifest.clips).filter((n) => n.startsWith('foley_') && n.split('_').length === 3).length).toBeGreaterThanOrEqual(30);
+  expect(Object.keys(manifest.clips).filter((n) => n.startsWith('ambience_')).length).toBeGreaterThanOrEqual(6);
+  expect(manifest.music.lobby.length + manifest.music.shop.length).toBeGreaterThanOrEqual(10);
+
+  await page.evaluate(() => {
+    const { Audio, settings, applySettings } = globalThis.__game;
+    Audio.init();
+    settings.soundPack = true;
+    applySettings();
+  });
+  await expect.poll(() => page.evaluate(() => globalThis.__game.Audio.packStats().names), { timeout: 90_000 }).toBe(Object.keys(manifest.clips).length);
+
+  const out = await page.evaluate(() => {
+    const { Audio } = globalThis.__game;
+    const ctx = Audio.ctx;
+    let oscillators = 0, loops = 0;
+    const mo = ctx.createOscillator.bind(ctx), mk = ctx.createBufferSource.bind(ctx);
+    ctx.createOscillator = () => { oscillators++; return mo(); };
+    ctx.createBufferSource = () => { const s = mk(); Object.defineProperty(s, 'loop', { set(v) { if (v) loops++; }, get() { return false; } }); return s; };
+    const played = [];
+    for (const g of ['pistol', 'lmg', 'sniper']) played.push(Audio.cue('empty', g), Audio.cue('empty', g));
+    Audio.equip('shotgun'); Audio.reloadClick('revolver'); Audio.lowAmmo('ar');
+    Audio.reloadProgress('lmg', 0, 1); Audio.reloadProgress('shotgun', 0, 1);
+    const impact = Audio.impact({ x: 3, y: 1, z: 3 });
+    const whiz = Audio.whiz({ x: 1, y: 1.5, z: 1 });
+    Audio.ambient = () => 'wind';
+    Audio.startAmbient();
+    return { played, impact, whiz, oscillators, loops };
+  });
+  expect(out.played.every(Boolean)).toBe(true);
+  expect(out.impact).toBe(true);
+  expect(out.whiz).toBe(true);
+  expect(out.loops).toBe(2);          // the game's own noise rumble, plus the map's recorded ambience loop
+  // The only synthesized sound left is the ambient rumble the game always runs underneath.
+  expect(out.oscillators).toBe(0);
 });

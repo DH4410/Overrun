@@ -120,7 +120,7 @@ export function createNetClient(d) {
   let endInfo = null;
   let lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
   let rosterList = [];
-  let paid = false, endReward = null, queued = false, history = loadHistory(), wasLobby = false, chatTick = 0;
+  let paid = false, endReward = null, queued = false, history = loadHistory(), wasLobby = false, chatTick = 0, countHeard = 0;
   let stageReady = false, loading = false, prevPhase = 0, stageSig = '';
   const stats = { snaps: 0, bytes: 0, corrections: 0, resyncs: 0, snapped: 0, lastErr: 0, packets: 0, cmds: 0 };
 
@@ -1078,7 +1078,7 @@ export function createNetClient(d) {
     if (offset.lengthSq() < 1e-8) offset.set(0, 0, 0);
 
     // Sounds and HUD that single player drives from its own weapon code.
-    if (player.reloading > 0 && reloadBefore <= 0) { Audio.reloadClick(); lastReloadFrom = 0; }
+    if (player.reloading > 0 && reloadBefore <= 0) { Audio.reloadClick(player.current); lastReloadFrom = 0; }
     if (player.reloading > 0) {
       const at = 1 - player.reloading / player.reloadTotal;
       Audio.reloadProgress(player.current, lastReloadFrom, at);
@@ -1483,7 +1483,11 @@ export function createNetClient(d) {
     wasLobby = inLobby;
     const counting = phase === PHASE.COUNTDOWN;
     ui.count.classList.toggle('on', counting);
-    if (counting) ui.count.textContent = Math.max(1, Math.ceil(timeLeft));
+    if (counting) {
+      const n = Math.max(1, Math.ceil(timeLeft));
+      ui.count.textContent = n;
+      if (n !== countHeard) { countHeard = n; Audio.cue?.(n === 1 ? 'countdown_final' : 'countdown'); }
+    } else countHeard = 0;
     if (performance.now() - chatTick > 500) { chatTick = performance.now(); chat.refresh(); }
     if (endInfo) tickEndTimer();
     ui.debug.classList.toggle('on', netMode === 2);

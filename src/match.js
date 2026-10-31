@@ -462,6 +462,7 @@ function respawnPlayer(immediate = false, at = null) {
   const by = $id('p-killer'); if (by) by.textContent = '';
   showStreak?.(0);
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
+  Audio.cue?.('spawn');
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
   player.cookSource = null;

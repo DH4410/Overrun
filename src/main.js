@@ -149,9 +149,18 @@ attachSoundPack(Audio);
 /** The floor each map is mostly made of, for footsteps (the recordings in assets/audio). */
 const FLOOR = { port: 'concrete', desert: 'sand', snow: 'snow', warzone: 'gravel', depot: 'concrete', bastion: 'gravel', arena: 'tile', metro: 'tile' };
 Audio.surface = () => FLOOR[getCurrentMapId?.()] ?? 'concrete';
+const AMBIENCE = { port: 'water', desert: 'crickets', snow: 'wind', warzone: 'highway', depot: 'machine', bastion: 'yard', arena: 'room', metro: 'hum' };
+Audio.ambient = () => AMBIENCE[getCurrentMapId?.()] ?? null;
 // Browsers only start audio after a gesture. Menu buttons tick on hover and click.
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => Audio.init(), { once: true, capture: true });
-addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(); }, true);
+addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(e.target); }, true);
+// Settings controls: a switch flips, a slider ticks, a dropdown picks.
+addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.matches?.('input[type=checkbox]')) Audio.cue?.('ui_toggle');
+  else if (t.matches?.('select')) Audio.cue?.('ui_select');
+}, true);
+addEventListener('input', (e) => { if (e.target.matches?.('input[type=range]')) Audio.cue?.('ui_slider'); }, true);
 addEventListener('pointerover', (e) => {
   const b = e.target.closest?.('.tile, .sel-card, .lk-gun, #play');
   if (b && !b.contains(e.relatedTarget)) Audio.uiHover();

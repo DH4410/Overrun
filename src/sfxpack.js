@@ -29,8 +29,21 @@ const MIX = {
   ui_tab: 0.4, ui_locked: 0.45, countdown: 0.6, go: 0.7, win: 0.7, loss: 0.6, draw: 0.55, level_up: 0.55,
   objective: 0.6, zone_tick: 0.3,
 };
-/** Guns sit at one level whatever the recording's own loudness. */
+/** Level trims for whole families of sounds, by name prefix. */
+const PREFIX_MIX = [['empty_', 0.5], ['equip_', 0.5], ['reloadclick_', 0.4], ['lowammo_', 0.35], ['foley_', 0.6], ['casing_', 0.3],
+  ['impact_', 0.5], ['ambience_', 0.3]];
+Object.assign(MIX, {
+  whiz: 0.55, nade_far: 0.9, ring: 0.2, ads_in: 0.3, ads_out: 0.3, crouch: 0.3, stand: 0.3,
+  ui_slider: 0.25, spawn: 0.45, countdown_final: 0.7,
+});
+/** Guns sit at one level whatever the recording's own loudness, a little apart: a pistol is quieter than a shotgun. */
 const GUN_GAIN = 0.8;
+const GUN_LEVEL = { pistol: 0.62, mp: 0.62, smg: 0.68, revolver: 0.85, ar: 0.78, dmr: 0.88, ashotgun: 0.9, shotgun: 0.95, lmg: 0.88, sniper: 1 };
+const mixOf = (name) => MIX[name]
+  ?? (name.startsWith('gunfar_') ? GUN_LEVEL[name.slice(7)] : name.startsWith('gun_') ? GUN_LEVEL[name.slice(4)] : undefined)
+  ?? PREFIX_MIX.find(([p]) => name.startsWith(p))?.[1] ?? GUN_GAIN;
+/** What a bullet sounds like hitting each map's ground and walls. */
+const IMPACT_OF = { concrete: 'concrete', tile: 'concrete', metal: 'metal', gravel: 'dirt', sand: 'dirt', snow: 'snow', grass: 'dirt', wood: 'wood' };
 /** Past this distance (m) a shot uses the far recording, which has the room and the air in it. */
 const FAR = 40;
 
@@ -43,6 +56,8 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
   const pack = {
     manifest: null, manifestLoading: null, bufs: new Map(), loadStarted: false, loaded: false,
     last: new Map(), musicBufs: new Map(), track: null, wantMusic: null, musicIndex: 0, musicToken: 0,
+    gun: null,                      // the gun whose handling sounds the foley should use
+    amb: null, ambName: null, ambWanted: false,
   };
 
   const wantsEffects = () => !!settings.soundPack;
@@ -83,7 +98,8 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
         } catch (e) { console.warn('[sfxpack]', e.message); }
       }
     };
-    await Promise.all([worker(), worker(), worker(), worker()]);
+    await Promise.all(Array.from({ length: 6 }, worker));
+    syncAmbience();
   }
 
   /** Play one clip of `name`. `pos` places it in the world; returns false if there was nothing to play. */
@@ -98,7 +114,7 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
     src.buffer = list[i];
     src.playbackRate.value = rate * (1 + rand(-jitter, jitter));
     const g = audio.ctx.createGain();
-    g.gain.value = gain * (MIX[name] ?? GUN_GAIN);
+    g.gain.value = gain * mixOf(name);
     src.connect(g);
     g.connect(audio._out(pos) ?? audio.sfx);
     src.start(audio.ctx.currentTime + delay);
@@ -116,24 +132,43 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
 
   /* ------------------------------ effects ------------------------------ */
 
-  const SHOT_FOLEY = { shotgun: [['pump', 0.42]], sniper: [['boltUp', 0.55], ['boltDown', 0.78]] };
+  const SHOT_FOLEY = { shotgun: [['pump', 0.42]], ashotgun: [['charge', 0.35]], sniper: [['boltUp', 0.55], ['boltDown', 0.78]] };
+  const NO_CASING = new Set(['revolver', 'sniper']);
+  let lastCasing = 0;
   wrap('gunshot', (id, pos = null) => {
     const cam = pos ? audio.camPos() : null;
     const far = pos && cam && Math.hypot(pos.x - cam.x, pos.y - cam.y, pos.z - cam.z) > FAR;
     const ok = (far && play(`gunfar_${id}`, { pos })) || play(`gun_${id}`, { pos });
     if (!ok) return false;
-    if (!pos) for (const [kind, d] of SHOT_FOLEY[id] ?? []) audio.foley(kind, d);   // your own gun works its action
+    if (!pos) {
+      pack.gun = id;
+      for (const [kind, d] of SHOT_FOLEY[id] ?? []) audio.foley(kind, d);   // your own gun works its action
+      const now = audio.ctx.currentTime;
+      if (!NO_CASING.has(id) && now - lastCasing > 0.12) {
+        lastCasing = now;
+        play(id === 'shotgun' || id === 'ashotgun' ? 'casing_shell' : 'casing_brass', { delay: 0.3 + Math.random() * 0.25, jitter: 0.12 });
+      }
+    }
     return true;
   });
-  wrap('foley', (kind, delay = 0) => play(`foley_${kind}`, { delay }));
-  wrap('equip', () => play('equip'));
+  /** A handling sound: this gun's own recording if the pack has one, else the common one. */
+  const handling = (kind, id, opts) => play(`${kind}_${id}`, opts) || play(kind, opts);
+  wrap('foley', (kind, delay = 0) => play(`foley_${pack.gun}_${kind}`, { delay }) || play(`foley_${kind}`, { delay }));
+  const reloadProgress = audio.reloadProgress.bind(audio);
+  audio.reloadProgress = (id, from, to) => { pack.gun = id; return reloadProgress(id, from, to); };
+  wrap('equip', (id) => { if (id) pack.gun = id; return handling('equip', id ?? pack.gun); });
   wrap('explosion', (pos) => {
     if (!pack.bufs.has('nade_boom')) return false;
+    let d = 0;
     if (pos) {
       const c = audio.camPos();
-      if (Math.hypot(pos.x - c.x, pos.y - c.y, pos.z - c.z) < 25) audio.duck(0.3, 1.4);
+      d = Math.hypot(pos.x - c.x, pos.y - c.y, pos.z - c.z);
+      if (d < 25) audio.duck(0.3, 1.4);
     }
-    return play('nade_boom', { pos });
+    if (d > 45 && pack.bufs.has('nade_far')) return play('nade_far', { pos });
+    const ok = play('nade_boom', { pos });
+    if (pos && d < 8) play('ring', { delay: 0.2, jitter: 0 });       // the ringing after a close one
+    return ok;
   });
   wrap('pinPull', () => play('nade_pin'));
   wrap('bounce', (pos) => play('nade_bounce', { pos }));
@@ -152,11 +187,21 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
   wrap('headshotKill', () => play('killhs'));
   wrap('streakReward', () => play('streak'));
   wrap('revenge', () => play('revenge'));
-  wrap('reloadClick', () => play('reloadclick'));
-  wrap('lowAmmo', () => play('lowammo'));
+  wrap('reloadClick', (id) => handling('reloadclick', id ?? pack.gun));
+  wrap('lowAmmo', (id) => handling('lowammo', id ?? pack.gun));
   wrap('pickup', () => play('pickup'));
   wrap('uiHover', () => play('ui_hover'));
-  wrap('uiClick', () => play('ui_click'));
+  /** Which click a button makes, from what it says and where it sits. */
+  const clickFor = (el) => {
+    const b = el?.closest?.('button');
+    const t = (b?.textContent ?? '').trim();
+    if (!b || !t) return 'ui_click';
+    if (b.closest('.tabs')) return 'ui_tab';
+    if (/^(back|close|cancel|leave|exit|no|resume|done|skip)\b/i.test(t) || /^[\u00d7x]$/i.test(t)) return 'ui_back';
+    if (/^(play|start|deploy|join|create|host|ready|confirm|yes|apply|save|launch)\b/i.test(t)) return 'ui_confirm';
+    return 'ui_click';
+  };
+  wrap('uiClick', (el) => play(clickFor(el)));
   wrap('roundStart', () => play('go'));
   wrap('stinger', (outcome) => {
     if (!pack.bufs.has(outcome === 'win' ? 'win' : outcome === 'loss' ? 'loss' : 'draw')) return false;
@@ -175,12 +220,19 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
    * Named cues for things audio.js never had a sound for (menus, jumping, healing, crates...).
    * Returns true when a recording played, so a caller can fall back to its own sound otherwise.
    */
+  let lastTick = 0;
   audio.cue = (name, arg = null) => {
     if (!active()) return false;
     switch (name) {
       case 'land': return play('land');
       case 'jump': return play('jump');
-      case 'empty': return play('empty');
+      case 'empty': return handling('empty', arg ?? pack.gun);
+      case 'ui_slider': {            // a dragged slider ticks, not buzzes
+        const now = audio.ctx.currentTime;
+        if (now - lastTick < 0.06) return true;
+        lastTick = now;
+        return play('ui_slider', { jitter: 0.1 });
+      }
       case 'reveal': return play(`reveal_${arg ?? 'common'}`);
       case 'crate': return play(`crate_${arg}`);
       case 'item_start': return play(`use_${ITEM_SOUND[arg] ?? arg}`);
@@ -189,6 +241,65 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
     }
   };
   audio.surface = null;     // main.js sets this to a function returning the floor material of the current map
+  audio.ambient = null;     // ... and this one the name of the map's ambience loop (or null)
+
+  let lastImpact = 0, lastWhiz = 0;
+  /** A bullet hitting the world at `pos`. A shotgun's pellets land together, so they share one sound. */
+  audio.impact = (pos) => {
+    if (!active()) return false;
+    const now = audio.ctx.currentTime;
+    if (now - lastImpact < 0.05) return true;
+    const c = audio.camPos();
+    const d = Math.hypot(pos.x - c.x, pos.y - c.y, pos.z - c.z);
+    if (d > 70) return true;
+    lastImpact = now;
+    const surf = audio.surface?.() ?? 'concrete', r = Math.random();
+    const kind = r < 0.2 ? 'metal' : r < 0.28 ? 'wood' : (surf === 'tile' && r < 0.4) ? 'glass' : IMPACT_OF[surf] ?? 'concrete';
+    return play(`impact_${kind}`, { pos, gain: d > 30 ? 0.6 : 1, jitter: 0.1 });
+  };
+  /** A bullet passing close by your head. */
+  audio.whiz = (pos) => {
+    if (!active()) return false;
+    const now = audio.ctx.currentTime;
+    if (now - lastWhiz < 0.12) return true;
+    lastWhiz = now;
+    return play('whiz', { pos, jitter: 0.15 });
+  };
+
+  /* ---------------------------- map ambience ---------------------------- */
+
+  function stopAmbience() {
+    const a = pack.amb;
+    pack.amb = null;
+    pack.ambName = null;
+    if (!a) return;
+    a.gain.gain.cancelScheduledValues(audio.ctx.currentTime);
+    a.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
+    setTimeout(() => { try { a.src.stop(); } catch { /* already stopped */ } a.gain.disconnect(); }, 2500);
+  }
+  /** Keep the right ambience loop running for this map: started by a match, changed by the next one, ended by switching the pack off. */
+  function syncAmbience() {
+    if (!audio.ready) return;
+    const want = pack.ambWanted && wantsEffects() ? audio.ambient?.() ?? null : null;
+    if (want === pack.ambName) return;
+    stopAmbience();
+    const buf = want && pack.bufs.get(`ambience_${want}`)?.[0];
+    if (!buf) return;
+    const now = audio.ctx.currentTime;
+    const gain = audio.ctx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.setTargetAtTime(mixOf(`ambience_${want}`), now, 1.2);
+    gain.connect(audio.sfx);
+    const src = audio.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(gain);
+    src.start();
+    pack.amb = { src, gain };
+    pack.ambName = want;
+  }
+  const startAmbient = audio.startAmbient.bind(audio);
+  audio.startAmbient = () => { startAmbient(); pack.ambWanted = true; syncAmbience(); };
 
   /* ------------------------------ music ------------------------------ */
 
@@ -249,6 +360,7 @@ export function attachSoundPack(audio, { base = 'assets/audio/' } = {}) {
   audio.syncSoundPack = () => {
     if (wantsEffects()) loadEffects();
     syncMusic();
+    syncAmbience();
   };
 
   /** How much of the pack has decoded, for tests and the console. */

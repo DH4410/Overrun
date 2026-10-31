@@ -16,7 +16,7 @@ import sys
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import resample_poly
+from scipy.signal import butter, resample_poly, sosfilt
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 OUT = os.path.join(ROOT, 'assets', 'audio')
@@ -35,6 +35,8 @@ KOE = 'x/KOENIG/mike_koenig-shotgun'
 SG = 'x/A_shotgunsounds/ShotgunSounds'
 SND = 'x/A_sounds/sounds'
 DL = 'dl'
+DL2 = 'dl2'
+SHOTS = 'x2/shots/shots'
 
 
 def load(rel):
@@ -53,10 +55,40 @@ def env(x, win=0.005):
     return np.abs(x[:m * n]).reshape(m, n).max(1)
 
 
-def process(x, seg=None, shot=None, maxlen=None, fade=0.04, skip=0.0):
-    """seg=(a, b) seconds; shot=length: start at the first loud onset; maxlen caps the length."""
+def events(x, gap=0.08, th=0.12):
+    """Split a recording into its separate sounds: (start, end, peak, centroid Hz) for each, in order."""
+    n = int(SR * 0.005)
+    m = len(x) // n
+    e = np.abs(x[:m * n]).reshape(m, n).max(1)
+    on = e > th * e.max()
+    out, i = [], 0
+    while i < m:
+        if not on[i]:
+            i += 1
+            continue
+        j = last = i
+        while j < m and (j - last) * 0.005 < gap:
+            if on[j]:
+                last = j
+            j += 1
+        seg = x[i * n:(last + 9) * n]
+        sp = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+        fr = np.fft.rfftfreq(len(seg), 1 / SR)
+        out.append((i * 0.005, (last + 1) * 0.005, float(e[i:last + 1].max()), float((sp * fr).sum() / (sp.sum() + 1e-9))))
+        i = last + 1
+    return out
+
+
+def process(x, seg=None, shot=None, maxlen=None, fade=0.04, skip=0.0, ev=None, rate=None, lp=None, hp=None, raw=False, tail=0.12, level=0.9):
+    """seg=(a, b) seconds; ev=k: the k-th separate sound in the recording; shot=length: start at the first loud
+    onset; maxlen caps the length; rate resamples (pitch and speed); lp/hp filter; raw leaves a loop untouched."""
+    if ev is not None:
+        a, b, _, _ = events(x)[ev]
+        seg = (max(0, a - 0.01), b + tail)
     if seg:
         x = x[int(seg[0] * SR):int(seg[1] * SR)]
+    if raw:
+        return (x * (level / (np.abs(x).max() + 1e-9))).astype('float32')
     if skip:
         x = x[int(skip * SR):]
     pk = np.abs(x).max() + 1e-9
@@ -70,6 +102,12 @@ def process(x, seg=None, shot=None, maxlen=None, fade=0.04, skip=0.0):
         x = x[max(0, i - int(0.003 * SR)):]
     if maxlen:
         x = x[:int(maxlen * SR)]
+    if rate and abs(rate - 1) > 1e-3:
+        x = resample_poly(x, int(round(100 / rate)), 100).astype('float32')
+    if lp:
+        x = sosfilt(butter(2, lp, 'low', fs=SR, output='sos'), x).astype('float32')
+    if hp:
+        x = sosfilt(butter(2, hp, 'high', fs=SR, output='sos'), x).astype('float32')
     # trim a silent tail
     e = env(x)
     nz = np.nonzero(e > 0.01 * (e.max() + 1e-9))[0]
@@ -79,13 +117,16 @@ def process(x, seg=None, shot=None, maxlen=None, fade=0.04, skip=0.0):
     if f:
         x = x.copy()
         x[-f:] *= np.linspace(1, 0, f) ** 1.5
-    x = x * (0.9 / (np.abs(x).max() + 1e-9))
+    x = x * (level / (np.abs(x).max() + 1e-9))
     return x.astype('float32')
 
 
 def write(path, x, stereo=None, quality=0.5):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    sf.write(path, x, SR, format='OGG', subtype='VORBIS', compression_level=quality)
+    # libsndfile's Vorbis encoder overflows its stack on one long write, so feed it a second at a time
+    with sf.SoundFile(path, 'w', samplerate=SR, channels=1 if x.ndim == 1 else x.shape[1], format='OGG', subtype='VORBIS', compression_level=quality) as f:
+        for i in range(0, len(x), SR):
+            f.write(x[i:i + SR])
 
 
 # name -> list of (source, options). Options are those of process(); 'g' is a per-clip volume hint.
@@ -222,9 +263,156 @@ add('level_up', (f'{KEN}/maximize_005.ogg', {}), (f'{KEN}/pluck_001.ogg', {}), (
 add('objective', (f'{C100}/gong_02.ogg', dict(maxlen=1.0)), (f'{KEN}/open_004.ogg', {}))
 add('zone_tick', (f'{KEN}/tick_001.ogg', {}))
 
+# ---------------------------------------------------------------------------------------------------
+# Every gun gets its own handling sounds. The same real recordings (clicks, magazines, bolts, pumps) are
+# ranked from bright and light to dull and heavy by their spectral centroid, each gun is dealt a slice
+# of that ranking by weight, and its pitch is shifted a little toward its weight as well: the pistol's
+# dry-fire is a high tick, the LMG's a heavy clack.
+# ---------------------------------------------------------------------------------------------------
+GUNS = ['pistol', 'mp', 'smg', 'revolver', 'ar', 'dmr', 'ashotgun', 'shotgun', 'lmg', 'sniper']   # light to heavy
+GUN_RATE = {g: 1.14 - 0.034 * i for i, g in enumerate(GUNS)}                                      # 1.14 ... 0.83
+_cache = {}
+
+
+def centroid(x):
+    n = min(len(x), SR)
+    sp = np.abs(np.fft.rfft(x[:n] * np.hanning(n)))
+    fr = np.fft.rfftfreq(n, 1 / SR)
+    return float((sp * fr).sum() / (sp.sum() + 1e-9))
+
+
+def ranked(pool):
+    """pool: list of (source, options). Returns it brightest first."""
+    scored = []
+    for src, opt in pool:
+        key = (src, tuple(sorted(opt.items())))
+        if key not in _cache:
+            _cache[key] = centroid(process(load(src), **opt))
+        scored.append((_cache[key], src, opt))
+    scored.sort(key=lambda t: -t[0])
+    return [(src, opt) for _, src, opt in scored]
+
+
+def deal(pool, gun, takes=2, shift=0):
+    """The slice of a ranked pool that belongs to `gun`."""
+    r = GUNS.index(gun) / (len(GUNS) - 1)
+    n = len(pool)
+    start = int(round(r * (n - 1))) + shift
+    return [pool[(start + k) % n] for k in range(min(takes, n))]
+
+
+def with_rate(specs, gun, extra=None):
+    out = []
+    for src, opt in specs:
+        o = dict(opt)
+        o['rate'] = GUN_RATE[gun]
+        if extra:
+            o.update(extra)
+        out.append((src, o))
+    return out
+
+
+EQC = f'{DL2}/equipment_clicks3.wav'
+EQ1 = f'{DL2}/equipmentclicks.wav'
+_clicks3 = events(load(EQC))
+CLICKS = [(EQC, dict(ev=k, maxlen=0.3, fade=0.03)) for k, e in enumerate(_clicks3) if e[2] >= 0.5 and e[1] - e[0] <= 0.35 and 800 < e[3] < 9000]
+CLICKS += [(EQ1, dict(ev=k, maxlen=0.3, fade=0.03)) for k in (0, 2, 4, 5)]
+CLICKS += [(f'{DL2}/gun_reload_lock_or_click_sound.mp3', dict(maxlen=0.35)), (f'{C100}/switch_01.ogg', {}), (f'{C100}/switch_02.ogg', {})]
+CLICKS = ranked(CLICKS)
+
+# dry fire, equip, start-of-reload and low-ammo clicks: a different slice of the ranking for each
+for g in GUNS:
+    add(f'empty_{g}', *with_rate(deal(CLICKS, g, 3, 0), g))
+    add(f'equip_{g}', *with_rate(deal(CLICKS, g, 2, 5), g))
+    add(f'reloadclick_{g}', *with_rate(deal(CLICKS, g, 2, 9), g))
+    add(f'lowammo_{g}', *with_rate(deal(CLICKS, g, 2, 13), g, dict(maxlen=0.18)))
+
+# magazines, charging handles, shells, pumps, bolts: the pools the reload steps draw from
+POOL = {
+    'magOut': [(f'{DL}/clipload1.wav', {}), (f'{DL}/clipload2.wav', {}), (f'{KOE}/Ejecting Magazine-SoundBible.com-1801520333.wav', dict(maxlen=0.6)),
+               (f'{DL2}/reload.wav', dict(ev=0, tail=0.15, maxlen=0.4)), (f'{DL}/gunreload1.wav', dict(ev=0, maxlen=0.4)),
+               (f'{DL}/assaultriflereload1_0.wav', dict(ev=0, maxlen=0.4)), (f'{DL2}/gun_reload_lock_or_click_sound.mp3', dict(maxlen=0.35))],
+    'magIn': [(f'{DL}/clipload1.wav', {}), (f'{DL}/clipload2.wav', {}), (f'{KOE}/Pop Clip In-SoundBible.com-583746573.wav', dict(maxlen=0.7)),
+              (f'{DL2}/reload.wav', dict(ev=1, tail=0.15, maxlen=0.4)), (f'{DL}/assaultriflereload1_0.wav', dict(ev=1, maxlen=0.4)),
+              (f'{DL}/gunreload1.wav', dict(ev=3, maxlen=0.45))],
+    'charge': [(f'{DL}/shotguncock_0.wav', dict(maxlen=0.5)), (f'{DL}/gunreload1.wav', dict(ev=3, maxlen=0.45)),
+               (f'{DL}/assaultriflereload1_0.wav', dict(ev=2, maxlen=0.45)), (f'{DL2}/reload.wav', dict(ev=2, maxlen=0.5)),
+               (f'{KOE}/Chambering A Round-SoundBible.com-854171848.wav', dict(maxlen=0.8))],
+    'slide': [(f'{DL}/gunreload1.wav', dict(ev=3, maxlen=0.4)), (f'{DL2}/reload.wav', dict(ev=2, maxlen=0.4)),
+              (f'{DL2}/gun_reload_lock_or_click_sound.mp3', dict(maxlen=0.35)), (f'{DL}/assaultriflereload1_0.wav', dict(ev=2, maxlen=0.4))],
+    'shell': [(f'{DL}/singlebullet1.wav', {}), (f'{SG}/Subsequent Shells.mp3', dict(ev=0, maxlen=0.4)), (f'{SG}/Subsequent Shells.mp3', dict(ev=1, maxlen=0.4)),
+              (f'{SG}/First Shell.mp3', dict(ev=0, maxlen=0.4)), (f'{SG}/First Shell.mp3', dict(ev=1, maxlen=0.4))],
+    'pump': [(f'{KOE}/Pump Shotgun-SoundBible.com-1653268682.wav', dict(maxlen=1.0)), (f'{SG}/Rack.mp3', dict(seg=(0.5, 1.1))), (f'{DL}/shotguncock_0.wav', {})],
+    'boltUp': [(f'{SND}/mosin.wav', dict(ev=e, maxlen=0.6, tail=0.1)) for e in (0, 9, 22)] + [(f'{C100}/metal_03.ogg', {})],
+    'boltDown': [(f'{SND}/mosin.wav', dict(ev=e, maxlen=0.6, tail=0.1)) for e in (1, 15, 29)] + [(f'{C100}/metal_02.ogg', {})],
+}
+POOL = {k: ranked(v) for k, v in POOL.items()}
+# the steps of each gun's reload, as in RELOAD_STEPS in src/audio.js
+KINDS = {
+    'pistol': ['magOut', 'magIn', 'slide'], 'ar': ['magOut', 'magIn', 'charge'], 'smg': ['magOut', 'magIn', 'charge'],
+    'shotgun': ['shell', 'pump'], 'sniper': ['boltUp', 'magOut', 'magIn', 'boltDown'],
+    'revolver': ['magOut', 'shell', 'slide'], 'mp': ['magOut', 'magIn', 'slide'],
+    'lmg': ['boltUp', 'magOut', 'magIn', 'charge'], 'ashotgun': ['magOut', 'magIn', 'charge'], 'dmr': ['magOut', 'magIn', 'charge'],
+}
+for g, kinds in KINDS.items():
+    for k, kind in enumerate(kinds):
+        add(f'foley_{g}_{kind}', *with_rate(deal(POOL[kind], g, 2, k), g))
+
+# more takes of the shots themselves
+add('gun_pistol', (f'{SHOTS}/pistol.wav', dict(shot=0.9)))
+add('gun_ar', (f'{SHOTS}/rifle.wav', dict(shot=1.3)), (f'{FIRE}/Savage 10 .300 Blackout/T_27P.wav', dict(shot=1.3)))
+add('gun_shotgun', (f'{SHOTS}/shotgun.wav', dict(shot=1.2)))
+add('gun_lmg', (f'{SHOTS}/cg1.wav', dict(shot=0.55)), (f'{FIRE}/AK-47/C_29P.wav', dict(shot=0.6)))
+add('gun_sniper', (f'{FIRE}/1917/B_24P.wav', dict(shot=2.0)), (f'{FIRE}/Arisaka/E_25P.wav', dict(shot=2.0)))
+add('gun_dmr', (f'{FIRE}/Model 1894/L_23P.wav', dict(shot=1.4)))
+add('gunfar_sniper', (f'{FIRE}/1917/B_16P.wav', dict(shot=2.4)))
+add('gunfar_dmr', (f'{FIRE}/Model 1894/L_17P.wav', dict(shot=1.8)))
+add('gunfar_ar', (f'{FIRE}/Savage 10 .300 Blackout/T_17P.wav', dict(shot=1.7)))
+
+# spent brass and shells landing, a short while after your own shots
+BRASS = ranked([(EQC, dict(ev=k, maxlen=0.25, fade=0.03)) for k, e in enumerate(_clicks3) if e[2] >= 0.5 and e[3] > 5500 and e[1] - e[0] <= 0.2])
+add('casing_brass', *BRASS[:4])
+add('casing_shell', (f'{DL}/singlebullet1.wav', dict(rate=0.8)), (f'{S100}/sfx100v2_wood_hit_02.ogg', dict(maxlen=0.2)), (f'{S100}/sfx100v2_wood_hit_03.ogg', dict(maxlen=0.2)))
+
+# aiming down sights, crouching, standing: cloth and straps
+add('ads_in', (f'{C100}/paper_01.ogg', dict(maxlen=0.22)), (f'{C100}/paper_03.ogg', dict(maxlen=0.22)), (f'{S100}/sfx100v2_air_03.ogg', dict(maxlen=0.2)))
+add('ads_out', (f'{C100}/paper_02.ogg', dict(maxlen=0.22)), (f'{C100}/paper_04.ogg', dict(maxlen=0.22)), (f'{S100}/sfx100v2_air_02.ogg', dict(maxlen=0.2)))
+add('crouch', (f'{C100}/paper_02.ogg', dict(maxlen=0.3, rate=0.8)), (f'{S100}/sfx100v2_air_02.ogg', dict(maxlen=0.3, rate=0.9)), (f'{C100}/tools_03.ogg', dict(maxlen=0.25)))
+add('stand', (f'{C100}/paper_04.ogg', dict(maxlen=0.3, rate=0.85)), (f'{S100}/sfx100v2_air_03.ogg', dict(maxlen=0.3, rate=0.9)), (f'{C100}/tools_04.ogg', dict(maxlen=0.25)))
+
+# bullets hitting the world, by material
+add('impact_concrete', (f'{C100}/hit_02.ogg', dict(maxlen=0.25)), (f'{C100}/hit_03.ogg', dict(maxlen=0.25)), (f'{S100}/sfx100v2_hit_01.ogg', dict(maxlen=0.25)), (f'{S100}/sfx100v2_stones_03.ogg', dict(maxlen=0.25)))
+add('impact_metal', (f'{S100}/sfx100v2_metal_hit_01.ogg', dict(maxlen=0.4)), (f'{S100}/sfx100v2_metal_hit_02.ogg', dict(maxlen=0.4)), (f'{C100}/metal_06.ogg', dict(maxlen=0.4)), (f'{C100}/metal_08.ogg', dict(maxlen=0.4)), (f'{C100}/metal_10.ogg', dict(maxlen=0.4)))
+add('impact_dirt', (f'{S100}/sfx100v2_stones_01.ogg', dict(maxlen=0.2)), (f'{S100}/sfx100v2_stones_02.ogg', dict(maxlen=0.2)), (f'{C100}/hit_04.ogg', dict(maxlen=0.2, lp=2500)), (f'{S100}/sfx100v2_hit_03.ogg', dict(maxlen=0.2, lp=3000)))
+add('impact_wood', (f'{S100}/sfx100v2_wood_hit_01.ogg', dict(maxlen=0.3)), (f'{C100}/wooden_01.ogg', dict(maxlen=0.3)), (f'{C100}/wooden_02.ogg', dict(maxlen=0.3)), (f'{C100}/wooden_03.ogg', dict(maxlen=0.3)))
+add('impact_glass', (f'{S100}/sfx100v2_glass_01.ogg', dict(maxlen=0.6)), (f'{S100}/sfx100v2_glass_02.ogg', dict(maxlen=0.6)), (f'{C100}/glass_01.ogg', dict(maxlen=0.6)), (f'{C100}/glass_02.ogg', dict(maxlen=0.6)))
+add('impact_snow', (f'{S100}/sfx100v2_stones_01.ogg', dict(maxlen=0.2, lp=1800, rate=0.8)), (f'{C100}/hit_04.ogg', dict(maxlen=0.2, lp=1500)))
+add('whiz', (f'{S100}/sfx100v2_air_01.ogg', dict(maxlen=0.35, hp=1500)), (f'{S100}/sfx100v2_air_02.ogg', dict(maxlen=0.35, hp=1800, rate=1.3)),
+    (f'{S100}/sfx100v2_air_03.ogg', dict(maxlen=0.3, hp=1500, rate=1.15)), (f'{C100}/shot_01.ogg', dict(maxlen=0.2, hp=2500)))
+
+# a blast heard from far away, and the ringing after a near one
+add('nade_far', (f'{S100}/sfx100v2_thunder_01.ogg', dict(maxlen=2.5, fade=0.6, lp=900)), (f'{C100}/explosion.ogg', dict(lp=700, rate=0.85)))
+add('ring', (f'{C100}/bell_03.ogg', dict(maxlen=1.2, hp=4000, fade=0.9)))
+
+# more of the menus and the match
+add('ui_slider', (f'{KEN}/tick_004.ogg', {}), (f'{UI}/rollover5.wav', {}), (f'{UI}/rollover4.wav', {}))
+add('countdown_final', (f'{KEN}/bong_001.ogg', dict(rate=1.5)), (f'{KEN}/maximize_006.ogg', {}))
+add('spawn', (f'{S100}/sfx100v2_air_03.ogg', dict(maxlen=0.5, lp=3000)), (f'{KEN}/open_002.ogg', {}))
+
+# ambience for each map: seamless loops, left whole
+AMB = [('water', f'{S100}/sfx100v2_loop_water_02.ogg'), ('wind', f'{DL2}/wind%20woosh%20loop.ogg'),
+       ('crickets', f'{DL2}/crickets_1.mp3'), ('highway', f'{S100}/sfx100v2_loop_highway.ogg'),
+       ('machine', f'{S100}/sfx100v2_loop_machine_02.ogg'), ('hum', f'{S100}/sfx100v2_loop_machine_01.ogg'),
+       ('room', f'{S100}/sfx100v2_loop_ambient_01.ogg'), ('yard', f'{S100}/sfx100v2_loop_construction_site.ogg')]
+for name, src in AMB:
+    add(f'ambience_{name}', (src, dict(raw=True, level=0.8)))
+
+
 MUSIC = {
-    'lobby': ['dl/main_menu_music_mastered_0.mp3', 'dl/menu_3.ogg', "dl/Just%20S%27more%20Fun.mp3"],
-    'shop': ['music/Local Forecast - Elevator.mp3', 'dl/Heavenly%20Loop_0.ogg'],
+    'lobby': ['dl/main_menu_music_mastered_0.mp3', 'dl/menu_3.ogg', "dl/Just%20S%27more%20Fun.mp3", 'dl2/in_the_lobby.wav',
+              'dl2/Friendly%20Talk%20On%20a%20Robotic%20Battlefield_0.ogg', ('dl2/SpacyLoop.ogg', 3), 'dl2/awesomeness.wav'],
+    'shop': ['music/Local Forecast - Elevator.mp3', 'dl/Heavenly%20Loop_0.ogg', 'x2/shop/shop_theme/Buy Something!.ogg',
+             'dl2/8bit%20Bossa.mp3', 'dl2/waiting._.wav'],
 }
 
 
@@ -247,8 +435,14 @@ def main():
     for kind, srcs in MUSIC.items():
         music[kind] = []
         for i, src in enumerate(srcs):
+            reps = 1
+            if isinstance(src, tuple):
+                src, reps = src          # a short loop played end to end this many times
             p = os.path.join(SRCROOT, src)
             x, sr = sf.read(p, always_2d=True, dtype='float32')
+            if x.shape[1] == 1:
+                x = np.repeat(x, 2, axis=1)
+            x = np.tile(x, (reps, 1))
             if sr != SR:
                 g = np.gcd(sr, SR)
                 x = resample_poly(x, SR // g, sr // g, axis=0).astype('float32')
@@ -256,7 +450,7 @@ def main():
             rel = f'music/{kind}_{i + 1}.ogg'
             os.makedirs(os.path.join(OUT, 'music'), exist_ok=True)
             # one big write overflows libsndfile's Vorbis encoder stack, so feed it a second at a time
-            with sf.SoundFile(os.path.join(OUT, rel), 'w', samplerate=SR, channels=x.shape[1], format='OGG', subtype='VORBIS') as f:
+            with sf.SoundFile(os.path.join(OUT, rel), 'w', samplerate=SR, channels=x.shape[1], format='OGG', subtype='VORBIS', compression_level=0.35) as f:
                 for i in range(0, len(x), SR):
                     f.write(x[i:i + SR])
             music[kind].append(rel)

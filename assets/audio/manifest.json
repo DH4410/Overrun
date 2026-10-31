@@ -3,7 +3,8 @@
  "clips": {
   "gun_pistol": [
    "sfx/gun_pistol_1.ogg",
-   "sfx/gun_pistol_2.ogg"
+   "sfx/gun_pistol_2.ogg",
+   "sfx/gun_pistol_3.ogg"
   ],
   "gunfar_pistol": [
    "sfx/gunfar_pistol_1.ogg"
@@ -30,13 +31,18 @@
    "sfx/gunfar_smg_1.ogg"
   ],
   "gun_ar": [
-   "sfx/gun_ar_1.ogg"
+   "sfx/gun_ar_1.ogg",
+   "sfx/gun_ar_2.ogg",
+   "sfx/gun_ar_3.ogg"
   ],
   "gunfar_ar": [
-   "sfx/gunfar_ar_1.ogg"
+   "sfx/gunfar_ar_1.ogg",
+   "sfx/gunfar_ar_2.ogg"
   ],
   "gun_lmg": [
-   "sfx/gun_lmg_1.ogg"
+   "sfx/gun_lmg_1.ogg",
+   "sfx/gun_lmg_2.ogg",
+   "sfx/gun_lmg_3.ogg"
   ],
   "gunfar_lmg": [
    "sfx/gunfar_lmg_1.ogg"
@@ -44,7 +50,8 @@
   "gun_shotgun": [
    "sfx/gun_shotgun_1.ogg",
    "sfx/gun_shotgun_2.ogg",
-   "sfx/gun_shotgun_3.ogg"
+   "sfx/gun_shotgun_3.ogg",
+   "sfx/gun_shotgun_4.ogg"
   ],
   "gunfar_shotgun": [
    "sfx/gunfar_shotgun_1.ogg"
@@ -60,18 +67,23 @@
   "gun_sniper": [
    "sfx/gun_sniper_1.ogg",
    "sfx/gun_sniper_2.ogg",
-   "sfx/gun_sniper_3.ogg"
+   "sfx/gun_sniper_3.ogg",
+   "sfx/gun_sniper_4.ogg",
+   "sfx/gun_sniper_5.ogg"
   ],
   "gunfar_sniper": [
-   "sfx/gunfar_sniper_1.ogg"
+   "sfx/gunfar_sniper_1.ogg",
+   "sfx/gunfar_sniper_2.ogg"
   ],
   "gun_dmr": [
    "sfx/gun_dmr_1.ogg",
    "sfx/gun_dmr_2.ogg",
-   "sfx/gun_dmr_3.ogg"
+   "sfx/gun_dmr_3.ogg",
+   "sfx/gun_dmr_4.ogg"
   ],
   "gunfar_dmr": [
-   "sfx/gunfar_dmr_1.ogg"
+   "sfx/gunfar_dmr_1.ogg",
+   "sfx/gunfar_dmr_2.ogg"
   ],
   "empty": [
    "sfx/empty_1.ogg",
@@ -475,17 +487,494 @@
   ],
   "zone_tick": [
    "sfx/zone_tick_1.ogg"
+  ],
+  "empty_pistol": [
+   "sfx/empty_pistol_1.ogg",
+   "sfx/empty_pistol_2.ogg",
+   "sfx/empty_pistol_3.ogg"
+  ],
+  "equip_pistol": [
+   "sfx/equip_pistol_1.ogg",
+   "sfx/equip_pistol_2.ogg"
+  ],
+  "reloadclick_pistol": [
+   "sfx/reloadclick_pistol_1.ogg",
+   "sfx/reloadclick_pistol_2.ogg"
+  ],
+  "lowammo_pistol": [
+   "sfx/lowammo_pistol_1.ogg",
+   "sfx/lowammo_pistol_2.ogg"
+  ],
+  "empty_mp": [
+   "sfx/empty_mp_1.ogg",
+   "sfx/empty_mp_2.ogg",
+   "sfx/empty_mp_3.ogg"
+  ],
+  "equip_mp": [
+   "sfx/equip_mp_1.ogg",
+   "sfx/equip_mp_2.ogg"
+  ],
+  "reloadclick_mp": [
+   "sfx/reloadclick_mp_1.ogg",
+   "sfx/reloadclick_mp_2.ogg"
+  ],
+  "lowammo_mp": [
+   "sfx/lowammo_mp_1.ogg",
+   "sfx/lowammo_mp_2.ogg"
+  ],
+  "empty_smg": [
+   "sfx/empty_smg_1.ogg",
+   "sfx/empty_smg_2.ogg",
+   "sfx/empty_smg_3.ogg"
+  ],
+  "equip_smg": [
+   "sfx/equip_smg_1.ogg",
+   "sfx/equip_smg_2.ogg"
+  ],
+  "reloadclick_smg": [
+   "sfx/reloadclick_smg_1.ogg",
+   "sfx/reloadclick_smg_2.ogg"
+  ],
+  "lowammo_smg": [
+   "sfx/lowammo_smg_1.ogg",
+   "sfx/lowammo_smg_2.ogg"
+  ],
+  "empty_revolver": [
+   "sfx/empty_revolver_1.ogg",
+   "sfx/empty_revolver_2.ogg",
+   "sfx/empty_revolver_3.ogg"
+  ],
+  "equip_revolver": [
+   "sfx/equip_revolver_1.ogg",
+   "sfx/equip_revolver_2.ogg"
+  ],
+  "reloadclick_revolver": [
+   "sfx/reloadclick_revolver_1.ogg",
+   "sfx/reloadclick_revolver_2.ogg"
+  ],
+  "lowammo_revolver": [
+   "sfx/lowammo_revolver_1.ogg",
+   "sfx/lowammo_revolver_2.ogg"
+  ],
+  "empty_ar": [
+   "sfx/empty_ar_1.ogg",
+   "sfx/empty_ar_2.ogg",
+   "sfx/empty_ar_3.ogg"
+  ],
+  "equip_ar": [
+   "sfx/equip_ar_1.ogg",
+   "sfx/equip_ar_2.ogg"
+  ],
+  "reloadclick_ar": [
+   "sfx/reloadclick_ar_1.ogg",
+   "sfx/reloadclick_ar_2.ogg"
+  ],
+  "lowammo_ar": [
+   "sfx/lowammo_ar_1.ogg",
+   "sfx/lowammo_ar_2.ogg"
+  ],
+  "empty_dmr": [
+   "sfx/empty_dmr_1.ogg",
+   "sfx/empty_dmr_2.ogg",
+   "sfx/empty_dmr_3.ogg"
+  ],
+  "equip_dmr": [
+   "sfx/equip_dmr_1.ogg",
+   "sfx/equip_dmr_2.ogg"
+  ],
+  "reloadclick_dmr": [
+   "sfx/reloadclick_dmr_1.ogg",
+   "sfx/reloadclick_dmr_2.ogg"
+  ],
+  "lowammo_dmr": [
+   "sfx/lowammo_dmr_1.ogg",
+   "sfx/lowammo_dmr_2.ogg"
+  ],
+  "empty_ashotgun": [
+   "sfx/empty_ashotgun_1.ogg",
+   "sfx/empty_ashotgun_2.ogg",
+   "sfx/empty_ashotgun_3.ogg"
+  ],
+  "equip_ashotgun": [
+   "sfx/equip_ashotgun_1.ogg",
+   "sfx/equip_ashotgun_2.ogg"
+  ],
+  "reloadclick_ashotgun": [
+   "sfx/reloadclick_ashotgun_1.ogg",
+   "sfx/reloadclick_ashotgun_2.ogg"
+  ],
+  "lowammo_ashotgun": [
+   "sfx/lowammo_ashotgun_1.ogg",
+   "sfx/lowammo_ashotgun_2.ogg"
+  ],
+  "empty_shotgun": [
+   "sfx/empty_shotgun_1.ogg",
+   "sfx/empty_shotgun_2.ogg",
+   "sfx/empty_shotgun_3.ogg"
+  ],
+  "equip_shotgun": [
+   "sfx/equip_shotgun_1.ogg",
+   "sfx/equip_shotgun_2.ogg"
+  ],
+  "reloadclick_shotgun": [
+   "sfx/reloadclick_shotgun_1.ogg",
+   "sfx/reloadclick_shotgun_2.ogg"
+  ],
+  "lowammo_shotgun": [
+   "sfx/lowammo_shotgun_1.ogg",
+   "sfx/lowammo_shotgun_2.ogg"
+  ],
+  "empty_lmg": [
+   "sfx/empty_lmg_1.ogg",
+   "sfx/empty_lmg_2.ogg",
+   "sfx/empty_lmg_3.ogg"
+  ],
+  "equip_lmg": [
+   "sfx/equip_lmg_1.ogg",
+   "sfx/equip_lmg_2.ogg"
+  ],
+  "reloadclick_lmg": [
+   "sfx/reloadclick_lmg_1.ogg",
+   "sfx/reloadclick_lmg_2.ogg"
+  ],
+  "lowammo_lmg": [
+   "sfx/lowammo_lmg_1.ogg",
+   "sfx/lowammo_lmg_2.ogg"
+  ],
+  "empty_sniper": [
+   "sfx/empty_sniper_1.ogg",
+   "sfx/empty_sniper_2.ogg",
+   "sfx/empty_sniper_3.ogg"
+  ],
+  "equip_sniper": [
+   "sfx/equip_sniper_1.ogg",
+   "sfx/equip_sniper_2.ogg"
+  ],
+  "reloadclick_sniper": [
+   "sfx/reloadclick_sniper_1.ogg",
+   "sfx/reloadclick_sniper_2.ogg"
+  ],
+  "lowammo_sniper": [
+   "sfx/lowammo_sniper_1.ogg",
+   "sfx/lowammo_sniper_2.ogg"
+  ],
+  "foley_pistol_magOut": [
+   "sfx/foley_pistol_magOut_1.ogg",
+   "sfx/foley_pistol_magOut_2.ogg"
+  ],
+  "foley_pistol_magIn": [
+   "sfx/foley_pistol_magIn_1.ogg",
+   "sfx/foley_pistol_magIn_2.ogg"
+  ],
+  "foley_pistol_slide": [
+   "sfx/foley_pistol_slide_1.ogg",
+   "sfx/foley_pistol_slide_2.ogg"
+  ],
+  "foley_ar_magOut": [
+   "sfx/foley_ar_magOut_1.ogg",
+   "sfx/foley_ar_magOut_2.ogg"
+  ],
+  "foley_ar_magIn": [
+   "sfx/foley_ar_magIn_1.ogg",
+   "sfx/foley_ar_magIn_2.ogg"
+  ],
+  "foley_ar_charge": [
+   "sfx/foley_ar_charge_1.ogg",
+   "sfx/foley_ar_charge_2.ogg"
+  ],
+  "foley_smg_magOut": [
+   "sfx/foley_smg_magOut_1.ogg",
+   "sfx/foley_smg_magOut_2.ogg"
+  ],
+  "foley_smg_magIn": [
+   "sfx/foley_smg_magIn_1.ogg",
+   "sfx/foley_smg_magIn_2.ogg"
+  ],
+  "foley_smg_charge": [
+   "sfx/foley_smg_charge_1.ogg",
+   "sfx/foley_smg_charge_2.ogg"
+  ],
+  "foley_shotgun_shell": [
+   "sfx/foley_shotgun_shell_1.ogg",
+   "sfx/foley_shotgun_shell_2.ogg"
+  ],
+  "foley_shotgun_pump": [
+   "sfx/foley_shotgun_pump_1.ogg",
+   "sfx/foley_shotgun_pump_2.ogg"
+  ],
+  "foley_sniper_boltUp": [
+   "sfx/foley_sniper_boltUp_1.ogg",
+   "sfx/foley_sniper_boltUp_2.ogg"
+  ],
+  "foley_sniper_magOut": [
+   "sfx/foley_sniper_magOut_1.ogg",
+   "sfx/foley_sniper_magOut_2.ogg"
+  ],
+  "foley_sniper_magIn": [
+   "sfx/foley_sniper_magIn_1.ogg",
+   "sfx/foley_sniper_magIn_2.ogg"
+  ],
+  "foley_sniper_boltDown": [
+   "sfx/foley_sniper_boltDown_1.ogg",
+   "sfx/foley_sniper_boltDown_2.ogg"
+  ],
+  "foley_revolver_magOut": [
+   "sfx/foley_revolver_magOut_1.ogg",
+   "sfx/foley_revolver_magOut_2.ogg"
+  ],
+  "foley_revolver_shell": [
+   "sfx/foley_revolver_shell_1.ogg",
+   "sfx/foley_revolver_shell_2.ogg"
+  ],
+  "foley_revolver_slide": [
+   "sfx/foley_revolver_slide_1.ogg",
+   "sfx/foley_revolver_slide_2.ogg"
+  ],
+  "foley_mp_magOut": [
+   "sfx/foley_mp_magOut_1.ogg",
+   "sfx/foley_mp_magOut_2.ogg"
+  ],
+  "foley_mp_magIn": [
+   "sfx/foley_mp_magIn_1.ogg",
+   "sfx/foley_mp_magIn_2.ogg"
+  ],
+  "foley_mp_slide": [
+   "sfx/foley_mp_slide_1.ogg",
+   "sfx/foley_mp_slide_2.ogg"
+  ],
+  "foley_lmg_boltUp": [
+   "sfx/foley_lmg_boltUp_1.ogg",
+   "sfx/foley_lmg_boltUp_2.ogg"
+  ],
+  "foley_lmg_magOut": [
+   "sfx/foley_lmg_magOut_1.ogg",
+   "sfx/foley_lmg_magOut_2.ogg"
+  ],
+  "foley_lmg_magIn": [
+   "sfx/foley_lmg_magIn_1.ogg",
+   "sfx/foley_lmg_magIn_2.ogg"
+  ],
+  "foley_lmg_charge": [
+   "sfx/foley_lmg_charge_1.ogg",
+   "sfx/foley_lmg_charge_2.ogg"
+  ],
+  "foley_ashotgun_magOut": [
+   "sfx/foley_ashotgun_magOut_1.ogg",
+   "sfx/foley_ashotgun_magOut_2.ogg"
+  ],
+  "foley_ashotgun_magIn": [
+   "sfx/foley_ashotgun_magIn_1.ogg",
+   "sfx/foley_ashotgun_magIn_2.ogg"
+  ],
+  "foley_ashotgun_charge": [
+   "sfx/foley_ashotgun_charge_1.ogg",
+   "sfx/foley_ashotgun_charge_2.ogg"
+  ],
+  "foley_dmr_magOut": [
+   "sfx/foley_dmr_magOut_1.ogg",
+   "sfx/foley_dmr_magOut_2.ogg"
+  ],
+  "foley_dmr_magIn": [
+   "sfx/foley_dmr_magIn_1.ogg",
+   "sfx/foley_dmr_magIn_2.ogg"
+  ],
+  "foley_dmr_charge": [
+   "sfx/foley_dmr_charge_1.ogg",
+   "sfx/foley_dmr_charge_2.ogg"
+  ],
+  "casing_brass": [
+   "sfx/casing_brass_1.ogg",
+   "sfx/casing_brass_2.ogg",
+   "sfx/casing_brass_3.ogg",
+   "sfx/casing_brass_4.ogg"
+  ],
+  "casing_shell": [
+   "sfx/casing_shell_1.ogg",
+   "sfx/casing_shell_2.ogg",
+   "sfx/casing_shell_3.ogg"
+  ],
+  "ads_in": [
+   "sfx/ads_in_1.ogg",
+   "sfx/ads_in_2.ogg",
+   "sfx/ads_in_3.ogg"
+  ],
+  "ads_out": [
+   "sfx/ads_out_1.ogg",
+   "sfx/ads_out_2.ogg",
+   "sfx/ads_out_3.ogg"
+  ],
+  "crouch": [
+   "sfx/crouch_1.ogg",
+   "sfx/crouch_2.ogg",
+   "sfx/crouch_3.ogg"
+  ],
+  "stand": [
+   "sfx/stand_1.ogg",
+   "sfx/stand_2.ogg",
+   "sfx/stand_3.ogg"
+  ],
+  "impact_concrete": [
+   "sfx/impact_concrete_1.ogg",
+   "sfx/impact_concrete_2.ogg",
+   "sfx/impact_concrete_3.ogg",
+   "sfx/impact_concrete_4.ogg"
+  ],
+  "impact_metal": [
+   "sfx/impact_metal_1.ogg",
+   "sfx/impact_metal_2.ogg",
+   "sfx/impact_metal_3.ogg",
+   "sfx/impact_metal_4.ogg",
+   "sfx/impact_metal_5.ogg"
+  ],
+  "impact_dirt": [
+   "sfx/impact_dirt_1.ogg",
+   "sfx/impact_dirt_2.ogg",
+   "sfx/impact_dirt_3.ogg",
+   "sfx/impact_dirt_4.ogg"
+  ],
+  "impact_wood": [
+   "sfx/impact_wood_1.ogg",
+   "sfx/impact_wood_2.ogg",
+   "sfx/impact_wood_3.ogg",
+   "sfx/impact_wood_4.ogg"
+  ],
+  "impact_glass": [
+   "sfx/impact_glass_1.ogg",
+   "sfx/impact_glass_2.ogg",
+   "sfx/impact_glass_3.ogg",
+   "sfx/impact_glass_4.ogg"
+  ],
+  "impact_snow": [
+   "sfx/impact_snow_1.ogg",
+   "sfx/impact_snow_2.ogg"
+  ],
+  "whiz": [
+   "sfx/whiz_1.ogg",
+   "sfx/whiz_2.ogg",
+   "sfx/whiz_3.ogg",
+   "sfx/whiz_4.ogg"
+  ],
+  "nade_far": [
+   "sfx/nade_far_1.ogg",
+   "sfx/nade_far_2.ogg"
+  ],
+  "ring": [
+   "sfx/ring_1.ogg"
+  ],
+  "ui_notify": [
+   "sfx/ui_notify_1.ogg",
+   "sfx/ui_notify_2.ogg",
+   "sfx/ui_notify_3.ogg"
+  ],
+  "ui_join": [
+   "sfx/ui_join_1.ogg",
+   "sfx/ui_join_2.ogg",
+   "sfx/ui_join_3.ogg"
+  ],
+  "ui_leave": [
+   "sfx/ui_leave_1.ogg",
+   "sfx/ui_leave_2.ogg",
+   "sfx/ui_leave_3.ogg"
+  ],
+  "ui_ready": [
+   "sfx/ui_ready_1.ogg",
+   "sfx/ui_ready_2.ogg",
+   "sfx/ui_ready_3.ogg"
+  ],
+  "ui_drag": [
+   "sfx/ui_drag_1.ogg",
+   "sfx/ui_drag_2.ogg",
+   "sfx/ui_drag_3.ogg"
+  ],
+  "ui_slider": [
+   "sfx/ui_slider_1.ogg",
+   "sfx/ui_slider_2.ogg",
+   "sfx/ui_slider_3.ogg"
+  ],
+  "ui_page": [
+   "sfx/ui_page_1.ogg",
+   "sfx/ui_page_2.ogg",
+   "sfx/ui_page_3.ogg",
+   "sfx/ui_page_4.ogg"
+  ],
+  "ui_coin": [
+   "sfx/ui_coin_1.ogg",
+   "sfx/ui_coin_2.ogg",
+   "sfx/ui_coin_3.ogg"
+  ],
+  "countdown_final": [
+   "sfx/countdown_final_1.ogg",
+   "sfx/countdown_final_2.ogg"
+  ],
+  "hit_head": [
+   "sfx/hit_head_1.ogg",
+   "sfx/hit_head_2.ogg"
+  ],
+  "kill_streak3": [
+   "sfx/kill_streak3_1.ogg",
+   "sfx/kill_streak3_2.ogg"
+  ],
+  "kill_streak5": [
+   "sfx/kill_streak5_1.ogg",
+   "sfx/kill_streak5_2.ogg"
+  ],
+  "kill_streak7": [
+   "sfx/kill_streak7_1.ogg",
+   "sfx/kill_streak7_2.ogg"
+  ],
+  "hardpoint_capture": [
+   "sfx/hardpoint_capture_1.ogg",
+   "sfx/hardpoint_capture_2.ogg"
+  ],
+  "hardpoint_lost": [
+   "sfx/hardpoint_lost_1.ogg",
+   "sfx/hardpoint_lost_2.ogg"
+  ],
+  "spawn": [
+   "sfx/spawn_1.ogg",
+   "sfx/spawn_2.ogg"
+  ],
+  "ambience_water": [
+   "sfx/ambience_water_1.ogg"
+  ],
+  "ambience_wind": [
+   "sfx/ambience_wind_1.ogg"
+  ],
+  "ambience_crickets": [
+   "sfx/ambience_crickets_1.ogg"
+  ],
+  "ambience_highway": [
+   "sfx/ambience_highway_1.ogg"
+  ],
+  "ambience_machine": [
+   "sfx/ambience_machine_1.ogg"
+  ],
+  "ambience_hum": [
+   "sfx/ambience_hum_1.ogg"
+  ],
+  "ambience_room": [
+   "sfx/ambience_room_1.ogg"
+  ],
+  "ambience_yard": [
+   "sfx/ambience_yard_1.ogg"
   ]
  },
  "music": {
   "lobby": [
    "music/lobby_1.ogg",
    "music/lobby_2.ogg",
-   "music/lobby_3.ogg"
+   "music/lobby_3.ogg",
+   "music/lobby_4.ogg",
+   "music/lobby_5.ogg",
+   "music/lobby_6.ogg",
+   "music/lobby_7.ogg"
   ],
   "shop": [
    "music/shop_1.ogg",
-   "music/shop_2.ogg"
+   "music/shop_2.ogg",
+   "music/shop_3.ogg",
+   "music/shop_4.ogg",
+   "music/shop_5.ogg"
   ]
  }
 }

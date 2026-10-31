@@ -32,8 +32,8 @@ Modelled and rigged by the project in Blender (tools/blender/build_hands.py, exp
 ## Sound pack (assets/audio/, optional)
 
 Everything under assets/audio/ is cut and re-encoded from the recordings below by `tools/audio/build_pack.py` (mono 44.1 kHz Ogg
-Vorbis for sound effects, trimmed to the sound, faded and peak-normalised; music re-encoded to stereo Ogg Vorbis, otherwise
-unchanged). Which recording a game sound comes from is in that script. The game fetches none of it unless the player switches on
+Vorbis for sound effects, trimmed to the sound, faded and peak-normalised, some pitch-shifted a little by gun weight or low/high-passed;
+music re-encoded to stereo Ogg Vorbis, otherwise unchanged, short loops repeated end to end). Which recording a game sound comes from is in that script. The game fetches none of it unless the player switches on
 "Recorded sound pack" or "Lobby and shop music" in settings. Pages are on https://opengameart.org/content/<name>.
 
 CC0 1.0 (no attribution needed; credited anyway):
@@ -52,8 +52,23 @@ CC0 1.0 (no attribution needed; credited anyway):
 - `just-smore-fun`: "Just S'more Fun" (RD). Lobby music.
 - `main-menu-music-loop`: "Main Menu Music (Loop)" (Pro Sensory). Lobby music.
 - `menu-music-1`: "Menu Music" (wipics), menu_3.ogg. Lobby music.
+- `in-the-lobby`: "In the Lobby" (Umplix). Lobby music.
+- `waiting-0`: "Waiting..." (Umplix). Shop music.
+- `menu-music`: "Menu Music" (mrpoly / Tempel), awesomeness.wav. Lobby music.
+- `spacyloop`: "SpacyLoop" (ElectronicFreaker). Lobby music, played three times over.
+- `friendly-talk-on-a-robotic-battlefield` (illin). Lobby music.
+- `shop-theme`: "Shop Theme" (CleytonKauffman / Snabisch), "Buy something!". Shop music.
+- `bossa-nova`: "Bossa Nova" (Joth / looneybits), 8bit Bossa.mp3. Shop music.
+- `equipment-clicks-ii`, `equipment-clicks-iii`: "Equipment Clicks II" and "equipment clicks III" (LFA). Every gun's dry fire, equip, reload and low-ammo
+  click, and the brass landing, are cut from these.
+- `gun-reload-lock-or-click-sound`: "Gun reload, lock or click sound" (pauliuw). Magazine, slide and lock clicks.
+- `handgun-reload-sound-effect`: "Handgun Reload Sound Effect" (zer0_sol). Magazine out and in, slide.
+- `crickets-ambient-noise-loopable`: "Crickets Ambient Noise - loopable" (Wolfgang_ / 2DPIXX). Desert night ambience.
+- `wind-whoosh-loop`: "wind whoosh loop" (SketchMan3). Snow ambience.
 
 Creative Commons Attribution 3.0 (credit required; given here):
+- `chaingun-pistol-rifle-shotgun-shots`: "Chaingun, pistol, rifle, shotgun shots", sounds (c) Michel Baradari, apollo-music.de, via qubodup. Extra takes of the
+  pistol, rifle, shotgun and LMG shots.
 - `shotgun-shoot-reload`: Mike Koenig, https://soundbible.com/, via qubodup. Dry fire, chambering, magazine out and in, pump, the 10-gauge shot.
 - `footsteps-on-different-surfaces` (congusbongus; https://opengameart.org/content/footsteps-on-different-surfaces), each folder derived from
   Freesound recordings: concrete/boots, tile, grass and wood from swuing (freesound.org/people/swuing/sounds/38873, 38874, 38876);

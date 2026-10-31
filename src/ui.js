@@ -245,7 +245,7 @@ const SETTINGS_SCHEMA = [
   { key: 'soundPack', type: 'toggle', label: 'Recorded sound pack',
     hint: 'Real recordings for guns, footsteps, menus, crates and more (about 5 MB, downloaded when you switch it on). Off uses the built-in synthesized sounds.' },
   { key: 'menuMusic', type: 'toggle', label: 'Lobby and shop music',
-    hint: 'Music in the lobby and the item shop (about 5 MB, downloaded when you switch it on).' },
+    hint: 'Music in the lobby and the item shop (12 tracks, 1 to 3 MB each, each one downloaded as it comes on).' },
 ];
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */

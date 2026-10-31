@@ -17,6 +17,7 @@ import { WEAPONS, WEAPON_BY_ID } from '../sim/weaponData.js';
 import { killLine } from '../sim/killinfo.js';
 import { GUN_LADDER, MODE_INFO, teamScore } from '../sim/modes.js';
 import { updateHealProp } from '../healProp.js';
+import { createKillerView } from '../killerView.js';
 import { createChat } from './chat.js';
 import { createFlags } from './flags.js';
 import { createZone } from './zone.js';
@@ -43,7 +44,7 @@ const BLEND_RATE = 30;              // 1/s: a correction is ~95% gone in 100 ms
 const INTERP_MIN = 0.1, EXTRAP_MAX = 0.1;   // s: the delay before anything is measured, and how far a puppet is carried past its last snapshot
 const SNAP_KEEP = 60;               // snapshots kept: interpolation needs 1.5 s, the killcam replays the last 2 s
 const SNAP_EVERY = TICK_HZ / SNAPSHOT_HZ;
-const KC_FRAMES = 42;               // snapshots a killcam replays (2.05 s)
+const KC_FRAMES = 32;               // snapshots a killcam replays (1.55 s: swing, rewind and replay must end inside the 3 s respawn wait)
 const LOSS_WINDOW = 5000;           // ms the loss figure is measured over
 const SHOT_SHOW = 0.3;              // s a puppet keeps its gun up after a shot
 // A Durable Object's CPU allowance is topped up by incoming messages, and the room ticks whether
@@ -109,6 +110,7 @@ export function createNetClient(d) {
   let killerId = null;
   let specTarget = null, freeCam = false;
   const shotLog = [];                // recent SHOT events with their tick: the killcam replays them
+  const hitLog = [];                 // recent hits on you, the same
   let kc = null, lastDeath = null;   // the killcam being replayed; who killed you, with what
   const killedBy = new Map();        // victim id -> killer id, for the spectator's follow-killer
   let lastSnapTick = null;
@@ -142,9 +144,7 @@ export function createNetClient(d) {
     };
     const recon = make('mp-recon');
     recon.innerHTML = '<b></b><span></span><div class="bar"><i></i></div>';
-    const kcBar = make('mp-kc');
-    kcBar.innerHTML = '<span>KILLCAM</span><div class="bar"><i></i></div>';
-    return { status: make('mp-status'), debug: make('mp-debug'), end: make('mp-end'), net: make('mp-net'), recon, kc: kcBar, spec: make('mp-spec'), count: make('mp-count') };
+    return { status: make('mp-status'), debug: make('mp-debug'), end: make('mp-end'), net: make('mp-net'), recon, spec: make('mp-spec'), count: make('mp-count') };
   })();
 
   function setStatus(text) {
@@ -609,15 +609,14 @@ export function createNetClient(d) {
     roster.clear();
     snaps.length = 0; latest = null; reconSnap = null; reconSpawn = false;
     pred = null; started = false; myId = null; spectator = false; endInfo = null;
-    kc = null; lastDeath = null; killedBy.clear(); specTarget = null; freeCam = false; gaps.length = 0; lastSnapTick = null;
+    endKillcam(); lastDeath = null; killedBy.clear(); shotLog.length = 0; hitLog.length = 0; specTarget = null; freeCam = false; gaps.length = 0; lastSnapTick = null;
     clearTimeout(reconTimer);
-    for (const n of [ui.end, ui.recon, ui.kc, ui.spec, ui.net, ui.count]) n.classList.remove('on');
+    for (const n of [ui.end, ui.recon, ui.spec, ui.net, ui.count]) n.classList.remove('on');
     chat.clear(); chat.show(false); chat.dock(false); flagsView.clear(); zoneView.clear();
     lobbyUI.show(false); wasLobby = false; queued = false; rosterList = [];
     stageShow(false); stageReady = false; stageSig = ''; prevPhase = 0;
     if (loadScreen.active) loadScreen.hide(0);
     lobbyInfo = { host: null, settings: null, blocker: null, spectators: 0 };
-    el.pause.classList.remove('kc');
     setStatus(null);
     ui.debug.classList.remove('on');
     document.body.classList.remove('mp-spec');
@@ -850,11 +849,11 @@ export function createNetClient(d) {
   function onEvent(e, s) {
     switch (e.kind) {
       case EV.SHOT: {
-        if (!kc) {
+        if (!kc || kc.phase === 'zoom') {
           shotLog.push({ tick: s.tick, shooter: e.shooter, weapon: e.weapon, o: e.o, d: e.d });
           while (shotLog.length && shotLog[0].tick < s.tick - KC_FRAMES * 2) shotLog.shift();
         }
-        if (e.shooter === myId || kc) break;     // already drawn when it was predicted; the killcam shows the past
+        if (e.shooter === myId || (kc && kc.phase !== 'zoom')) break;     // already drawn when it was predicted; the killcam shows the past
         lastShot.set(e.shooter, performance.now());
         const b = puppets.get(e.shooter);
         const w = WEAPON_BY_ID[e.weapon];
@@ -885,6 +884,10 @@ export function createNetClient(d) {
           const src = s.players.find((q) => q.id === e.attacker);
           if (src && e.attacker !== myId) d.showDamageDirection(src.pos);
           d.addShake(0.035);
+        }
+        if (e.victim === myId && (!kc || kc.phase === 'zoom')) {
+          hitLog.push({ tick: s.tick, attacker: e.attacker, p, dmg: e.dmg, head, zone, shield: !!shield, lethal });
+          while (hitLog.length && hitLog[0].tick < s.tick - KC_FRAMES * 2) hitLog.shift();
         }
         if (!shield) d.spawnBlood(p);
         break;
@@ -1155,11 +1158,12 @@ export function createNetClient(d) {
   function updateRemotes(dt) {
     if (!latest) return;
     // A killcam replays the frozen past: everyone, you included, drawn from the copy taken at your death.
-    const list = kc ? kc.frames : snaps;
-    const rt = kc ? kc.rt : renderTick();
+    const replay = kc && kc.phase !== 'zoom';
+    const list = replay ? kc.frames : snaps;
+    const rt = replay ? Math.min(kc.rt, kc.frames[kc.frames.length - 1].tick) : renderTick();
     const now = performance.now();
-    for (const q of kc ? kc.frames[kc.frames.length - 1].players.values() : latest.players) {
-      if (q.id === myId && !kc) continue;
+    for (const q of replay ? kc.frames[kc.frames.length - 1].players.values() : latest.players) {
+      if (q.id === myId && !replay) continue;
       const b = puppetFor(q.id, q.team);
       if (!b) continue;
       b.kills = q.kills; b.deaths = q.deaths;
@@ -1181,7 +1185,7 @@ export function createNetClient(d) {
       updateHealProp(b, using, now);
     }
     // Seated players missing from the snapshot have dropped: their seat is held, their body is not.
-    if (!kc) {
+    if (!replay) {
       for (const [id, b] of puppets) {
         if (!latest.players.some((q) => q.id === id) && b.alive) b.die(false);
       }
@@ -1296,62 +1300,161 @@ export function createNetClient(d) {
   /* ------------------------------------------------------------- killcam */
 
   /**
-   * On a kill, the last two seconds of snapshots are copied out of the live buffer and replayed
-   * from the killer's eyes while the respawn timer runs. Nothing extra crosses the wire: every
-   * player's position and look direction is already in each snapshot.
+   * The solo kill cam (src/killcam.js), online. Your death shows the last two seconds of the fight
+   * from your killer's own eyes: the view swings onto them, the picture rewinds, and the replay
+   * plays through their screen: the gun in their hands, their sights or scope, the shots they fired,
+   * and the numbers and hit markers as each one landed on you.
+   *
+   * Nothing extra crosses the wire. Every player's position and look direction is already in each
+   * snapshot, and the shots and hits are events the client already receives; on a kill the last
+   * snapshots are copied out of the live buffer and replayed from the copy. The whole thing fits in
+   * the 3 s you wait to respawn, and ends the moment you are back.
    */
+  const KC_ZOOM = 0.55;              // s: the view swings onto the killer, live
+  const KC_CUT = 0.45;               // s: the rewind (the CSS static runs this long)
+  const KC_HOLD = 0.1;               // s: lingering on the moment it lands
+  const KC_SKIP_AFTER = 0.6;         // s before a click or Space cuts it short
+  const kcEl = (id) => document.getElementById(id);
+  const kcView = d.fp ? createKillerView({ camera, fp: d.fp }) : null;
+  const _kcLook = new THREE.Quaternion(), _kcMat = new THREE.Matrix4(), _kcUp = new THREE.Vector3(0, 1, 0), _kcAt = new THREE.Vector3();
+
   function startKillcam(killer) {
     const frames = snaps.slice(-KC_FRAMES);
     if (frames.length < 10 || !frames.some((f) => f.players.get(killer))) return;
-    kc = { id: killer, frames, rt: frames[0].tick, shot: 0, dist: 2.4, shots: shotLog.filter((x) => x.tick >= frames[0].tick) };
-    el.pause.classList.add('kc');
     const w = lastDeath && WEAPON_BY_ID[lastDeath.weapon];
-    ui.kc.firstChild.textContent = lastDeath
-      ? `KILLCAM \u00b7 ${lastDeath.name ?? ''} \u00b7 ${killLine(w?.name ?? lastDeath.weapon, lastDeath)}` : 'KILLCAM';
-    ui.kc.classList.add('on');
+    kc = {
+      id: killer, frames, rt: frames[0].tick, phase: 'zoom', t: 0, time: 0, aim: 0, eyeH: CONFIG.EYE_HEIGHT, fov: camera.fov, shot: 0, hit: 0,
+      shots: shotLog.filter((x) => x.tick >= frames[0].tick),
+      hits: hitLog.filter((x) => x.attacker === killer && x.tick >= frames[0].tick),
+    };
+    document.body.classList.add('killcam');
+    const name = who(killer)?.name ?? lastDeath?.name ?? '';
+    const set = (id, text) => { const n = kcEl(id); if (n) n.textContent = text; };
+    set('kc-who', 'ELIMINATED BY');
+    set('kc-name', name);
+    set('kc-weapon', `${w?.name ?? lastDeath?.weapon ?? ''}${lastDeath?.head ? ' \u00b7 HEADSHOT' : ''}`);
+    set('kc-lost', '');
+    kcEl('killcam')?.classList.remove('replay', 'cut');
+    kcEl('killcam')?.classList.add('on');
+    if (!puppets.get(killer)?.alive) kcPhase('cut');       // nobody left to swing onto: straight to the replay
   }
 
+  function kcPhase(next) {
+    kc.phase = next; kc.t = 0;
+    const box = kcEl('killcam');
+    if (next === 'cut') {
+      Audio.rewind?.();
+      box?.classList.add('cut');
+      kc.rt = kc.frames[0].tick;
+    } else if (next === 'replay') {
+      box?.classList.remove('cut');
+      box?.classList.add('replay');
+      document.body.classList.add('killcam-replay');
+      const who = kcEl('kc-who'); if (who) who.textContent = 'KILL CAM';
+    }
+  }
+
+  /** Back to your own screen. Safe to call when no cam is running. */
   function endKillcam() {
-    if (!kc) return;
-    const b = puppets.get(kc.id);
-    if (b?.alive) b.mesh.visible = true;
-    kc = null;
-    removePuppet(myId);       // the stand-in that played you
-    ui.kc.classList.remove('on');
-    el.pause.classList.remove('kc');
+    if (kc) {
+      const b = puppets.get(kc.id);
+      if (b?.alive) b.mesh.visible = true;
+      kc = null;
+      removePuppet(myId);       // the stand-in that played you
+    }
+    kcView?.end();
+    document.body.classList.remove('killcam', 'killcam-replay');
+    kcEl('killcam')?.classList.remove('on', 'replay', 'cut');
   }
 
   const _k = {};
   /** Plays one frame of the killcam. True when it placed the camera. */
   function stepKillcam(dt) {
-    kc.rt += dt * TICK_HZ;
+    kc.t += dt;
     const last = kc.frames[kc.frames.length - 1].tick;
-    if (kc.rt > last + 24 || player.alive || phase !== PHASE.PLAYING || spectator) { endKillcam(); return false; }
-    if (!sample(kc.id, kc.rt, _k, kc.frames)) { endKillcam(); return false; }
-    const b = puppets.get(kc.id);
-    if (b) b.mesh.visible = true;
-    // Replay the killer's shots as they happened, so the muzzle flashes and tracers say where it came from.
-    while (kc.shot < kc.shots.length && kc.shots[kc.shot].tick <= kc.rt) {
-      const sh = kc.shots[kc.shot++];
-      const sb = puppets.get(sh.shooter), sw = WEAPON_BY_ID[sh.weapon];
-      lastShot.set(sh.shooter, performance.now());
-      if (sb && sw && !sw.thrown) d.fireWeapon(sb, sw, v3(sh.o), v3(sh.d), 1);
+    if (player.alive || phase !== PHASE.PLAYING || spectator) { endKillcam(); return false; }
+    const prog = kcEl('kc-progress');
+    const killerPuppet = puppets.get(kc.id);
+
+    if (kc.phase === 'zoom') {
+      // Live: swing the view onto the killer's head and close in on them.
+      if (!killerPuppet?.alive) { kcPhase('cut'); return stepKillcam(0); }
+      const u = Math.min(1, kc.t / KC_ZOOM), e = u * u * (3 - 2 * u);
+      _kcAt.set(killerPuppet.mesh.position.x, killerPuppet.mesh.position.y + 1.45, killerPuppet.mesh.position.z);
+      _kcMat.lookAt(camera.position, _kcAt, _kcUp);
+      _kcLook.setFromRotationMatrix(_kcMat);
+      camera.quaternion.slerp(_kcLook, Math.min(1, e * 1.15));
+      camera.fov = kc.fov + (24 - kc.fov) * e;
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      if (prog) prog.style.width = '0%';
+      if (kc.t >= KC_ZOOM) kcPhase('cut');
+      ui.spec.classList.remove('on');
+      el.crosshair.classList.add('off');
+      el.scope.classList.remove('on');
+      return true;
     }
-    // Through the killer's own eyes, as the solo kill cam does: where they aim, and the sights when they are aiming.
+
+    if (kc.phase === 'cut') {
+      if (kc.t >= KC_CUT) kcPhase('replay');
+    } else {
+      // Land on the final frame before ending, so a slow frame at the end cannot skip the killing shot's number.
+      const endRt = last + KC_HOLD * TICK_HZ;
+      if (kc.rt >= endRt) { endKillcam(); return false; }
+      kc.rt = Math.min(kc.rt + dt * TICK_HZ, endRt);
+    }
+    const rt = Math.min(kc.rt, last);
+    if (!sample(kc.id, rt, _k, kc.frames)) { endKillcam(); return false; }
+    kc.time += dt;
+    // Replay the killer's shots as they happened, so the muzzle flashes and tracers say where it came from.
+    const fpw = WEAPON_BY_ID[_k.weapon];
+    if (kc.phase === 'replay') {
+      while (kc.shot < kc.shots.length && kc.shots[kc.shot].tick <= kc.rt) {
+        const sh = kc.shots[kc.shot++];
+        const sb = puppets.get(sh.shooter), sw = WEAPON_BY_ID[sh.weapon];
+        lastShot.set(sh.shooter, performance.now());
+        if (sh.shooter === kc.id && kcView?.on) kcView.shoot(sw, v3(sh.o));
+        if (sb && sw && !sw.thrown) d.fireWeapon(sb, sw, v3(sh.o), v3(sh.d), 1);
+      }
+    }
+    // Through the killer's own eyes: where they aim, and the sights when they are aiming.
+    kc.aim += ((_k.aiming ? 1 : 0) - kc.aim) * (1 - Math.exp(-dt * 12));
+    kc.eyeH += ((_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT) - kc.eyeH) * (1 - Math.exp(-dt * 12));
     const sy = Math.sin(_k.yaw), cy = Math.cos(_k.yaw), cp = Math.cos(_k.pitch), sp = Math.sin(_k.pitch);
-    const eyeY = _k.y + (_k.crouching ? CONFIG.CROUCH_HEIGHT : CONFIG.EYE_HEIGHT);
-    camera.position.set(_k.x - sy * cp * 0.14, eyeY + sp * 0.14, _k.z - cy * cp * 0.14);
+    const eyeY = _k.y + kc.eyeH;
+    camera.position.set(_k.x - sy * cp * 0.05, eyeY + sp * 0.05, _k.z - cy * cp * 0.05);
     camera.lookAt(_k.x - sy * cp * 30, eyeY + sp * 30, _k.z - cy * cp * 30);
-    const kw = WEAPON_BY_ID[_k.weapon];
-    const fov = _k.aiming ? hipFov() * (kw?.zoom ? 0.32 : 0.78) : hipFov();
-    if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    const seen = kcView?.frame(fpw, kc.aim, Math.hypot(_k.vx, _k.vz), kc.time, dt);
+    if (!seen) {
+      const fov = hipFov() * (1 - kc.aim * (fpw?.zoom ? 0.68 : 0.22));
+      if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    }
+    // No one sees their own body: only the gun in their hands.
+    if (killerPuppet) killerPuppet.mesh.visible = !seen;
     camera.updateMatrixWorld();
-    ui.kc.querySelector('i').style.width = `${Math.min(100, ((kc.rt - kc.frames[0].tick) / (last - kc.frames[0].tick)) * 100).toFixed(1)}%`;
+    if (kc.phase === 'replay') {
+      // The numbers and marker the killer saw as each shot landed on you, whatever your own setting says.
+      while (kc.hit < kc.hits.length && kc.hits[kc.hit].tick <= kc.rt) {
+        const h = kc.hits[kc.hit++];
+        if (!h.shield) d.spawnBlood(h.p);
+        if (seen && h.dmg > 0) {
+          d.showDamageNumber(h.p, h.dmg, h.head, h.zone, !!h.shield, h.lethal, true);
+          d.showHitMarker(h.lethal ? 'kill' : h.head ? 'head' : 'body', h.head);
+        }
+      }
+    }
+    if (prog) prog.style.width = `${Math.min(100, Math.max(0, ((kc.rt - kc.frames[0].tick) / (last - kc.frames[0].tick + KC_HOLD * TICK_HZ)) * 100)).toFixed(1)}%`;
     ui.spec.classList.remove('on');
-    el.crosshair.classList.add('off');
-    el.scope.classList.remove('on');
+    if (!seen) el.crosshair.classList.add('off');
     return true;
   }
+
+  /** Space, Enter or a click cuts the cam short, to the ordinary death screen. */
+  function skipKillcam() {
+    if (kc && kc.t > KC_SKIP_AFTER && kc.phase === 'replay') endKillcam();
+  }
+  addEventListener('keydown', (e) => { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) skipKillcam(); });
+  addEventListener('mousedown', skipKillcam);
 
   addEventListener('keydown', (e) => {
     if (!active || e.repeat) return;
@@ -1538,6 +1641,8 @@ export function createNetClient(d) {
       return true;
     },
     reload() { reloadLatch = true; },
+    /** True while an online kill cam is drawing the killer's own gun (and so the first-person rig is theirs). */
+    get killcamGun() { return !!kcView?.on; },
     /** The locker changed skin or loadout: remember it for the next room, and tell this one. */
     gear(character, loadout) {
       try { storage('sessionStorage')?.setItem(CHAR_KEY, character); } catch { /* private mode */ }
@@ -1549,6 +1654,7 @@ export function createNetClient(d) {
       you: pred ? { x: pred.p.body.position.x, y: pred.p.body.position.y, z: pred.p.body.position.z, alive: pred.p.alive } : null,
       remotes: latest ? latest.players.filter((q) => q.id !== myId).map((q) => ({ id: q.id, pos: q.pos, alive: q.alive })) : [],
       hash, lobby: lobbyUI.shown, queued, stageReady, staged: stage.on,
+      killcam: kc ? { phase: kc.phase, id: kc.id, hits: kc.hits.length, shots: kc.shots.length } : null,
     }),
   };
 }

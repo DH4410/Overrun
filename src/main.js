@@ -1304,7 +1304,7 @@ function frame() {
     updateLights();
     updateShake(dt);
     updateSpotting(dt);
-    if (cameraPlaced) vmRig.visible = false;
+    if (cameraPlaced) { if (!net.killcamGun) vmRig.visible = false; }     // an online kill cam shows the killer's own gun in their hands
     else { updateViewModel(dt); updateCamera(dt); }
     emotes.update(dt, { running: net.playing, firing: isFiring() });
     updateEmoteSongs();
@@ -1729,14 +1729,15 @@ $('ptab-solo')?.addEventListener('click', () => setPlayPane('solo'));
 $('ptab-online')?.addEventListener('click', () => setPlayPane('online'));
 $('tab-play')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('play'); });
 $('tab-operators')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('operators'); });
+// What a kill cam needs to draw the killer's own screen: the first-person gun, flash, numbers (solo and online).
+const killcamFp = {
+  vmRig, viewHands, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash, setAmmoCounter,
+  hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
+};
 killcam = createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
-  // What the replay needs to draw the killer's own screen: the first-person gun, flash, numbers.
-  fp: {
-    vmRig, viewHands, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
-    hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
-  },
+  fp: killcamFp,
 });
 /** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
 function skipKillcam() {
@@ -1758,7 +1759,7 @@ net = createNetClient({
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,
-  showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
+  showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud, fp: killcamFp,
   setPaused: () => { appState = APP_STATE.PAUSED; },
   warmScene, setSharp,
   getGunSkins: () => worn().guns ?? {},

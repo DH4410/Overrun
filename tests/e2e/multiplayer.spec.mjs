@@ -134,6 +134,7 @@ test('two players and a spectator share one room, and see each other move', asyn
   await expect(a.locator('#menu')).toBeVisible();
   await expect(a.locator('#menuresult')).toHaveText('Left the online match');
   expect(await a.evaluate(() => window.__game.bots.length)).toBe(0);
+  await a.click('#ptab-solo');             // leaving lands on the ONLINE tab; single player's DEPLOY is on the other
   await a.click('#play', { force: true });
   await expect.poll(() => a.evaluate(() => window.__game.match.running), { timeout: 30_000 }).toBe(true);
   await expect.poll(() => a.evaluate(() => window.__game.bots.filter((x) => !x.puppet).length), { timeout: 30_000 }).toBeGreaterThan(0);

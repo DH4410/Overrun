@@ -227,6 +227,8 @@ test('the replay view holds on you while the killer turns and shifts about', asy
     bot.body.position.set(p.x + 9, p.y, p.z);
     bot.target = g.player;
     g.player.invulnTimer = 0;
+    bot.weaponId = 'ar';               // a rifle with iron sights: a scoped gun hides the cross by design (see the scope test)
+    bot.slots.length = 1;
     // Not aiming for the first second, then aiming; and a body that never stops turning.
     let frame = 0;
     Object.defineProperty(bot, 'aimW', { get: () => (frame > 60 ? 1 : 0), set() {} });
@@ -247,6 +249,7 @@ test('the replay view holds on you while the killer turns and shifts about', asy
   // The replay opens on the moment the killer starts aiming, not on the wandering before it.
   // Skip the first quarter second (the view settling onto them) and sample the rest.
   await pumpFrames(page, 15);
+  await page.evaluate(() => document.querySelector('#crosshair').getAnimations().forEach((a) => a.finish()));   // the cross fades in over .12 s, and the test clock does not run CSS transitions
   const cross = await page.evaluate(() => {
     const el = document.querySelector('#crosshair');
     const dot = el.querySelector('.ch-dot');

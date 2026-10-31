@@ -11,7 +11,7 @@
  *  - Assets (.glb, .gltf, .bin, images) are CACHE-FIRST. They are large, immutable in
  *    practice, and they are what actually makes a cold load slow.
  */
-const CACHE = 'overrun-v85';
+const CACHE = 'overrun-v86';
 const PRECACHE = [
   './',
   './index.html', './game.js', './ui-overhaul.css',
@@ -32,7 +32,7 @@ const PRECACHE = [
   './assets/bots/gasmask.glb', './assets/bots/crypto.glb', './assets/bots/ely.glb',
   './assets/bots/steve.glb',
   // The healing items, ammo chest and first-person gloves (small; the game has stand-ins if they are late).
-  './assets/items/bandage.glb', './assets/items/medkit.glb', './assets/items/mini.glb', './assets/items/big.glb', './assets/items/chest.glb', './assets/items/hands.glb', './assets/guns/guns.glb',
+  './assets/items/bandage.glb', './assets/items/medkit.glb', './assets/items/mini.glb', './assets/items/big.glb', './assets/items/chest.glb', './assets/items/hands.glb', './assets/guns/guns.glb', './assets/player/hands.glb',
   // The default map: without these an offline boot has nothing to play on.
   './assets/maps/port.glb?v=orig1', './assets/maps/port.json',
   './assets/maps/thumbs/port.jpg', './assets/maps/thumbs/desert.jpg', './assets/maps/thumbs/snow.jpg', './assets/maps/thumbs/warzone.jpg', './assets/maps/thumbs/depot.jpg', './assets/maps/thumbs/bastion.jpg', './assets/maps/thumbs/arena.jpg', './assets/maps/thumbs/metro.jpg',

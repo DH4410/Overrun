@@ -417,6 +417,10 @@ export function createKillcam({
     fp.vmRig.position.copy(_vmPos);
     fp.vmRig.rotation.set(-0.02 * hip - vmKick * 1.1, 0.07 * hip, 0.03 * hip);
     fp.vmRig.visible = !fpScoped;
+    if (fp.viewHands) {
+      fp.vmRig.updateMatrixWorld(true);
+      fp.viewHands.update({ id: w.id, vmMatrix: fp.vmRig.matrixWorld, reload: -1, show: !fpScoped });
+    }
     fp.updateMuzzleFlash(dt);
     $('scope')?.classList.toggle('on', fpScoped);
     const xh = $('crosshair');
@@ -433,6 +437,7 @@ export function createKillcam({
     if (!fp || !fpOn) return;
     fpOn = fpScoped = false; vmKick = 0;
     fp.vmRig.visible = false;
+    fp.viewHands?.update({ id: null, vmMatrix: fp.vmRig.matrixWorld, reload: -1, show: false });
     fp.updateMuzzleFlash(1);
     $('scope')?.classList.remove('on');
     $('crosshair')?.classList.add('off');

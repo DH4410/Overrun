@@ -400,6 +400,7 @@ const combatants = [];
 
 const {
   vmRig,
+  viewHands,
   vmModels,
   homePositions: VM_HOME,
   adsPosition,
@@ -1040,6 +1041,8 @@ function fixedStep(dt) {
 let vmAds = 0;
 let vmReload = 0;
 let vmUse = 0;                   // 0..1 eased: the gun lowered and an item raised while one is used
+let vmDraw = 1;                  // 0..1: the gun coming up after a swap
+let vmLastId = null;
 const heal = createHealAnim({ vmScene });   // the gloved hands and the held item (healAnim.js)
 const _vmHip = new THREE.Vector3();
 const _vmAim = new THREE.Vector3();
@@ -1082,7 +1085,16 @@ function updateViewModel(dt) {
     dip = p < 0.25 ? p / 0.25 : (p > 0.75 ? (1 - p) / 0.25 : 1);
   }
   vmReload += (dip - vmReload) * (1 - Math.exp(-dt * 14));
-  _vmTarget.y -= 0.12 * vmReload;
+  // With real hands the magazine hand has to stay on screen, so the gun only tips a little.
+  const rl = viewHands ? 0.3 : 1;
+  _vmTarget.y -= 0.12 * rl * vmReload;
+
+  // Swap: the new gun comes up from below and rolls level.
+  if (w.id !== vmLastId) { vmLastId = w.id; vmDraw = 0; }
+  vmDraw = Math.min(1, vmDraw + dt / 0.38);
+  const draw = 1 - vmDraw * vmDraw * (3 - 2 * vmDraw);
+  _vmTarget.y -= 0.26 * draw;
+  _vmTarget.x += 0.05 * draw;
 
   // Healing: the gun drops out of the way and the item comes up in the off hand, working as the
   // channel fills. Driven by useKind, which is the server's word in multiplayer.
@@ -1106,11 +1118,20 @@ function updateViewModel(dt) {
   // The three-quarter hip presentation, which must be exactly zero when aimed so the sight
   // line stays on the axis.
   vmRig.rotation.set(
-    -0.02 * hip + 0.35 * vmReload - vmRecoil * 1.1,
-    0.07 * hip,
-    0.03 * hip - 0.5 * vmReload,
+    -0.02 * hip + 0.35 * rl * vmReload - vmRecoil * 1.1 + 0.5 * draw,
+    0.07 * hip - 0.25 * draw,
+    0.03 * hip - 0.5 * rl * vmReload - 0.2 * draw,
   );
   vmRig.visible = !scoped && player.alive;     // the scope replaces the model entirely
+  if (viewHands) {
+    vmRig.updateMatrixWorld(true);
+    viewHands.update({
+      id: w.id,
+      vmMatrix: vmRig.matrixWorld,
+      reload: player.reloading > 0 ? 1 - player.reloading / player.reloadTotal : -1,
+      show: vmRig.visible && vmUse < 0.02,
+    });
+  }
 
   updateMuzzleFlash(dt);
 }
@@ -1677,7 +1698,7 @@ killcam = createKillcam({
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
   // What the replay needs to draw the killer's own screen: the first-person gun, flash, numbers.
   fp: {
-    vmRig, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
+    vmRig, viewHands, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
     hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
   },
 });

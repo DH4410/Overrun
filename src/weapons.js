@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { buildGunModel } from './gunmodels.js';
+import { createViewHands } from './viewHands.js';
 import { matte } from './rendering.js';
 import { clamp, rand } from './utils.js';
 import { WEAPONS } from './sim/weaponData.js';
@@ -26,6 +27,8 @@ for (const w of WEAPONS) {
   vmRig.add(m);
   vmModels[w.id] = m;
 }
+/** The skinned arms on the held gun (viewHands.js); null if hands.glb is missing, when the old gloves on the gun models stay. */
+const viewHands = createViewHands({ vmScene, vmRig, vmModels });
 
 /**
  * A small digital readout on the gun itself, so rounds left can be read without looking away from
@@ -185,6 +188,7 @@ buildAmmoCounters();
 
 return {
   vmRig,
+  viewHands,
   vmModels,
   homePositions: VM_HOME,
   adsPosition,

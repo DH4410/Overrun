@@ -24,3 +24,7 @@ Built by `tools/blender/build_guns.py` from the "Ultimate Gun Pack" by Quaterniu
 https://opengameart.org/content/low-poly-guns-pack): pistol, revolver, machine pistol, SMG, assault rifle, LMG,
 both shotguns, DMR and sniper rifle are those meshes, rescaled, with the magazines split out and sight, muzzle and
 grip points added. The frag grenade is modelled in the same script. Optics are built in `src/gunmodels.js`.
+
+## First-person arms (assets/player/hands.glb)
+
+Modelled and rigged by the project in Blender (tools/blender/build_hands.py, export_hands.py); no third-party assets. Gun tuning and the hold/reload poses are in src/viewHands.js.

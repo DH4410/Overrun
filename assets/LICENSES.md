@@ -18,3 +18,9 @@ tried and rejected: the first is grey, the second is a flat brown.
 Peasant (Peasant Girl), Boss (The Boss), Amy and Jolleen are Mixamo characters (https://www.mixamo.com/),
 free to use in games under Adobe's Mixamo terms. FBX with skin, T-pose, converted with scripts/fbx-to-glb.mjs
 (max texture 512). Sizes: peasant 1.0 MB, boss 2.8 MB, amy 2.5 MB, jolleen 2.7 MB.
+
+## assets/guns/guns.glb (weapon models)
+Built by `tools/blender/build_guns.py` from the "Ultimate Gun Pack" by Quaternius (CC0 1.0,
+https://opengameart.org/content/low-poly-guns-pack): pistol, revolver, machine pistol, SMG, assault rifle, LMG,
+both shotguns, DMR and sniper rifle are those meshes, rescaled, with the magazines split out and sight, muzzle and
+grip points added. The frag grenade is modelled in the same script. Optics are built in `src/gunmodels.js`.

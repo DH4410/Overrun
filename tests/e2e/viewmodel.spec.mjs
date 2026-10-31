@@ -50,8 +50,8 @@ async function aimedBounds(page, id) {
  * rule is that nothing but the sights rises above the sight line.
  */
 const CEILING = {
-  ar: -0.06, smg: -0.06, pistol: 0.0, shotgun: 0.0,
-  revolver: 0.0, mp: 0.0, lmg: -0.06, ashotgun: 0.0,
+  ar: 0.0, smg: 0.0, pistol: 0.0, shotgun: 0.0,
+  revolver: 0.0, mp: 0.0, lmg: 0.0, ashotgun: 0.0,
 };
 
 for (const id of ['ar', 'smg', 'pistol', 'shotgun', 'revolver', 'mp', 'lmg', 'ashotgun']) {

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { PATTERNS } from './gunskins.js';
 import { patchMaterial, patternTexture } from './gunTextures.js';
+import { markShared } from './rendering.js';
 
 /**
  * Procedural firearms, shared by the first-person viewmodels and the guns bots carry.
@@ -859,6 +861,122 @@ const BUILDERS = {
   revolver: buildRevolver, mp: buildMachinePistol, lmg: buildLmg, ashotgun: buildAutoShotgun, dmr: buildDmr,
 };
 
+/* --------------------------- modelled guns --------------------------- */
+
+/**
+ * The guns are modelled in Blender (tools/blender/build_guns.py -> assets/guns/guns.glb): one node
+ * per weapon id with a `body`, a `mag` where the magazine is its own part, and empties for the
+ * muzzle, sight line and both hand positions. They load before the first model is built (the
+ * builders above stay as the fallback if the file is missing, as it is in the unit tests).
+ */
+let gunArt = null;
+try {
+  gunArt = (await new GLTFLoader().loadAsync('assets/guns/guns.glb')).scene;
+  gunArt.traverse((o) => { if (o.isMesh) markShared(o.geometry); });
+} catch {
+  gunArt = null;
+}
+
+/** The finish role each source material takes, so skins and the locker repaint the modelled guns too. */
+const ART_ROLE = {
+  Black: 'polymer', Black2: 'polymer', MainDark: 'polymer',
+  DarkMetal: 'alloy', Main: 'alloy', Metal: 'alloy', Grey: 'alloy',
+  LightMetal: 'steel', MainLight: 'steel', steel: 'steel',
+  Wood: 'wood', DarkWood: 'wood', Green: 'olive', olive: 'olive', Glass: 'glass',
+};
+/** How far behind the sight point the eye sits when aiming. */
+const ART_ADS_EYE = { pistol: 0.26, revolver: 0.26, mp: 0.26, smg: 0.15, ar: 0.16, lmg: 0.16, shotgun: 0.34, ashotgun: 0.34, sniper: 0.2, dmr: 0.34, frag: 0.3 };
+
+/** The modelled guns are scaled up to the old guns' length and heft, which is what the hip and aim framing was tuned for. */
+const ART_SCALE = { pistol: 1.15, revolver: 1.15, mp: 1.15, smg: 1.25, ar: 1.25, lmg: 1.25, shotgun: 1.25, ashotgun: 1.25, sniper: 1.25, dmr: 1.25, frag: 1.0 };
+
+/** A tube red dot on a riser, centred over the rail at `railV`, its rear ring `s0` ahead of the origin. The window is wide, so there is plenty of room to see through when aiming. */
+function addRedDot(inner, M, s0, railV) {
+  const R = 0.035;
+  const AXIS = railV + R + 0.03;
+  const add = (m) => { inner.add(m); return m; };
+  const riser = AXIS - R - railV + 0.012;
+  add(box(0.03, riser, 0.046, M.alloy, s0 + 0.03, railV + riser / 2 - 0.004, 0, 0.002));
+  const parts = [
+    add(tube(R, R, s0, s0 + 0.06, M.polymer, AXIS, 0, 32, true)),
+    add(ring(R, 0.0024, s0, M.polymer, AXIS)),
+    add(ring(R, 0.0024, s0 + 0.06, M.polymer, AXIS)),
+    add(post(0.0085, 0.014, M.polymer, 0, AXIS + R + 0.004, s0 + 0.03)),
+    add(post(0.0085, 0.014, M.polymer, R + 0.004, AXIS, s0 + 0.03, true)),
+  ];
+  const lens = add(disc(R - 0.001, s0 + 0.054, M.glass, AXIS));
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.00085, 10, 8), M.dot);
+  dot.position.set(0, AXIS, -(s0 + 0.05));
+  dot.renderOrder = 20;
+  add(dot);
+  lens.renderOrder = 10;
+  parts.push(lens, dot);
+  return { axis: AXIS, parts };
+}
+
+/** The small open reflex the SMG carries: a square frame round a wide glass, the dot on axis. */
+function addReflex(inner, M, s0, railV) {
+  const H = 0.052;
+  const AXIS = railV + H / 2 + 0.01;
+  const add = (m) => { inner.add(m); return m; };
+  add(box(0.034, 0.012, 0.05, M.alloy, s0 + 0.02, railV + 0.006, 0, 0.002));
+  const lens = add(box(H, H, 0.0015, M.glass, s0 + 0.01, AXIS, 0, 0));
+  const parts = [
+    add(box(0.004, H + 0.006, 0.012, M.polymer, s0 + 0.01, AXIS, -(H / 2 + 0.002), 0.001)),
+    add(box(0.004, H + 0.006, 0.012, M.polymer, s0 + 0.01, AXIS, H / 2 + 0.002, 0.001)),
+    add(box(H + 0.008, 0.004, 0.012, M.polymer, s0 + 0.01, AXIS + H / 2 + 0.002, 0, 0.001)),
+    lens,
+  ];
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.00085, 10, 8), M.dot);
+  dot.position.set(0, AXIS, -(s0 - 0.002));
+  dot.renderOrder = 20;
+  add(dot);
+  lens.renderOrder = 10;
+  parts.push(dot);
+  return { axis: AXIS, parts };
+}
+
+/** Guns that carry an optic of their own on top of the modelled body. */
+const ART_OPTIC = { ar: addRedDot, lmg: addRedDot, smg: addReflex };
+
+function buildFromArt(id, M) {
+  const art = gunArt?.getObjectByName(id);
+  if (!art) return null;
+  const g = new THREE.Group();
+  const inner = new THREE.Group();
+  const k = ART_SCALE[id] ?? 1;
+  inner.scale.setScalar(k);
+  g.add(inner);
+  const sightParts = [];
+  for (const name of ['body', 'mag']) {
+    const node = art.getObjectByName(`${id}_${name}`);
+    if (!node) continue;
+    const part = node.clone(true);
+    part.name = name;
+    part.traverse((o) => {
+      if (!o.isMesh) return;
+      const key = o.material?.name;
+      o.material = M[ART_ROLE[key] ?? 'alloy'];
+      if (key === 'Glass') sightParts.push(o);
+    });
+    inner.add(part);
+  }
+  const at = (n) => art.getObjectByName(`${id}_${n}`).position.clone();
+  const sight = at('sight');
+  const optic = ART_OPTIC[id];
+  if (optic) {
+    // The optic sits on the rail: its sight line replaces the model's own iron sight point.
+    const o = optic(inner, M, -sight.z - 0.03, sight.y);
+    sightParts.push(...o.parts);
+    sight.y = o.axis;
+  } else {
+    // Raised a hair so the front post sits just under the crosshair and the receiver drops out of the picture.
+    sight.y += 0.012;
+  }
+  const sc = (v) => v.multiplyScalar(k);
+  return finish(g, { muzzle: sc(at('muzzle')), sight: sc(sight), adsEye: ART_ADS_EYE[id] ?? 0.16, grip: sc(at('grip')), support: sc(at('support')), sightParts });
+}
+
 /**
  * Build a gun. `hands` adds gloved hands and sleeves (the first-person view); bots use their
  * own skeleton's hands. `materials` lets a caller own the materials — bots need their own set
@@ -866,8 +984,9 @@ const BUILDERS = {
  */
 export function buildGunModel(id, { hands = false, materials = null } = {}) {
   const M = materials ?? gunMaterials();
-  const g = (BUILDERS[id] ?? buildPistol)(M);
-  if (hands) addHands(g, id, M);
+  const art = buildFromArt(id, M);
+  const g = art ?? (BUILDERS[id] ?? buildPistol)(M);
+  if (hands && !art) addHands(g, id, M);
   g.userData.weaponId = id;
   return g;
 }

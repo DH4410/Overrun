@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 import { CONFIG } from './config.js';
-import { createKillerView } from './killerView.js';
 import { clamp, lerp } from './utils.js';
 
 /**
@@ -38,7 +37,6 @@ export function createKillcam({
   fp = null,
 }) {
   const $ = (id) => document.getElementById(id);
-  const view = fp ? createKillerView({ camera, fp, $ }) : null;      // the killer's own screen
   let now = 0, acc = 0;
   const rings = new Map();              // bot -> { head, n, frames[] }
   const me = [];                        // my own recorded states, newest last
@@ -241,7 +239,7 @@ export function createKillcam({
     for (const x of flashes) scene.remove(x.sprite);
     tracers.length = 0; flashes.length = 0;
     killer = null; frames = null; kWeapon = null;
-    view?.end();
+    endFirstPerson();
     document.body.classList.remove('killcam', 'killcam-replay');
     $('killcam')?.classList.remove('on', 'replay', 'cut');
   }
@@ -343,8 +341,17 @@ export function createKillcam({
 
   function fireVisual(s, mePos) {
     const o = s.o;
-    if (view?.on) {
-      view.shoot(WEAPON_BY_ID[s.w] ?? kWeapon, o);
+    if (fpOn) {
+      const w = WEAPON_BY_ID[s.w] ?? kWeapon;
+      vmKick += w?.kick ?? 0.05;
+      const model = fp.vmModels[w?.id ?? kWeapon?.id];
+      if (model && !fpScoped) {
+        fp.vmRig.updateMatrixWorld(true);
+        const mz = model.userData.muzzle.getWorldPosition(_c);
+        fp.triggerMuzzleFlash(mz.clone(), o);
+      } else if (fpScoped) {
+        fp.triggerMuzzleFlash(_c.set(0, -9, 0), o);     // only the room lights up through a scope
+      }
     } else {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       sp.position.copy(o); sp.scale.setScalar(0.28);
@@ -383,6 +390,53 @@ export function createKillcam({
   }
 
   /* ----------------------- what the killer saw on screen ----------------------- */
+
+  let fpOn = false, fpScoped = false, vmKick = 0;
+  const _vmHip = new THREE.Vector3(), _vmAim = new THREE.Vector3(), _vmPos = new THREE.Vector3();
+
+  /** Their gun in their hands, their sights or scope, their crosshair: set once a frame. */
+  function firstPerson(time, dt, ks) {
+    const w = WEAPON_BY_ID[ks.a.wid] ?? kWeapon;                // the gun in hand at this moment: they may have switched
+    const model = w && fp.vmModels[w.id];
+    if (!model) { endFirstPerson(); return; }
+    fpOn = true;
+    for (const id in fp.vmModels) fp.vmModels[id].visible = id === w.id;
+    const aim = clamp(ks.aim, 0, 1);
+    fpScoped = !!w.zoom && aim > 0.85;
+    const ads = w.zoom ? 0 : aim;                       // a scope replaces the model; other sights raise it
+    _vmHip.copy(fp.homePositions[w.id] ?? fp.homePositions.ar);
+    fp.adsPosition(w.id, _vmAim);
+    _vmPos.lerpVectors(_vmHip, _vmAim, ads);
+    const hip = 1 - ads;
+    const bob = Math.min(ks.speed / CONFIG.WALK_SPEED, 1.6) * (0.15 + 0.85 * hip);
+    const tt = time * 1;
+    _vmPos.x += Math.sin(tt * 7) * 0.008 * bob;
+    _vmPos.y += Math.abs(Math.cos(tt * 7)) * 0.007 * bob;
+    vmKick *= Math.pow(0.0005, dt);
+    _vmPos.z += vmKick * 0.6;
+    fp.vmRig.position.copy(_vmPos);
+    fp.vmRig.rotation.set(-0.02 * hip - vmKick * 1.1, 0.07 * hip, 0.03 * hip);
+    fp.vmRig.visible = !fpScoped;
+    fp.updateMuzzleFlash(dt);
+    $('scope')?.classList.toggle('on', fpScoped);
+    const xh = $('crosshair');
+    if (xh) {
+      xh.classList.toggle('off', fpScoped);
+      if (xh.dataset.w !== w.id) xh.dataset.w = w.id;
+      document.documentElement.style.setProperty('--xhair-gap', `${lerp(7, 3, aim)}px`);   // theirs, not the cone you died with
+    }
+    camera.fov = fpScoped ? w.zoomFov : lerp(fp.hipFov(), w.zoom ? w.zoomFov : fp.adsFov(), aim);
+    camera.updateProjectionMatrix();
+  }
+
+  function endFirstPerson() {
+    if (!fp || !fpOn) return;
+    fpOn = fpScoped = false; vmKick = 0;
+    fp.vmRig.visible = false;
+    fp.updateMuzzleFlash(1);
+    $('scope')?.classList.remove('on');
+    $('crosshair')?.classList.add('off');
+  }
 
   /* ------------------------------- the timeline ------------------------------- */
 
@@ -431,7 +485,7 @@ export function createKillcam({
     const time = startT + Math.min(t, total);
     const ks = poseKiller(time);
     const mp = poseMe(time, dt);
-    view?.frame(WEAPON_BY_ID[ks.a.wid] ?? kWeapon, ks.aim, ks.speed, time, dt);   // the gun in hand at this moment: they may have switched
+    if (fp) firstPerson(time, dt, ks);
     while (playedShots < replayShots.length && replayShots[playedShots].t <= time) { fireVisual(replayShots[playedShots], mp); playedShots++; }
 
     // Through the killer's eyes: from their head, looking at you. A bot turns and shifts its body
@@ -458,13 +512,13 @@ export function createKillcam({
     camera.position.copy(_a).addScaledVector(_b, 0.05);
     _tmp.lookAt(camera.position, _c.copy(camera.position).add(_b), _up);
     camera.quaternion.setFromRotationMatrix(_tmp);
-    if (!view?.on) camera.fov = lerp(80, 64, ks.aim);       // first person sets its own: the scope's, or the sights'
+    if (!fpOn) camera.fov = lerp(80, 64, ks.aim);       // first person sets its own: the scope's, or the sights'
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);                      // the numbers below are projected through it
     while (playedHits < replayHits.length && replayHits[playedHits].t <= time) {
       const h = replayHits[playedHits++];
       spawnBlood(h.p);
-      if (view?.on && h.dmg > 0) {
+      if (fpOn && h.dmg > 0) {
         // The numbers and marker the killer saw as it landed, whatever this player's own setting says.
         fp.showDamageNumber(h.p, h.dmg, !!h.head, h.zone ?? 'body', !!h.armored, !!h.lethal, true);
         fp.showHitMarker(h.lethal ? 'kill' : h.head ? 'head' : 'body', !!h.head);

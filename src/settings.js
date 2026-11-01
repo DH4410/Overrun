@@ -54,9 +54,6 @@ export const DEFAULT_SETTINGS = {
   showEnemyHealth: false,
   masterVolume: 0.8,
   musicVolume: 0.6,
-  // Recorded sound effects and menu music (assets/audio). Off until chosen: nothing is fetched while off.
-  soundPack: false,
-  menuMusic: false,
   viewBob: true,
   screenShake: 1,
   toggleAim: false,

@@ -86,8 +86,6 @@ const _mid = new THREE.Vector3();
 const _hitPoint = new THREE.Vector3();
 const _hitNormal = new THREE.Vector3();
 const _fwdZ = new THREE.Vector3(0, 0, 1);
-const _whizV = new THREE.Vector3();
-const _whizP = new THREE.Vector3();
 
 function spawnBullet(origin, direction, weapon, owner, damage) {
   const kind = owner === getPlayer() ? 'player' : (owner.team !== TEAM.SOLO && owner.team === getPlayer().team ? 'ally' : 'enemy');
@@ -127,17 +125,6 @@ function stepBullets(dt) {
     if (len < 1e-6) continue;
     _dir.copy(_step).divideScalar(len);
 
-    // Somebody else's round passing within two metres of your head cracks by once.
-    if (!b.whizzed && b.owner !== getPlayer()) {
-      const eye = getPlayer().eye;
-      _whizV.subVectors(eye, b.prev);
-      const along = Math.min(len, Math.max(0, _whizV.dot(_dir)));
-      if (_whizV.addScaledVector(_dir, -along).lengthSq() < 4) {
-        b.whizzed = true;
-        Audio.whiz?.(_whizP.copy(eye).sub(_whizV));
-      }
-    }
-
     const cHit = nearestCombatantHit(b.prev, _dir, len, b.owner);
 
     _rayFrom.set(b.prev.x, b.prev.y, b.prev.z);
@@ -161,7 +148,6 @@ function stepBullets(dt) {
       _hitNormal.set(_rayResult.hitNormalWorld.x, _rayResult.hitNormalWorld.y, _rayResult.hitNormalWorld.z);
       spawnDecal(_hitPoint, _hitNormal);
       spawnSparks(_hitPoint, _hitNormal);
-      Audio.impact?.(_hitPoint);
       despawnBullet(i);
       continue;
     }

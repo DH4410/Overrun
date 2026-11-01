@@ -462,7 +462,6 @@ function respawnPlayer(immediate = false, at = null) {
   const by = $id('p-killer'); if (by) by.textContent = '';
   showStreak?.(0);
   player.invulnTimer = SPAWN_INVULN;   // bots ignore you while this runs
-  Audio.cue?.('spawn');
   clearAlertsOn(player);               // and drop any lock they already had
   player.cooking = null;
   player.cookSource = null;
@@ -663,7 +662,6 @@ function climbLadder(killer) {
   player.cooking = null;
   updateAmmoHud();
   showToast(`${killer.kills + 1} / ${GUN_LADDER.length}  ·  ${w.name}`);
-  Audio.cue?.('level_up');
 }
 
 /** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
@@ -747,7 +745,7 @@ function updateMatch(dt, realDt = dt) {
     if (match.mode === 'hp' && hardpoint) {
       const scored = hardpoint.update(dt, combatants);
       if (scored === TEAM.BLUE) match.scoreA++; else if (scored === TEAM.RED) match.scoreB++;
-      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); Audio.cue?.('objective'); }
+      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); }
       hardpoint.updateHud();
       checkWinConditions();
       if (!match.running) return;

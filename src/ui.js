@@ -3,7 +3,6 @@ import { loadScreen } from './loading.js';
 import { loadProfile } from './profile.js';
 import { renderPlayerCard } from './playercard.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
-import { mapHosts } from './sim/modes.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
 export function createUiRuntime({
@@ -76,7 +75,7 @@ function bindMenu() {
 
   // A map that cannot host the chosen mode (the big one is deathmatch only) greys out, and the
   // choice moves to the first map that can.
-  const hosts = (id) => mapHosts(MAPS, id, mode);
+  const hosts = (id) => !MAPS[id]?.modes || MAPS[id].modes.includes(mode);
   const syncMaps = () => {
     for (const b of document.querySelectorAll('#maps [data-map]')) {
       const off = !hosts(b.dataset.map) || MAPS[b.dataset.map]?.available?.() === false;
@@ -242,10 +241,6 @@ const SETTINGS_SCHEMA = [
   { group: 'AUDIO', icon: 'M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 0 1 0 6' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
   { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
-  { key: 'soundPack', type: 'toggle', label: 'Recorded sound pack',
-    hint: 'Real recordings for guns, footsteps, menus, crates and more (about 5 MB, downloaded when you switch it on). Off uses the built-in synthesized sounds.' },
-  { key: 'menuMusic', type: 'toggle', label: 'Lobby and shop music',
-    hint: 'Music in the lobby and the item shop (12 tracks, 1 to 3 MB each, each one downloaded as it comes on).' },
 ];
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */

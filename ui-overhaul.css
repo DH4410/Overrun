@@ -2011,3 +2011,64 @@ body.saver :is(#store, #locker, #topnav, #lobby-right, #playercard, #account) *,
 /* Menu chrome is not text to select: a stray drag across a heading painted it in the browser's blue highlight. Fields and the account popup stay selectable. */
 #menu, #topnav, #store, #locker { -webkit-user-select: none; user-select: none; }
 #menu :is(input, textarea), #store :is(input, textarea), #locker :is(input, textarea) { -webkit-user-select: text; user-select: text; }
+
+
+/* ===================================================================
+   SKIN: HI-VIS / SLANT / ORBITRON / CENTRED HUD   (picked in the UI Studio)
+
+   Turned on by <html class="sk" data-pal="hivis" data-shape="slant" data-type="orbitron"
+   data-hud="centre"> in index.html. Take the class off and the page is the plain amber look above.
+   Deliberately outside the look rules in READMEFORUI.md: it adds panels, a yellow/black/white palette
+   instead of the single amber accent, and grayscale behind the lobby. Nothing here sets !important
+   on a property the game writes inline.
+   =================================================================== */
+
+html{--panel:rgba(8,12,19,.78);--line:rgba(255,255,255,.14);--tint:5,8,14;--hpc:#f1f4f7;--bgf:none}
+html[data-pal=hivis]{--accent:#ffe600;--accent-ink:#000;--self:#00ff9d;--ally:#00c8ff;--enemy:#ff2d55;--ap:#00c8ff;--ink:#fff;--ink-2:rgba(255,255,255,.95);--ink-3:rgba(255,255,255,.78);
+  --panel:rgba(0,0,0,.93);--line:rgba(255,255,255,.75);--tint:0,0,0;--hpc:#fff;--bgf:grayscale(1) contrast(1.15) brightness(.8)}
+
+/* panels */
+html.sk #vitals::before, html.sk #ammo::before, html.sk #board .card, html.sk #lobby-right, html.sk #playercard{background:var(--panel);box-shadow:var(--edge,inset 0 0 0 1px var(--line),inset 0 3px 0 var(--accent));-webkit-backdrop-filter:var(--bf,none);backdrop-filter:var(--bf,none)}
+html.sk #topbar .score, html.sk .kf, html.sk #toast, html.sk #wallet, html.sk #account, html.sk .sel-card, html.sk #items .it, html.sk #slots div, html.sk .pill, html.sk .pause-btns button, html.sk #set-nav button{background:var(--panel);box-shadow:var(--edge-s,inset 0 0 0 1px var(--line));-webkit-backdrop-filter:var(--bf,none);backdrop-filter:var(--bf,none)}
+html.sk #hpfill{background:var(--hpc)} html.sk #apfill{background:var(--ap)}
+html.sk .vrow.ap .vnum{color:var(--ap)}
+html.sk #hud{--xhair:var(--self)}
+html.sk .kf.mine{box-shadow:inset 0 0 0 1px var(--accent),inset -4px 0 0 var(--accent)}
+html.sk .kf.died{box-shadow:inset 0 0 0 1px var(--enemy),inset -4px 0 0 var(--enemy)}
+html.sk #slots div.on,html.sk .pill.active,html.sk #set-nav button.on,html.sk .pause-btns button.primary{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+html.sk #board tr.self td{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent)}
+html.sk #board td{background:color-mix(in srgb,var(--ink) 7%,transparent)}
+html.sk #pause{background:rgba(var(--tint),.76)}
+html.sk #board{background:rgba(var(--tint),.62)}
+html.sk #settings{background:radial-gradient(ellipse at 50% 0,rgba(var(--tint),.9),rgba(var(--tint),1) 70%)}
+html.sk .set-top{background:linear-gradient(180deg,rgb(var(--tint)) 82%,transparent)}
+html.sk #menu{background:linear-gradient(180deg,rgba(var(--tint),.9) 0,rgba(var(--tint),.5) 70px,rgba(var(--tint),0) 150px),radial-gradient(ellipse 60% 90% at 50% 62%,rgba(var(--tint),0) 40%,rgba(var(--tint),.5) 100%),linear-gradient(0deg,rgba(var(--tint),.72) 0,rgba(var(--tint),0) 38%)}
+html.sk .pop{background:rgba(var(--tint),.82)}
+html.sk .tab::after,html.sk .set-group{color:var(--accent)}
+html.sk .tile.active{box-shadow:inset 0 0 0 3px var(--accent),0 16px 34px rgba(0,0,0,.4)}
+html.sk .coin{background:radial-gradient(circle at 35% 30%,#fff,var(--accent) 55%,color-mix(in srgb,var(--accent) 55%,#000))}
+#lobby-bg{filter:var(--bgf)}
+
+/* slanted slabs */
+html[data-shape=slant]{--edge:inset 0 0 0 1px var(--line),inset 4px 0 0 var(--accent);--edge-s:inset 0 0 0 1px var(--line)}
+html[data-shape=slant] #vitals::before, html[data-shape=slant] #ammo::before, html[data-shape=slant] #board .card, html[data-shape=slant] #lobby-right, html[data-shape=slant] #playercard{clip-path:polygon(22px 0,100% 0,calc(100% - 22px) 100%,0 100%);border-radius:0}
+html[data-shape=slant] #topbar .score, html[data-shape=slant] .kf, html[data-shape=slant] #toast, html[data-shape=slant] #wallet, html[data-shape=slant] #account, html[data-shape=slant] .sel-card, html[data-shape=slant] #items .it, html[data-shape=slant] #slots div, html[data-shape=slant] .pill, html[data-shape=slant] .pause-btns button, html[data-shape=slant] #set-nav button{clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);border-radius:0}
+html[data-shape=slant] #board .card,html[data-shape=slant] #lobby-right{clip-path:polygon(0 0,100% 0,100% 100%,26px 100%,0 calc(100% - 26px))}
+html[data-shape=slant] #vitals,html[data-shape=slant] #ammo,html[data-shape=slant] #topbar .score{padding-left:30px;padding-right:30px}
+
+/* Orbitron */
+html[data-type=orbitron]{--f-display:'Orbitron','Segoe UI',sans-serif;--f-body:'Exo 2','Segoe UI',sans-serif}
+html[data-type=orbitron] :is(#vitals,#ammo,#topbar,#feed,#board,#pause,#menu,.pop,#settings,#killbanner,#streak,#killcam){letter-spacing:0}
+html[data-type=orbitron] :is(.tab,#play,.glbl,.sc-name,.pause-btns button,#set-nav button,.set-group,#topnav .brand b,#topnav .brand span,#pause .big,.pop-head h2,.mt){letter-spacing:.5px!important;font-size-adjust:.5}
+html[data-type=orbitron] #a-mag{font-size:44px} html[data-type=orbitron] .vrow.hp .vnum{font-size:23px} html[data-type=orbitron] #topbar .sc{font-size:23px;min-width:56px}
+html[data-type=orbitron] #pause .big{font-size:54px} html[data-type=orbitron] #play{font-size:27px} html[data-type=orbitron] .tab{font-size:15px}
+html[data-type=orbitron] #killbanner .kb-name{font-size:22px} html[data-type=orbitron] #board td{font-size:15px} html[data-type=orbitron] .kf{font-size:13px}
+html[data-type=orbitron] .sc-name{font-size:18px} html[data-type=orbitron] #topnav .brand b{font-size:26px}
+
+/* HUD: vitals and ammo side by side under the crosshair (wide screens only; phones keep their own layout) */
+@media (min-width: 901px) {
+html[data-hud=centre] #vitals{left:calc(50% - 404px);bottom:22px;width:392px}
+html[data-hud=centre] #ammo{right:auto;left:calc(50% + 12px);bottom:22px;width:296px}
+html[data-hud=centre] #items{bottom:192px}
+html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:176px;height:176px}
+}

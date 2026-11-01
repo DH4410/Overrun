@@ -18,6 +18,7 @@ import { OPERATORS, isUnlocked } from './rewards.js';
 
 const HERO_SCALE = 1.2;                    // BOT_MESH_SCALE: drawn exactly as a bot is
 const PAD_R = 0.95, PAD_H = 0.07;          // the pad: its top is at y = PAD_H
+const POSE = 'lobbyidle';                  // the clip the operator stands in (assets/player/lobby-idle.fbx)
 
 /** Where the operator sits in the frame. `x`/`y` are fractions of the screen width/height; `zoom` scales the whole picture. */
 const VIEW = {
@@ -44,6 +45,8 @@ export function createLobby({
   renderer, buildCharacterMesh, isCharacterLoaded, loadCharacter,
   // What the player owns and wears (src/profile.js), and how to wear another operator.
   getProfile = () => ({ xp: 0, equipped: { operator: 'swat' } }), onEquip = () => {},
+  // Plays a clip on a character and returns its action, or null while the clip is still loading (emotes.playOn).
+  holdPose = () => null,
 }) {
   const scene = new THREE.Scene();         // transparent: the blurred map is a page element behind the canvas
   const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 40);
@@ -172,7 +175,10 @@ export function createLobby({
     if (viewDirty) { applyView(); viewDirty = false; }
     if (!hero) return;
     const clips = hero.userData.clips;
-    if (clips) for (const [name, a] of Object.entries(clips)) a.weight = name === 'Idle' ? 1 : 0;
+    // An unarmed idle: the bots' own Idle has them holding a rifle that the lobby does not draw.
+    // Until its clip has loaded the operator uses that one.
+    const pose = hero.userData.pose ??= holdPose(hero, POSE);
+    if (clips) for (const [name, a] of Object.entries(clips)) a.weight = name === 'Idle' && !pose ? 1 : 0;
     hero.userData.mixer?.update(dt);
   }
 

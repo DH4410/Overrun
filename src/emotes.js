@@ -24,6 +24,9 @@ export const EMOTES = [
   { id: 'victory', name: 'Victory' },
 ];
 
+// Clips that are not on the wheel: the lobby plays this one on the operator (src/lobby.js, via playOn).
+const EXTRA_CLIPS = { lobbyidle: './assets/player/lobby-idle.fbx' };
+
 const MIXAMO_PREFIX = /^mixamorig\d*[:_]?/i;
 const boneKey = (name) => name.replace(MIXAMO_PREFIX, '').toLowerCase();
 const AVATAR_SCALE = 1.2;       // BOT_MESH_SCALE: the avatar is drawn exactly as a bot is
@@ -47,11 +50,12 @@ export function createEmotes({ scene, camera, player, blockers, buildCharacterMe
     loading = (async () => {
       const { FBXLoader } = await import('three/addons/loaders/FBXLoader.js');
       const loader = new FBXLoader();
-      await Promise.all(EMOTES.map(async (e) => {
+      const files = [...EMOTES.map((e) => [e.id, `./assets/player/emotes/${e.id}.fbx`]), ...Object.entries(EXTRA_CLIPS)];
+      await Promise.all(files.map(async ([id, url]) => {
         try {
-          const group = await loader.loadAsync(`./assets/player/emotes/${e.id}.fbx`);
+          const group = await loader.loadAsync(url);
           const clip = group.animations?.[0];
-          if (clip) { clip.name = e.id; pinHips(clip); clips[e.id] = clip; }
+          if (clip) { clip.name = id; pinHips(clip); clips[id] = clip; }
         } catch {
           // A missing emote just greys out on the wheel.
         }

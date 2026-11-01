@@ -1512,6 +1512,7 @@ function updateEmoteSongs() {
 const lobby = createLobby({
   renderer, buildCharacterMesh, isCharacterLoaded, loadCharacter,
   getProfile: loadProfile, onEquip: (id) => wearOperator(id),
+  holdPose: (mesh, id) => emotes.playOn(mesh, id),
 });
 const backdrop = createLobbyBackdrop({ renderer, scene, canvas: $('lobby-bg') });
 const account = createAccount({

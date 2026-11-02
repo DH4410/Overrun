@@ -134,7 +134,7 @@ const FIELD = {
   },
   lava(u, v) {
     const [f1, f2] = voronoi(u, v, 6, 51);
-    const crack = Math.max(0, 1 - (f2 - f1) / 0.12);
+    const crack = Math.max(0, 1 - (f2 - f1) / 0.22);
     return 0.9 * crack * crack + 0.1 * fbm(u, v, 4, 4, 52, 3);
   },
   marble(u, v) {
@@ -179,7 +179,7 @@ function paint(name, glow) {
   const img = g.createImageData(SIZE, SIZE);
   const d = img.data;
   const field = FIELD[name];
-  const mean = PATTERNS[name].c / 255;
+  const mean = (PATTERNS[name].c & 255) / 255;   // `c` is a grey as 0xRRGGBB (src/gunskins.js multiplies it in as a colour)
   const amp = AMP[name] ?? 0.28;
   const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
   for (let y = 0; y < SIZE; y++) {

@@ -39,7 +39,7 @@ export const SHOP_SLOTS = 6;
  * locker can be tinted without loading three.js.
  */
 export const PATTERNS = Object.freeze({
-  carbon: { c: 0x8c8c8c, scale: 14 },
+  carbon: { c: 0x8c8c8c, scale: 5 },
   brushed: { c: 0xb0b0b0, scale: 5 },
   speckle: { c: 0xb0b0b0, scale: 16 },
   camo_wood: { c: 0x9a9a9a, scale: 2.2 },
@@ -76,18 +76,18 @@ const CRATE = [
   { id: 'sakura', name: 'SAKURA', rarity: 'rare', retired: true, ...s([0xffc4d8, 0.4, 0.04], [0xffa6c9, 0.3, 0.3], [0xffd9e8, 0.2, 0.9], { polymer: 'marble', alloy: 'damascus' }, { coat: 0.8 }) },
   { id: 'hazard', name: 'HAZARD', rarity: 'rare', retired: true, ...s([0xffcf00, 0.5, 0.05], [0xffcf00, 0.4, 0.4, 0x3a3000], [0x4a4a4a, 0.4, 0.8], { polymer: 'hazard', alloy: 'hazard' }, { coat: 0.4 }) },
   // epic
-  { id: 'neoncircuit', name: 'NEON CIRCUIT', rarity: 'epic', ...s([0x0b1a22, 0.4, 0.2], [0x1a8aa8, 0.3, 0.8, 0x003a48], [0x00e5ff, 0.2, 0.9, 0x00a3b8], { polymer: 'circuit', alloy: 'brushed' }, { coat: 0.6, glowTex: 'circuit', anim: 'pulse' }) },
+  { id: 'neoncircuit', name: 'NEON CIRCUIT', rarity: 'epic', ...s([0x0b1a22, 0.4, 0.2, 0x00c8ff], [0x1a8aa8, 0.3, 0.8, 0x00b0e0], [0x00e5ff, 0.2, 0.9, 0x00a3b8], { polymer: 'circuit', alloy: 'brushed' }, { coat: 0.6, glowTex: 'circuit', anim: 'pulse' }) },
   { id: 'toxic', name: 'TOXIC DRIP', rarity: 'epic', ...s([0x1e3a10, 0.5, 0.1], [0x6dff2a, 0.35, 0.4, 0x1f6a08], [0x2d5a18, 0.4, 0.7], { polymer: 'hex', alloy: 'lava' }, { coat: 0.5, glowTex: 'lava', anim: 'flow' }) },
   { id: 'icefang', name: 'ICE FANG', rarity: 'epic', ...s([0xbfeaff, 0.12, 0.1], [0x9ee7ff, 0.1, 0.9], [0xffffff, 0.08, 1], { polymer: 'facets', alloy: 'facets' }, { coat: 1, iri: 0.9 }) },
   { id: 'magma', name: 'MAGMA', rarity: 'epic', retired: true, ...s([0x2a130a, 0.8, 0.1], [0xff7a3a, 0.35, 0.5, 0x5a1500], [0x4a2a1c, 0.4, 0.8], { polymer: 'lava', alloy: 'lava' }, { coat: 0.3, glowTex: 'lava' }) },
   // legendary
   { id: 'aurora', name: 'AURORA', rarity: 'legendary', ...s([0x0a2a24, 0.25, 0.3], [0x22ffb0, 0.2, 0.9, 0x0a6a4a], [0xb26bff, 0.15, 1, 0x3a1670], { polymer: 'swirl', alloy: 'damascus' }, { coat: 1, iri: 1, anim: 'flow' }) },
-  { id: 'obsidianflame', name: 'OBSIDIAN FLAME', rarity: 'legendary', ...s([0x141414, 0.35, 0.2], [0x2a1208, 0.3, 0.6], [0xff6a00, 0.2, 1, 0xc44800], { polymer: 'lava', steel: 'lava' }, { coat: 0.7, glowTex: 'lava', anim: 'pulse' }) },
+  { id: 'obsidianflame', name: 'OBSIDIAN FLAME', rarity: 'legendary', ...s([0x141414, 0.35, 0.2, 0xd04800], [0x2a1208, 0.3, 0.6, 0xff5a10], [0xff6a00, 0.2, 1, 0xff7a20], { polymer: 'lava', alloy: 'lava', steel: 'lava' }, { coat: 0.7, glowTex: 'lava', anim: 'pulse' }) },
 ].map((k) => ({ ...k, source: 'crate', price: CRATE_PRICE }));
 
 const SHOP = [
   { id: 'chrome', name: 'CHROME', rarity: 'rare', price: 700, retired: true, ...s([0xdfe6ee, 0.08, 0.95], [0xe9eff6, 0.06, 1], [0xffffff, 0.04, 1], { polymer: 'brushed' }, { coat: 1, iri: 0.3 }) },
-  { id: 'carbonember', name: 'CARBON EMBER', rarity: 'rare', price: 900, ...s([0x1c1c20, 0.35, 0.3], [0x2a2a30, 0.3, 0.7], [0xff7a1a, 0.2, 1, 0x7a3000], { polymer: 'carbon', alloy: 'carbon' }, { coat: 0.9, glowTex: 'lava', anim: 'pulse' }) },
+  { id: 'carbonember', name: 'CARBON EMBER', rarity: 'rare', price: 900, ...s([0x1c1c20, 0.35, 0.3], [0x2a2a30, 0.3, 0.7, 0x7a2800], [0xff7a1a, 0.2, 1, 0xff6a10], { polymer: 'carbon', alloy: 'carbon' }, { coat: 0.9, glowTex: 'lava', anim: 'pulse' }) },
   { id: 'royal', name: 'ROYAL', rarity: 'epic', price: 1300, ...s([0x6a3ac8, 0.3, 0.2], [0x8a5ae0, 0.25, 0.8], [0xf3d577, 0.15, 1], { polymer: 'damascus', alloy: 'damascus' }, { coat: 1, iri: 0.25 }) },
   { id: 'frostbite', name: 'FROSTBITE', rarity: 'epic', price: 1500, ...s([0xcfe9ff, 0.3, 0.1], [0x7fc4ff, 0.15, 0.9, 0x103a66], [0xffffff, 0.1, 1, 0x4a8ab0], { polymer: 'facets', alloy: 'facets' }, { coat: 1, iri: 0.6, glowTex: 'facets', anim: 'pulse' }) },
   { id: 'bloodmoon', name: 'BLOOD MOON', rarity: 'epic', price: 1800, retired: true, ...s([0xc01028, 0.4, 0.3, 0x2a0006], [0xff3048, 0.2, 0.9, 0x400008], [0xff2a44, 0.15, 1, 0x7a0a1a], { polymer: 'damascus', alloy: 'scales' }, { coat: 0.8 }) },
@@ -95,7 +95,7 @@ const SHOP = [
   { id: 'holopearl', name: 'HOLO PEARL', rarity: 'legendary', price: 3000, ...s([0xeef2ff, 0.2, 0.2], [0xcfd8ff, 0.1, 0.6, 0x303868], [0xffffff, 0.06, 1, 0x5a6ab0], { polymer: 'marble', alloy: 'swirl' }, { coat: 1, iri: 1, anim: 'flow' }) },
   { id: 'tidewater', name: 'TIDEWATER', rarity: 'rare', price: 800, ...s([0x0f4c5c, 0.3, 0.2], [0x1b8a9e, 0.25, 0.8], [0xc8f0f6, 0.14, 1], { polymer: 'hex', alloy: 'brushed' }, { coat: 0.9 }) },
   { id: 'bronzeage', name: 'BRONZE AGE', rarity: 'epic', price: 1600, ...s([0x7a5230, 0.45, 0.35], [0xc08a3e, 0.3, 0.9], [0x3a2a1a, 0.4, 0.7], { polymer: 'damascus', alloy: 'scales' }, { coat: 0.6 }) },
-  { id: 'nightwing', name: 'NIGHTWING', rarity: 'epic', price: 1900, ...s([0x0d0f1f, 0.3, 0.3], [0x2a2f6a, 0.25, 0.9, 0x1a2a80], [0x7a8cff, 0.15, 1, 0x3040c0], { polymer: 'circuit', alloy: 'leather' }, { coat: 0.8, glowTex: 'circuit', anim: 'pulse' }) },
+  { id: 'nightwing', name: 'NIGHTWING', rarity: 'epic', price: 1900, ...s([0x0d0f1f, 0.3, 0.3, 0x3a50ff], [0x2a2f6a, 0.25, 0.9, 0x3a50ff], [0x7a8cff, 0.15, 1, 0x3040c0], { polymer: 'circuit', alloy: 'leather' }, { coat: 0.8, glowTex: 'circuit', anim: 'pulse' }) },
   { id: 'void', name: 'VOID', rarity: 'legendary', price: 3200, ...s([0x8a3cff, 0.4, 0.2, 0x1a0036], [0x7a30e0, 0.15, 0.9, 0x2a0058], [0x9a3cff, 0.12, 1, 0x5a1ab0], { polymer: 'swirl', alloy: 'swirl' }, { coat: 1, iri: 0.4, glowTex: 'swirl', anim: 'pulse' }) },
   { id: 'royalgold', name: 'ROYAL GOLD', rarity: 'legendary', price: 3500, retired: true, ...s([0xf3d577, 0.2, 1], [0xffe08a, 0.15, 1], [0xffffff, 0.1, 1, 0x806000], { polymer: 'damascus' }, { coat: 1 }) },
 ].map((k) => ({ ...k, source: 'shop' }));
@@ -155,7 +155,9 @@ export function dailyShop(ms) {
     const j = Math.floor(rng() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return pool.slice(0, SHOP_SLOTS);
+  // Best first: the rarer the skin, the nearer the top of the shop, dearest first within a tier.
+  return pool.slice(0, SHOP_SLOTS)
+    .sort((a, b) => (RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)) || (b.price - a.price));
 }
 
 /**

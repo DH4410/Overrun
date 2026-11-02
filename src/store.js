@@ -1,11 +1,12 @@
 import { createDrop } from './crateDrop.js';
 import { crateStill } from './crateModel.js';
-import { forgetSkinShots, skinShots } from './gunicons.js';
+import { forgetSkinShots, gunIcons, skinShots } from './gunicons.js';
 import { texturesPending, texturesReady } from './gunTextures.js';
 import {
   CRATE_PRICE, CRATE_SKINS, GUN_SKINS, RARITY, RARITY_ORDER, dailyShop, gunSkinInfo, shopEndsAt, skinGradient,
 } from './gunskins.js';
-import { balance, ownsSkin } from './shop.js';
+import { GUN_PRICES, balance, ownsSkin } from './shop.js';
+import { WEAPON_BY_ID } from './weapons.js';
 
 /**
  * The STORE page: a skin crate you open for a random skin, and a daily shop of rarer ones you buy
@@ -27,8 +28,8 @@ const CRATE_ART = '<svg viewBox="0 0 96 80" aria-hidden="true"><path d="M8 26 48
 
 const pct = (tier, open) => Math.round((RARITY[tier].weight / open.reduce((n, t) => n + RARITY[t].weight, 0)) * 100);
 
-export function createStore({ getProfile, openCrate, buySkin, openLocker = () => {}, openMarket = () => {}, onOpen = () => {}, onClose = () => {}, sfx = () => {}, now = () => Date.now() }) {
-  let root = null, timer = 0, busy = false, shots = {}, reelSkip = null;
+export function createStore({ getProfile, openCrate, buySkin, gunOwned = () => false, buyGun = async () => false, openLocker = () => {}, openMarket = () => {}, onOpen = () => {}, onClose = () => {}, sfx = () => {}, now = () => Date.now() }) {
+  let root = null, timer = 0, busy = false, shots = {}, gunPics = {}, reelSkip = null;
   const drop = createDrop({ sfx, gunId: SHOWCASE_GUN });
 
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -59,6 +60,8 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
           <section class="st-shop">
             <div class="st-label">DAILY SHOP <span class="st-timer" id="st-timer"></span></div>
             <div class="st-cards" id="st-cards"></div>
+            <div class="st-label st-guns-label">GUNS</div>
+            <div class="st-guns" id="st-guns"></div>
           </section>
         </div>
       </div>`;
@@ -109,6 +112,29 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     }
   }
 
+  /** The guns for sale (they used to be sold in the locker). An owned gun shows a tick. */
+  function renderGuns() {
+    const p = getProfile();
+    const box = root.querySelector('#st-guns');
+    box.textContent = '';
+    for (const [id, price] of Object.entries(GUN_PRICES)) {
+      const name = WEAPON_BY_ID[id].name;
+      const owned = gunOwned(id);
+      const poor = !owned && balance(p) < price;
+      const c = el('div', `st-gun${owned ? ' owned' : ''}`);
+      c.dataset.gun = id;
+      c.innerHTML = `<span class="st-gun-pic">${gunPics[id] ? `<img alt="" src="${gunPics[id]}">` : ''}</span><b>${name}</b>`;
+      const btn = el('button', `st-buy${owned ? ' is-owned' : ''}`, owned ? `${TICK}OWNED` : `<i class="coin"></i>${price}`);
+      btn.type = 'button';
+      btn.disabled = owned || poor;
+      btn.title = owned ? 'In your locker' : poor ? `${price - balance(p)} more credits needed` : 'Buy';
+      btn.setAttribute('aria-label', owned ? `${name}, owned` : `Buy ${name} for ${price} credits`);
+      btn.addEventListener('click', async () => { btn.disabled = true; if (await buyGun(id)) render(); else btn.disabled = false; });
+      c.append(btn);
+      box.append(c);
+    }
+  }
+
   function renderCrate() {
     const p = getProfile();
     const have = new Set(p.owned);
@@ -131,7 +157,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     root.querySelector('#st-count').textContent = `${GUN_SKINS.filter((k) => have.has(`skin:${k.id}`)).length} / ${GUN_SKINS.length} COLLECTED`;
   }
 
-  function render() { renderShop(); renderCrate(); }
+  function render() { renderShop(); renderGuns(); renderCrate(); }
 
   function tickTimer() {
     const ms = Math.max(0, shopEndsAt(now()) - now());
@@ -214,6 +240,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     // The pictures of the day's skins and the crate's: drawn once, kept.
     const draw = () => skinShots(SHOWCASE_GUN, [...dailyShop(now()).map((k) => k.id), ...CRATE_SKINS.map((k) => k.id)]);
     shots = draw();
+    gunPics = gunIcons();
     // The pattern files load on first use; once they are in, draw the pictures again with them.
     if (texturesPending()) texturesReady().then(() => { forgetSkinShots(); if (isOpen()) { shots = draw(); render(); } });
     paintCrate();

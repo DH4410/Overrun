@@ -1470,14 +1470,6 @@ const locker = createLocker({
   canShop: () => !match.running,
   openStore: () => store.open(),
   gunOwned: (id) => ownsGun(loadProfile(), id),
-  getBalance: () => balance(loadProfile()),
-  buyGun: (id) => {
-    const next = buyGun(loadProfile(), id);
-    if (!next) return false;
-    saveProfile(next);
-    renderPlayerCard(next);
-    return true;
-  },
 });
 const emoteMusic = createEmoteMusic({ Audio, getCamera: () => camera });
 const emotes = createEmotes({
@@ -1616,6 +1608,14 @@ const store = createStore({
     return true;
   },
   openMarket: () => market.open(),
+  gunOwned: (id) => ownsGun(loadProfile(), id),
+  buyGun: (id) => {
+    const next = buyGun(loadProfile(), id);
+    if (!next) return false;
+    saveProfile(next);
+    renderPlayerCard(next);
+    return true;
+  },
   openLocker: () => { career.close(); locker.open(); },
   onOpen: () => markNav('store'),
   onClose: () => markNav(lobbyPage),

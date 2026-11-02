@@ -30,7 +30,7 @@ export const SUPPLY = Object.freeze({ common: 5000, rare: 1500, epic: 400, legen
 /** What one crate costs. It is also the price of every skin in the crate pool, which is how the server knows what a save has paid. */
 export const CRATE_PRICE = 300;
 /** How many skins the daily shop shows at once. */
-export const SHOP_SLOTS = 4;
+export const SHOP_SLOTS = 6;
 
 /**
  * Surface patterns a skin can lay over a role's colour (generated in src/gunTextures.js). `c` is the
@@ -93,6 +93,9 @@ const SHOP = [
   { id: 'bloodmoon', name: 'BLOOD MOON', rarity: 'epic', price: 1800, retired: true, ...s([0xc01028, 0.4, 0.3, 0x2a0006], [0xff3048, 0.2, 0.9, 0x400008], [0xff2a44, 0.15, 1, 0x7a0a1a], { polymer: 'damascus', alloy: 'scales' }, { coat: 0.8 }) },
   { id: 'solarflare', name: 'SOLAR FLARE', rarity: 'legendary', price: 2800, ...s([0xffb030, 0.4, 0.3, 0x3a1a00], [0xffa11a, 0.18, 1, 0x6a3000], [0xfff1a8, 0.12, 1, 0x806000], { polymer: 'hex', alloy: 'hex' }, { coat: 1, glowTex: 'hex', anim: 'pulse' }) },
   { id: 'holopearl', name: 'HOLO PEARL', rarity: 'legendary', price: 3000, ...s([0xeef2ff, 0.2, 0.2], [0xcfd8ff, 0.1, 0.6, 0x303868], [0xffffff, 0.06, 1, 0x5a6ab0], { polymer: 'marble', alloy: 'swirl' }, { coat: 1, iri: 1, anim: 'flow' }) },
+  { id: 'tidewater', name: 'TIDEWATER', rarity: 'rare', price: 800, ...s([0x0f4c5c, 0.3, 0.2], [0x1b8a9e, 0.25, 0.8], [0xc8f0f6, 0.14, 1], { polymer: 'hex', alloy: 'brushed' }, { coat: 0.9 }) },
+  { id: 'bronzeage', name: 'BRONZE AGE', rarity: 'epic', price: 1600, ...s([0x7a5230, 0.45, 0.35], [0xc08a3e, 0.3, 0.9], [0x3a2a1a, 0.4, 0.7], { polymer: 'damascus', alloy: 'scales' }, { coat: 0.6 }) },
+  { id: 'nightwing', name: 'NIGHTWING', rarity: 'epic', price: 1900, ...s([0x0d0f1f, 0.3, 0.3], [0x2a2f6a, 0.25, 0.9, 0x1a2a80], [0x7a8cff, 0.15, 1, 0x3040c0], { polymer: 'circuit', alloy: 'leather' }, { coat: 0.8, glowTex: 'circuit', anim: 'pulse' }) },
   { id: 'void', name: 'VOID', rarity: 'legendary', price: 3200, ...s([0x8a3cff, 0.4, 0.2, 0x1a0036], [0x7a30e0, 0.15, 0.9, 0x2a0058], [0x9a3cff, 0.12, 1, 0x5a1ab0], { polymer: 'swirl', alloy: 'swirl' }, { coat: 1, iri: 0.4, glowTex: 'swirl', anim: 'pulse' }) },
   { id: 'royalgold', name: 'ROYAL GOLD', rarity: 'legendary', price: 3500, retired: true, ...s([0xf3d577, 0.2, 1], [0xffe08a, 0.15, 1], [0xffffff, 0.1, 1, 0x806000], { polymer: 'damascus' }, { coat: 1 }) },
 ].map((k) => ({ ...k, source: 'shop' }));

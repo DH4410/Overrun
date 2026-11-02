@@ -1596,9 +1596,10 @@ const market = createMarket({
   skinCall: (method, path, body) => account.skinCall(method, path, body),
   signedIn: () => account.signedIn(),
   openStore: () => store.open(),
+  onOpen: () => { markNav('market'); Audio.cue?.('ui_open'); },
   onClose: () => markNav(lobbyPage),
 });
-$('tab-career')?.addEventListener('click', () => { locker.close(); store.close(); $('settings-close')?.click(); career.open(); });
+$('tab-career')?.addEventListener('click', () => { locker.close(); store.close(); market.close(); $('settings-close')?.click(); career.open(); });
 /** The crate and the daily shop: the credits are spent here, the skins are worn in the locker.
  * Signed in, the server rolls and sells the skins (it counts supply); guests roll and pay on this device. */
 const store = createStore({
@@ -1670,7 +1671,7 @@ function previewMap(id) {
   backdrop.setMap(id);
 }
 /** The five top tabs are always on screen; this marks the one whose page is up. */
-const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', store: 'tab-store', locker: 'locker-open', settings: 'settings-open' };
+const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', store: 'tab-store', market: 'tab-market', locker: 'locker-open', settings: 'settings-open' };
 let lobbyPage = 'play';                      // the page under any overlay: play or operators
 function markNav(active) {
   for (const [key, id] of Object.entries(NAV)) $(id)?.classList.toggle('active', key === active);
@@ -1679,7 +1680,7 @@ function markNav(active) {
 /** Lobby music behind the menu, shop music in the store and locker, nothing once a match is on. Inert unless Lobby and shop music is on. */
 function syncMenuMusic() {
   const open = !$('menu').classList.contains('hidden') && !match.running;
-  Audio.menuMusic?.(!open ? null : store.isOpen() || locker.isOpen() ? 'shop' : 'lobby');
+  Audio.menuMusic?.(!open ? null : store.isOpen() || locker.isOpen() || market.isOpen() ? 'shop' : 'lobby');
 }
 new MutationObserver(syncMenuMusic).observe($('menu'), { attributes: true, attributeFilter: ['class'] });
 const operatorsPage = createOperators({
@@ -1698,10 +1699,10 @@ function setLobbyTab(tab) {
   if (ops) operatorsPage.show(); else operatorsPage.hide();
 }
 // Settings belongs to ui.js; its tab follows the panel.
-new MutationObserver(() => { if (career.isOpen() || locker.isOpen() || store.isOpen()) return; markNav($('settings').classList.contains('hidden') ? lobbyPage : 'settings'); })
+new MutationObserver(() => { if (career.isOpen() || locker.isOpen() || store.isOpen() || market.isOpen()) return; markNav($('settings').classList.contains('hidden') ? lobbyPage : 'settings'); })
   .observe($('settings'), { attributes: true, attributeFilter: ['class'] });
 /** A tab click first puts away whatever overlay is open, so every tab works from every page. */
-function leaveOverlays() { career.close(); locker.close(); store.close(); }
+function leaveOverlays() { career.close(); locker.close(); store.close(); market.close(); }
 $('settings-open')?.addEventListener('click', leaveOverlays);
 const online = createOnlineLobby({ getElement: $ });
 let onlineTab = false;
@@ -1811,8 +1812,9 @@ net = createNetClient({
   },
 });
 addEventListener('keyup', (e) => { if (canon(e.code) === 'KeyB') emotes.closeWheel(true); });
-$('locker-open')?.addEventListener('click', () => { career.close(); store.close(); locker.open(); });
-$('tab-store')?.addEventListener('click', () => { career.close(); locker.close(); $('settings-close')?.click(); store.open(); });
+$('locker-open')?.addEventListener('click', () => { career.close(); store.close(); market.close(); locker.open(); });
+$('tab-store')?.addEventListener('click', () => { career.close(); locker.close(); market.close(); $('settings-close')?.click(); store.open(); });
+$('tab-market')?.addEventListener('click', () => { career.close(); locker.close(); store.close(); $('settings-close')?.click(); market.open(); });
 $('locker-open-pause')?.addEventListener('click', () => locker.open());
 
 /**

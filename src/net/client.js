@@ -1320,7 +1320,9 @@ export function createNetClient(d) {
   const _kcLook = new THREE.Quaternion(), _kcMat = new THREE.Matrix4(), _kcUp = new THREE.Vector3(0, 1, 0), _kcAt = new THREE.Vector3();
 
   function startKillcam(killer) {
-    const frames = snaps.slice(-KC_FRAMES);
+    // By tick, not by count: lost snapshots must not stretch the replay past the respawn wait.
+    const lastTick = snaps.length ? snaps[snaps.length - 1].tick : 0;
+    const frames = snaps.filter((f) => f.tick > lastTick - KC_FRAMES * SNAP_EVERY);
     if (frames.length < 10 || !frames.some((f) => f.players.get(killer))) return;
     const w = lastDeath && WEAPON_BY_ID[lastDeath.weapon];
     kc = {
@@ -1362,6 +1364,7 @@ export function createNetClient(d) {
     if (kc) {
       const b = puppets.get(kc.id);
       if (b?.alive) b.mesh.visible = true;
+      camera.fov = kc.fov; camera.updateProjectionMatrix();   // the zoom and the killer's sights are not yours
       kc = null;
       removePuppet(myId);       // the stand-in that played you
     }

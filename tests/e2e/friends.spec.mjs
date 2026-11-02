@@ -82,6 +82,7 @@ test('add, accept, see who is on, invite, and join from the banner', async ({ br
   await expect(a.locator('#fr-list .fr-row.on b')).toHaveText('Bobby');
   await a.locator('#fr-list .fr-row.on .fr-b.inv').click();
   await expect(a.locator('#fr-msg')).toContainText('Invited Bobby');
+  await expect(a.locator('#friends')).not.toHaveClass(/\bon\b/);   // inviting closes the drawer and takes Annie online
 
   // The first poll after sign-in is not news; the invite is.
   await b.evaluate(() => globalThis.__game.friends.refresh());
@@ -94,7 +95,7 @@ test('add, accept, see who is on, invite, and join from the banner', async ({ br
   // Unfriending takes two clicks and removes both sides.
   await a.locator('#fr-list .fr-row .fr-b.no').dispatchEvent('click');
   await a.locator('#fr-list .fr-row .fr-b.no.armed').dispatchEvent('click');
-  await expect(a.locator('#fr-list .fr-empty')).toBeVisible();
+  await expect(a.locator('#fr-list .fr-empty')).toBeAttached();   // the drawer closed when Annie invited
 
   await a.context().close(); await b.context().close();
 });

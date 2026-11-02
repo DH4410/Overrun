@@ -61,7 +61,7 @@ export class Friends {
       if (!username) continue;
       const r = await this.rec(lc);
       const online = t - r.seen < ONLINE_MS;
-      friends.push({ username, online, status: online ? r.status : 'offline' });
+      friends.push({ username, online, status: online ? r.status : 'offline', lastSeen: r.seen || null });
     }
     friends.sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username));
     const names = async (list) => (await Promise.all(list.map(name))).filter(Boolean);

@@ -7,10 +7,22 @@
  * pushed to you, so an invite can take up to POLL_MS to arrive.
  */
 
-const POLL_MS = 30_000;
+const POLL_MS = 12_000;
 const POLL_OPEN_MS = 10_000;
 const BANNER_MS = 20_000;
 const STATUS_TIP = { online: 'In the online room', solo: 'Playing solo', lobby: 'In the lobby', offline: 'Offline' };
+
+/** "Last online 5 min ago": how long since a friend's page last checked in. */
+export function lastOnline(seen, now = Date.now()) {
+  if (!seen) return 'Never online';
+  const m = Math.max(0, Math.round((now - seen) / 60_000));
+  if (m < 1) return 'Last online just now';
+  if (m < 60) return `Last online ${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `Last online ${h} h ago`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `Last online ${d} d ago` : 'Last online over a month ago';
+}
 
 const ICON = {
   play: '<path d="M5 3l9 5-9 5z"/>',
@@ -47,7 +59,7 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     return b;
   }
 
-  function row(cls, name, status, ...actions) {
+  function row(cls, name, status, sub, ...actions) {
     const r = document.createElement('div');
     r.className = `fr-row ${cls}`;
     const dot = document.createElement('i');
@@ -55,10 +67,18 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     if (status) dot.title = STATUS_TIP[status];
     const n = document.createElement('b');
     n.textContent = name;
+    const who = document.createElement('div');
+    who.className = 'fr-who';
+    who.append(n);
+    if (sub) {
+      const s = document.createElement('small');
+      s.textContent = sub;
+      who.append(s);
+    }
     const a = document.createElement('span');
     a.className = 'fr-acts';
     a.append(...actions);
-    r.append(dot, n, a);
+    r.append(dot, who, a);
     return r;
   }
 
@@ -123,7 +143,7 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     if (data.invites.length) {
       list.append(section('mail', data.invites.length));
       for (const i of data.invites) {
-        list.append(row('invite', i.from, null,
+        list.append(row('invite', i.from, null, 'Invited you to play',
           button('go', 'play', `Join ${i.from}`, () => accept(i.from)),
           button('no', 'cross', 'Dismiss', () => call('/api/friends/dismiss', { name: i.from }))));
       }
@@ -131,7 +151,7 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     if (data.incoming.length) {
       list.append(section('plus', data.incoming.length));
       for (const n of data.incoming) {
-        list.append(row('req', n, null,
+        list.append(row('req', n, null, 'Wants to be friends',
           button('go chk', 'check', `Accept ${n}`, () => call('/api/friends/accept', { name: n })),
           button('no', 'cross', 'Decline', () => call('/api/friends/decline', { name: n }))));
       }
@@ -147,7 +167,7 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     }
     for (const f of away) list.append(friendRow(f));
     for (const n of data.outgoing) {
-      list.append(row('out', n, 'offline', button('no', 'cross', 'Cancel request', () => call('/api/friends/decline', { name: n }))));
+      list.append(row('out', n, 'offline', 'Request sent', button('no', 'cross', 'Cancel request', () => call('/api/friends/decline', { name: n }))));
     }
     if (!data.friends.length && !data.incoming.length && !data.outgoing.length && !data.invites.length) {
       const e = document.createElement('div');
@@ -163,7 +183,11 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     if (f.online) {
       acts.push(button('inv', 'send', `Invite ${f.username}`, async (e) => {
         const el = e.currentTarget;
-        if (await call('/api/friends/invite', { name: f.username })) { say(`Invited ${f.username}`, true); el.classList.add('sent'); }
+        if (await call('/api/friends/invite', { name: f.username })) {
+          // Inviting means you are going: wait in the online room, and the invite pops up on their screen.
+          say(`Invited ${f.username}`, true); el.classList.add('sent');
+          close(); onJoin();
+        }
       }));
     }
     const armed = armedRemove === f.username;
@@ -173,7 +197,7 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
       call('/api/friends/remove', { name: f.username });
     });
     acts.push(rm);
-    return row(f.online ? 'on' : 'off', f.username, f.status, ...acts);
+    return row(f.online ? 'on' : 'off', f.username, f.status, f.online ? STATUS_TIP[f.status] : lastOnline(f.lastSeen), ...acts);
   }
 
   /** Taking an invite: tell the server it is handled, then go where the friend is. */
@@ -198,7 +222,12 @@ export function createFriends({ getElement: $, account, getStatus, onJoin }) {
     av.textContent = from.slice(0, 1).toUpperCase();
     const n = document.createElement('b');
     n.textContent = from;
-    banEl.append(av, n,
+    const t = document.createElement('small');
+    t.textContent = 'invited you to play online';
+    const who = document.createElement('div');
+    who.className = 'fr-who';
+    who.append(n, t);
+    banEl.append(av, who,
       button('go', 'play', `Join ${from}`, () => accept(from)),
       button('no', 'cross', 'Dismiss', () => { hideBanner(); call('/api/friends/dismiss', { name: from }); }));
     banEl.classList.add('on');

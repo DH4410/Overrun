@@ -2095,3 +2095,11 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
 .kc-title b { font-size: clamp(22px, 4.4vh, 34px); font-weight: 800; letter-spacing: 8px; color: var(--ink); line-height: 1; }
 .kc-title span { font-size: 12px; font-weight: 700; letter-spacing: 4px; color: var(--enemy); }
 .kc-rec { display: none; }
+
+/* ---- friends: a second line under each name (where they are, or when they were last on) ---- */
+.fr-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fr-who b { flex: none; }
+.fr-who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--ink-3); }
+.fr-row.on .fr-who small { color: var(--self); }
+.fr-row.invite .fr-who small, .fr-row.req .fr-who small { color: var(--accent); }
+#fr-invite .fr-who small { font-size: 12px; letter-spacing: 2px; color: var(--accent); }

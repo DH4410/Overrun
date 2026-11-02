@@ -167,7 +167,7 @@ export function createLocker({
   getSkin = () => 'stock', setSkin = () => {}, skinLevel = () => 1, skinOwned = () => true,
   // The collection: paint for the gun shown (a finish or an owned skin), the skin id set on a gun ('' for none),
   // how to set it, which skins are owned, and how to open the store.
-  getPaintId = () => getSkin(), getGunSkin = () => '', setGunSkin = () => {}, ownedSkins = () => [], openStore = () => {}, canShop = () => true,
+  getPaintId = () => getSkin(), getGunSkin = () => '', setGunSkin = () => {}, ownedSkins = () => [], openStore = () => {}, canShop = () => true, openMarket = () => {},
   // Credits: whether a gun is yours, the balance, and how to pay for one.
   gunOwned = () => true, getBalance = () => 0, buyGun = () => false,
 }) {
@@ -182,7 +182,7 @@ export function createLocker({
         <div class="lk-head">
           <div><h2>LOCKER</h2></div>
           <div class="lk-bal" title="Credits"><i class="coin"></i><b id="lk-bal">0</b></div>
-          <div class="set-actions"><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
+          <div class="set-actions"><button id="lk-market" type="button">MARKET</button><button id="locker-reset" type="button">RESET</button><button id="locker-close" type="button">DONE</button></div>
         </div>
         <div class="lk-body">
           <section class="lk-col lk-left"><div class="lk-label">LOADOUT</div><div class="lk-slots" id="lk-slots"></div></section>
@@ -200,6 +200,7 @@ export function createLocker({
       </div>`;
     document.body.appendChild(root);
     root.querySelector('#locker-close').addEventListener('click', close);
+    root.querySelector('#lk-market').addEventListener('click', () => { close(); openMarket(); });
     root.querySelector('#lk-buy').addEventListener('click', () => {
       if (!buyGun(shown)) return;
       apply(assignSlot(getLoadout(), sel, shown));      // a gun you just paid for goes straight into your slot

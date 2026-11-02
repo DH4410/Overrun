@@ -2085,3 +2085,103 @@ html[data-hud=centre] #ammo{right:auto;left:calc(50% + 12px);bottom:22px;width:2
 html[data-hud=centre] #items{bottom:192px}
 html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:176px;height:176px}
 }
+
+/* ============================================================================
+   Skin economy: the locker, the store's reel and the market
+   Plain rectangles: no clip-path, no radius and no decorative pseudo-elements
+   in these three panels, whatever the slant or shape setting says. Colour is
+   only the rarity and the grade of a stat. Layout is a grid that folds to one
+   column on narrow screens, so 800x450 and 1920x1080 both fit without overlap.
+   ============================================================================ */
+#locker *, #market * { clip-path: none; border-radius: 0; }
+#locker *::before, #locker *::after, #market *::before, #market *::after { content: none; }
+#locker .lk-skin.locked::after { content: ''; }
+
+#locker .lk-card, #market .mk-card { box-shadow: 0 0 0 1px rgba(255, 255, 255, .14), 0 24px 60px rgba(0, 0, 0, .55); }
+#locker .lk-card {
+  width: min(1680px, calc(100vw - 48px)); height: min(940px, calc(100vh - 48px));
+  display: flex; flex-direction: column; gap: 12px; padding: 16px; box-sizing: border-box;
+}
+#locker .lk-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+#locker .lk-head h2 { margin: 0; font-size: 22px; letter-spacing: 3px; }
+#locker .set-actions { display: flex; gap: 8px; margin-left: auto; }
+#locker .set-actions button, #market .mk-head button { padding: 8px 14px; }
+
+#locker .lk-body {
+  flex: 1 1 auto; min-height: 0; display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(220px, 300px); gap: 14px;
+}
+#locker .lk-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+#locker .lk-label { flex: 0 0 auto; }
+#locker .lk-stage { overflow: hidden; }
+#locker .lk-view { position: relative; flex: 1 1 auto; min-height: 150px; overflow: hidden; }
+#locker #lk-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#locker .lk-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; flex: 0 0 auto; }
+#locker .lk-name-row h3 { margin: 0; font-size: 20px; letter-spacing: 2px; }
+#locker .lk-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; flex: 0 0 auto; }
+#locker .lk-finish { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+#locker .lk-skins { display: flex; flex-wrap: wrap; gap: 6px; }
+#locker .lk-skin { width: 40px; height: 40px; flex: 0 0 auto; }
+#locker .lk-slots, #locker .lk-armory { display: flex; flex-direction: column; gap: 6px; }
+#locker .lk-armory { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-content: start; }
+#locker .lk-gun { position: relative; display: flex; flex-direction: column; min-width: 0; }
+#locker .lk-gun .lk-img { display: flex; align-items: center; justify-content: center; min-height: 40px; }
+#locker .lk-gun .lk-img img { max-width: 100%; max-height: 60px; object-fit: contain; }
+#locker .lk-gun.tier-common { box-shadow: inset 3px 0 0 #8a939e; }
+#locker .lk-gun.tier-uncommon { box-shadow: inset 3px 0 0 #4cb85c; }
+#locker .lk-gun.tier-rare { box-shadow: inset 3px 0 0 #3f8fe6; }
+#locker .lk-gun.tier-epic { box-shadow: inset 3px 0 0 #a45de0; }
+#locker .lk-gun.tier-legendary { box-shadow: inset 3px 0 0 #f0a23a; }
+#locker .lk-stat { grid-template-columns: 1fr auto; row-gap: 4px; column-gap: 8px; align-items: baseline; }
+#locker .lk-stat b { grid-column: 1 / -1; height: 5px; background: rgba(255, 255, 255, .1); }
+#locker .lk-stat em { background: var(--accent); }
+#locker .lk-stat[data-grade="low"] em { background: #7f8895; }
+
+#market { position: fixed; inset: 0; z-index: 63; display: flex; align-items: center; justify-content: center; background: rgba(4, 8, 14, .72); }
+#market.hidden { display: none; }
+#market .mk-card {
+  width: min(1200px, calc(100vw - 48px)); height: min(860px, calc(100vh - 48px));
+  display: flex; flex-direction: column; gap: 12px; padding: 16px; box-sizing: border-box;
+  background: rgba(9, 14, 24, .97);
+}
+#market .mk-head { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+#market .mk-head h2 { margin: 0; font-size: 22px; letter-spacing: 3px; }
+#market .mk-bal { margin-left: auto; font-weight: 800; letter-spacing: 1px; }
+#market .mk-note { margin: 0; min-height: 1.2em; color: var(--ink-2); font-size: 13px; flex: 0 0 auto; }
+#market .mk-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); gap: 14px; }
+#market .mk-for-sale, #market .mk-sell { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+#market .mk-for-sale { overflow: hidden; }
+#market .mk-label { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--ink-2); flex: 0 0 auto; }
+#market .mk-grid { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; align-content: start; }
+#market .mk-empty { margin: 0; color: var(--ink-3); font-size: 13px; grid-column: 1 / -1; }
+#market .mk-item { display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 3px 0 0 var(--rc, #888); }
+#market .mk-item.mine { background: rgba(255, 255, 255, .08); }
+#market .mk-pic { display: block; height: 64px; }
+#market .mk-pic i { display: block; width: 100%; height: 100%; }
+#market .mk-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#market .mk-info b { font-size: 14px; letter-spacing: 1px; }
+#market .mk-info em { font-style: normal; font-size: 11px; letter-spacing: 1px; color: var(--rc, var(--ink-2)); }
+#market .mk-info small { font-size: 11px; color: var(--ink-3); }
+#market .mk-act { width: 100%; padding: 8px; font-weight: 800; letter-spacing: 1px; }
+#market .mk-sell { gap: 12px; }
+#market .mk-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; letter-spacing: 1px; color: var(--ink-2); }
+#market .mk-field select, #market .mk-field input { padding: 8px; background: rgba(255, 255, 255, .06); color: var(--ink); border: 0; font: inherit; }
+#market .mk-hint { margin: 0; font-size: 12px; color: var(--ink-3); }
+#market .mk-primary { padding: 10px; font-weight: 800; letter-spacing: 1px; }
+
+#st-market { padding: 6px 12px; margin-left: auto; font-weight: 800; letter-spacing: 1px; }
+#store .st-stage { position: relative; }
+#store .st-stage.spinning .st-art { visibility: hidden; }
+#store .st-reel { position: absolute; inset: 0; overflow: hidden; background: rgba(4, 8, 14, .92); cursor: pointer; }
+#store .st-strip { position: absolute; left: 0; top: 50%; display: flex; gap: 6px; margin-top: -40px; will-change: transform; }
+#store .st-tile { display: flex; flex-direction: column; width: 84px; height: 80px; flex: 0 0 auto; box-shadow: inset 0 -3px 0 var(--rc); }
+#store .st-tile i { display: block; flex: 1 1 auto; }
+#store .st-tile small { font-size: 9px; letter-spacing: 1px; padding: 3px 4px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#store .st-pin { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+
+@media (max-width: 900px) {
+  #locker .lk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  #locker .lk-col { overflow: visible; }
+  #locker .lk-stage { min-height: 360px; }
+  #market .mk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+}

@@ -23,7 +23,7 @@ const ERRORS = {
 };
 const explain = (r) => ERRORS[r.error] ?? r.message ?? 'Something went wrong on the server.';
 
-export function createMarket({ getProfile, skinCall, signedIn, openStore = () => {}, onClose = () => {} }) {
+export function createMarket({ getProfile, skinCall, signedIn, openStore = () => {}, onOpen = () => {}, onClose = () => {} }) {
   let root = null, data = null, note = '';
   const isOpen = () => !!root && !root.classList.contains('hidden');
 
@@ -102,7 +102,7 @@ export function createMarket({ getProfile, skinCall, signedIn, openStore = () =>
     const listings = data?.listings ?? [];
     root.querySelector('#mk-count').textContent = on && data ? `(${listings.length})` : '';
     if (!listings.length) {
-      grid.innerHTML = `<p class="mk-empty">${on && data ? 'Nothing is for sale right now.' : ''}</p>`;
+      grid.innerHTML = `<p class="mk-empty">${!on ? 'Sign in to see what other players are selling, and to list your own skins.' : data ? 'Nothing is for sale right now.' : 'Loading the market…'}</p>`;
     }
     for (const l of listings) {
       const k = gunSkinInfo(l.skin);
@@ -171,6 +171,7 @@ export function createMarket({ getProfile, skinCall, signedIn, openStore = () =>
   function open() {
     if (!root) build();
     root.classList.remove('hidden');
+    onOpen();
     note = '';
     render();
     load();

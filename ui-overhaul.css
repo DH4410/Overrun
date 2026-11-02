@@ -2289,3 +2289,57 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
   #locker .lk-stage { overflow: visible; order: -1; }
   #locker .lk-view { flex: 0 0 auto; min-height: 150px; }
 }
+
+/* Round 4: a roomier store. The shop panel scrolls on its own, so the skins and the guns get real size
+   and the prices get room, instead of everything being squeezed to fit one screen. Wide layout only:
+   the narrow one (<= 900px) already stacks, and under 560px tall the whole body scrolls as one. */
+@media (min-width: 901px) {
+  #store .st-card { height: 100%; }
+  #store .st-body { flex: 1 1 auto; grid-template-rows: minmax(0, 1fr); }
+  #store .st-shop { min-height: 0; overflow-y: auto; overscroll-behavior: contain; gap: 14px; padding: 18px 20px 22px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .3) transparent; }
+  #store .st-shop::-webkit-scrollbar { width: 8px; }
+  #store .st-shop::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 4px; }
+  #store .st-shop::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .45); }
+  #store .st-cards, #store .st-guns { flex: none; }
+  #store .st-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  #store .st-card-item { padding: 14px 16px 16px; gap: 12px; }
+  #store .st-card-item .st-pic { padding: 6px 0 2px; }
+  #store .st-card-item .st-pic img { max-height: 92px; }
+  #store .st-info { gap: 5px; }
+  #store .st-info b { font-size: 19px; letter-spacing: 2px; line-height: 1.15; }
+  #store .st-info em { font-size: 12px; }
+  #store .st-buy { padding: 12px 14px; font-size: 20px; gap: 9px; }
+  #store .st-guns-label { padding-top: 10px; }
+  #store .st-guns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  #store .st-gun { padding: 12px 14px 14px; gap: 10px; }
+  #store .st-gun-pic { height: 60px; }
+  #store .st-gun-pic img { filter: brightness(2.1); }
+  #store .st-gun b { min-height: 0; font-size: 15px; letter-spacing: 1.5px; overflow-wrap: normal; }
+  #store .st-gun .st-buy { padding: 10px 12px; font-size: 18px; }
+}
+@media (min-width: 901px) and (max-height: 560px) {
+  #store .st-card { height: auto; }
+  #store .st-shop { overflow: visible; }
+}
+
+/* Round 5: the market is a page of its own (the MARKET tab), laid out like the store rather than a dialog. */
+#market { top: var(--nav-h); z-index: 62; background: radial-gradient(ellipse at 50% 15%, #1b2742, #070a10 75%); }
+#market .mk-card { width: min(1180px, 95vw); height: 100%; max-height: 100%; padding: var(--u) 0 clamp(14px, 2.6vh, 26px); background: none; box-shadow: none; gap: var(--u); font-family: var(--f-display); }
+#market .mk-head { gap: 16px; align-items: baseline; padding: 0 2px; }
+#market .mk-head h2 { font-size: clamp(26px, 4.4vh, 38px); font-weight: 800; letter-spacing: 3px; }
+#market .mk-bal { font-size: 16px; }
+#market .mk-note { padding: 0 2px; }
+#market .mk-body { gap: clamp(14px, 2.6vh, 30px); grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); }
+#market .mk-for-sale, #market .mk-sell { padding: 18px 20px 22px; background: rgba(255, 255, 255, .045); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); }
+#market .mk-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .3) transparent; overscroll-behavior: contain; }
+#market .mk-item { padding: 14px 16px 16px; gap: 12px; }
+#market .mk-pic { height: 80px; }
+#market .mk-info { gap: 4px; }
+#market .mk-info b { font-size: 18px; letter-spacing: 1.5px; }
+#market .mk-info em { font-size: 12px; letter-spacing: 3px; }
+#market .mk-info small { font-size: 13px; }
+#market .mk-act { padding: 12px 14px; font-size: 18px; }
+#market .mk-sell { gap: 14px; align-self: start; }
+body.lobby-on #mk-close { display: none; }
+@media (max-width: 900px) { #market .mk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; } }
+#market .mk-empty { padding: 48px 12px; text-align: center; font-size: 16px; letter-spacing: 1px; }

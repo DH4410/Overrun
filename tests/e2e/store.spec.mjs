@@ -131,7 +131,7 @@ test('with no credits, nothing in the store can be bought', async ({ page }) => 
 });
 
 for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
-  test(`the store fits ${w}x${h} without scrolling, and nothing in it leaves its panel`, async ({ page }) => {
+  test(`the store fits ${w}x${h}: the page never scrolls, the shop panel does, and nothing leaves its panel`, async ({ page }) => {
     await seed(page, { xp: 6000, credits: 2000, spent: 0 });
     await page.setViewportSize({ width: w, height: h });
     await bootGame(page);
@@ -142,6 +142,7 @@ for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
       const vw = innerWidth, vh = innerHeight;
       for (const sel of ['.st-card', '.st-crate', '.st-shop', '#st-open', '.st-card-item', '.st-buy']) {
         for (const e of document.querySelectorAll(`#store ${sel}`)) {
+          e.scrollIntoView({ block: 'nearest' });     // the shop panel scrolls; judge each item where it is reached
           const r = e.getBoundingClientRect();
           if (r.left < 0 || r.top < 0 || r.right > vw + 0.5 || r.bottom > vh + 0.5) bad.push(`${sel} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
         }
@@ -194,3 +195,20 @@ for (const [w, h] of [[1366, 768], [1024, 600], [800, 450]]) {
     expect(out.sw).toBeLessThanOrEqual(out.vw + 1);
   });
 }
+
+test('the market is a page of its own: a MARKET tab opens it, and the other tabs put it away', async ({ page }) => {
+  await seed(page, { xp: 6000, credits: 2000, spent: 0 });
+  await bootGame(page);
+  await page.click('#tab-market');
+  await expect(page.locator('#market')).toBeVisible();
+  await expect(page.locator('#tab-market')).toHaveClass(/active/);
+  await expect(page.locator('#market .mk-empty')).toContainText('Sign in');
+  await page.click('#tab-store');
+  await expect(page.locator('#market')).toBeHidden();
+  await expect(page.locator('#store')).toBeVisible();
+  await page.click('#st-market');
+  await expect(page.locator('#market')).toBeVisible();
+  await expect(page.locator('#store')).toBeHidden();
+  await page.click('#locker-open');
+  await expect(page.locator('#market')).toBeHidden();
+});

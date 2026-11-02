@@ -2064,6 +2064,19 @@ html[data-type=orbitron] #a-mag{font-size:44px} html[data-type=orbitron] .vrow.h
 html[data-type=orbitron] #pause .big{font-size:54px} html[data-type=orbitron] #play{font-size:27px} html[data-type=orbitron] .tab{font-size:15px}
 html[data-type=orbitron] #killbanner .kb-name{font-size:22px} html[data-type=orbitron] #board td{font-size:15px} html[data-type=orbitron] .kf{font-size:13px}
 html[data-type=orbitron] .sc-name{font-size:18px} html[data-type=orbitron] #topnav .brand b{font-size:26px}
+/* Orbitron is wide: the top bar needs its own step down on narrow windows or the account chip leaves the screen */
+@media (max-width: 1150px) {
+html[data-type=orbitron] .tab{font-size:13px;padding:0 7px}
+html[data-type=orbitron] #account{font-size:13px;letter-spacing:1px}
+html[data-type=orbitron] #topnav .brand b{font-size:22px}
+}
+/* ...and its podium is a touch taller, so on a short window the close button takes a little less room */
+@media (max-height: 520px) { html[data-type=orbitron] #podium-close{margin-top:6px;padding:8px 36px} }
+@media (max-width: 900px) {
+html[data-type=orbitron] .tab{font-size:11px;padding:0 5px}
+html[data-type=orbitron] #account{font-size:11px;padding:7px 8px}
+html[data-type=orbitron] #topnav .brand b{font-size:17px}
+}
 
 /* HUD: vitals and ammo side by side under the crosshair (wide screens only; phones keep their own layout) */
 @media (min-width: 901px) {

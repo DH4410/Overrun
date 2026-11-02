@@ -1524,7 +1524,7 @@ const lobby = createLobby({
   getProfile: loadProfile, onEquip: (id) => wearOperator(id),
   holdPose: (mesh, id) => emotes.playOn(mesh, id),
 });
-const backdrop = createLobbyBackdrop({ renderer, scene, canvas: $('lobby-bg') });
+const backdrop = createLobbyBackdrop({ renderer, scene, canvas: $('lobby-bg'), video: $('lobby-vid'), saver: saverActive });
 const account = createAccount({
   getElement: $,
   getProfile: loadProfile,
@@ -1667,6 +1667,7 @@ function previewMap(id) {
   if (match.running || net.active) return;
   switchMap(id);
   backdrop.setExtent(currentPlan()?.extent ?? 46);
+  backdrop.setMap(id);
 }
 /** The five top tabs are always on screen; this marks the one whose page is up. */
 const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', store: 'tab-store', locker: 'locker-open', settings: 'settings-open' };
@@ -1932,6 +1933,7 @@ async function boot() {
   lobby.init();
   account.init();
   backdrop.setExtent(currentPlan()?.extent ?? 46);
+  backdrop.setMap(getCurrentMapId());
 
   // Debug handle. Everything in this file is module-scoped, so without this there is no way
   // to inspect or drive the sim from the console (or from an automated smoke test). Local

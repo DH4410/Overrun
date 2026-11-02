@@ -1522,6 +1522,10 @@ body:has(#menu:not(.hidden)) { --nav-h: clamp(52px, 8.4vh, 66px); }
 #lobby-bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; display: none; pointer-events: none;
   filter: blur(10px) brightness(.62) saturate(.85); transform: scale(1.1); }
 body.lobby-on #lobby-bg { display: block; }
+/* The flight over the map (src/lobbyBackdrop.js) sits over the still once it is really playing. Its dimming and softening are baked in. */
+#lobby-vid { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; display: none; opacity: 0; pointer-events: none;
+  filter: brightness(.72) saturate(.9); }
+body.lobby-on #lobby-vid.live { display: block; opacity: 1; }
 
 #topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 40; height: var(--nav-h); padding: 0 clamp(18px, 3vw, 52px);
   background: linear-gradient(180deg, rgba(6, 9, 15, .94), rgba(6, 9, 15, .8)); box-shadow: 0 1px 0 rgba(255, 255, 255, .08); }

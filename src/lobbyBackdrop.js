@@ -14,7 +14,7 @@ const WIDTH = 480;                         // the still's width in pixels: it is
 const FIRST = 6, SECOND = 45;              // frames after a change: the first capture, and the one that picks up late textures
 const FOV = 52;
 
-export function createLobbyBackdrop({ renderer, scene, canvas }) {
+export function createLobbyBackdrop({ renderer, scene, canvas, video = null, saver = () => false }) {
   const ctx = canvas.getContext('2d');
   const cam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 500);
   const size = new THREE.Vector2();
@@ -60,6 +60,35 @@ export function createLobbyBackdrop({ renderer, scene, canvas }) {
     if (frames >= SECOND) frames = -1;
   }
 
+  /**
+   * The drone flight over the picked map (assets/lobby/<map>.webm, filmed once and already dimmed and
+   * softened) plays over the still when the machine can spare it. The battery saver and reduced motion
+   * keep the still; so does a clip that has not arrived, or never will.
+   */
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+  let mapId = '', clip = '';
+  function setMap(id) {
+    if (id !== undefined) mapId = id;
+    if (!video) return;
+    const want = mapId && !saver() && !calm.matches ? `assets/lobby/${mapId}.webm` : '';
+    if (want === clip) return;
+    clip = want;
+    video.classList.remove('live');
+    if (!want) { video.removeAttribute('src'); video.load(); return; }
+    video.src = want;
+    video.play().catch(() => {});
+  }
+  if (video) {
+    video.addEventListener('playing', () => { if (clip) video.classList.add('live'); });
+    video.addEventListener('error', () => video.classList.remove('live'));
+    setInterval(() => {
+      setMap();                              // follows the battery saver coming on or off
+      const show = !!clip && document.body.classList.contains('lobby-on');
+      if (show && video.paused) video.play().catch(() => {});
+      else if (!show && !video.paused) video.pause();
+    }, 1000);
+  }
+
   addEventListener('resize', invalidate);
-  return { update, invalidate, setExtent };
+  return { update, invalidate, setExtent, setMap };
 }

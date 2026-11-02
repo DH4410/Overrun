@@ -1606,7 +1606,7 @@ const store = createStore({
   getProfile: loadProfile,
   openCrate: async () => {
     if (account.signedIn()) {
-      const r = await account.skinCall('POST', '/api/crate');
+      const r = await account.skinCall('POST', '/api/crate', {});
       return r.ok ? r : null;
     }
     const res = openCrate(loadProfile());

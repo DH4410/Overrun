@@ -1680,6 +1680,8 @@ killcam = createKillcam({
   fp: {
     vmRig, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
     hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
+    paint: (model, id) => applyGunSkin(model, id ? gunSkinInfo(id) : null),   // the killer's finish on your first-person gun
+    restorePaint: () => applyWornSkin(),
   },
 });
 /** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */

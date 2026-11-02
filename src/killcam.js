@@ -7,7 +7,7 @@ import { clamp, lerp } from './utils.js';
 /**
  * The kill cam. When a bot kills you the camera first swings onto them and zooms in while the
  * world runs in slow motion, then the screen rewinds into a replay of the last few seconds at
- * real speed, through the killer's own eyes: their posed skeleton, gun and aim as they were
+ * 0.65 times speed (so each shot can be followed), through the killer's own eyes: their posed skeleton, gun and aim as they were
  * drawn, so what you see is what they saw (the sights, the shots, you), and every shot they
  * fired, with the first-person gun in the hands, the scope when they were scoped, and the damage
  * numbers and hit markers they saw as each shot landed on you. After it, a short respawn wait.
@@ -20,10 +20,11 @@ const REC_HZ = 30;
 const KEEP = 3.6;                       // seconds of history kept per bot
 const SLOTS = Math.ceil(KEEP * REC_HZ) + 2;
 
-export const ZOOM_TIME = 1.7;           // slow-motion zoom on the killer (real seconds)
-const ZOOM_SCALE = 0.3;                 // world speed during it
+export const ZOOM_TIME = 2.3;           // slow-motion zoom on the killer (real seconds)
+const ZOOM_SCALE = 0.22;                // world speed during it
 const CUT_TIME = 0.45;                  // the rewind between the two
-const REPLAY_MAX = 3.2;                 // seconds of replay (less if less was recorded)
+const REPLAY_MAX = 2.6;                 // seconds of replay, in game time (less if less was recorded)
+const REPLAY_SPEED = 0.65;              // the replay runs slower than real time, so each shot can be followed
 const LEAD_IN = 0.45;                   // of the killer finding you, before they are aiming
 const MIN_REPLAY = 1.4;                 // never cut shorter than this
 const HOLD_TIME = 0.7;                  // lingering on the moment it lands
@@ -220,12 +221,13 @@ export function createKillcam({
     const name = $('kc-name'), who = $('kc-who'), wp = $('kc-weapon');
     if (name) name.textContent = killerName;
     if (who) who.textContent = 'ELIMINATED BY';
+    const sub = $('kc-sub'); if (sub) sub.textContent = 'SLOW MOTION';
     if (wp) wp.textContent = `${killerWeapon}${headshot ? ' · HEADSHOT' : ''}`;
     const lost = $('kc-lost');
     if (lost) lost.textContent = extra.lost ? `YOUR ${extra.lost}-KILL STREAK ENDED` : '';
     $('killcam')?.classList.remove('replay');
     $('killcam')?.classList.add('on');
-    return ZOOM_TIME + (frames ? CUT_TIME + (endT - startT) + HOLD_TIME : 0);
+    return ZOOM_TIME + (frames ? CUT_TIME + (endT - startT) / REPLAY_SPEED + HOLD_TIME : 0);
   }
 
   function reset() {
@@ -386,12 +388,14 @@ export function createKillcam({
     viewSet = false;
     $('killcam')?.classList.add('replay');
     const who = $('kc-who'); if (who) who.textContent = 'KILL CAM';
+    const sub = $('kc-sub'); if (sub) sub.textContent = 'REPLAY · 0.65×';
     Audio.rewind?.();
   }
 
   /* ----------------------- what the killer saw on screen ----------------------- */
 
   let fpOn = false, fpScoped = false, vmKick = 0;
+  const painted = new Map();                          // gun id -> the finish the first-person model is wearing now
   const _vmHip = new THREE.Vector3(), _vmAim = new THREE.Vector3(), _vmPos = new THREE.Vector3();
 
   /** Their gun in their hands, their sights or scope, their crosshair: set once a frame. */
@@ -401,6 +405,9 @@ export function createKillcam({
     if (!model) { endFirstPerson(); return; }
     fpOn = true;
     for (const id in fp.vmModels) fp.vmModels[id].visible = id === w.id;
+    // The gun wears the killer's finish, not the one this player has on their own.
+    const finish = killer?.gunSkins?.[w.id] ?? '';
+    if (painted.get(w.id) !== finish) { painted.set(w.id, finish); fp.paint?.(model, finish); }
     const aim = clamp(ks.aim, 0, 1);
     fpScoped = !!w.zoom && aim > 0.85;
     const ads = w.zoom ? 0 : aim;                       // a scope replaces the model; other sights raise it
@@ -432,6 +439,7 @@ export function createKillcam({
   function endFirstPerson() {
     if (!fp || !fpOn) return;
     fpOn = fpScoped = false; vmKick = 0;
+    if (painted.size) { painted.clear(); fp.restorePaint?.(); }
     fp.vmRig.visible = false;
     fp.updateMuzzleFlash(1);
     $('scope')?.classList.remove('on');
@@ -482,7 +490,8 @@ export function createKillcam({
 
     // replay
     const total = endT - startT;
-    const time = startT + Math.min(t, total);
+    const real = total / REPLAY_SPEED;                  // how long that takes to watch
+    const time = startT + Math.min(t * REPLAY_SPEED, total);
     const ks = poseKiller(time);
     const mp = poseMe(time, dt);
     if (fp) firstPerson(time, dt, ks);
@@ -530,8 +539,8 @@ export function createKillcam({
     for (const x of flashes) { x.life -= dt; x.sprite.material.opacity = clamp(x.life / 0.06, 0, 1); if (x.life <= 0) { scene.remove(x.sprite); x.sprite.material.dispose(); } }
     for (let i = flashes.length - 1; i >= 0; i--) if (flashes[i].life <= 0) flashes.splice(i, 1);
 
-    if (prog) prog.style.width = `${Math.round(clamp(t / (total + HOLD_TIME), 0, 1) * 100)}%`;
-    if (t >= total + HOLD_TIME) { document.body.classList.remove('killcam-replay'); reset(); }
+    if (prog) prog.style.width = `${Math.round(clamp(t / (real + HOLD_TIME), 0, 1) * 100)}%`;
+    if (t >= real + HOLD_TIME) { document.body.classList.remove('killcam-replay'); reset(); }
     return { scale: 1, frozen: true };
   }
 

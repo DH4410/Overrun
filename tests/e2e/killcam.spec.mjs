@@ -72,8 +72,8 @@ test('a bot kill runs zoom, rewind and replay, then the death screen, then respa
   expect(await page.evaluate(() => globalThis.__game.camera.fov)).toBeLessThan(60);
   await shot(page, '1-zoom');
 
-  // Past the zoom (1.7 s) into the rewind and the replay.
-  await pumpFrames(page, 50);
+  // Past the zoom (2.3 s) into the rewind and the replay.
+  await pumpFrames(page, 90);
   expect(['cut', 'replay']).toContain(await phase(page));
   await pumpFrames(page, 40);
   expect(await phase(page)).toBe('replay');
@@ -162,7 +162,7 @@ test('the replay is the killer\'s own screen: scope, gun in hand, hit markers an
     new MutationObserver((ms) => { for (const m of ms) globalThis.__nums += m.addedNodes.length; })
       .observe(document.getElementById('dmgnums'), { childList: true });
   });
-  await pumpFrames(page, 135);
+  await pumpFrames(page, 175);
   expect(await phase(page)).toBe('replay');
   // The killer had been raising the rifle as the recording began; give it a moment to be shouldered.
   for (let i = 0; i < 80 && !(await page.evaluate(() => document.getElementById('scope').classList.contains('on'))); i++) {
@@ -197,7 +197,7 @@ test('the replay shows the killer\'s gun in their hands when they are not scoped
   await bootGame(page);
   await setUpKill(page, false, 'ar');
   await killPlayer(page, false);
-  await pumpFrames(page, 150);
+  await pumpFrames(page, 175);
   expect(await phase(page)).toBe('replay');
   const s = await page.evaluate(() => {
     const g = globalThis.__game;

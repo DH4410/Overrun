@@ -13,18 +13,22 @@ import { balance, ownsSkin } from './shop.js';
  * the page and the crate-opening reveal and asks `openCrate` / `buySkin` to do the paying.
  *
  * The pay-then-reveal order matters: `openCrate` commits the draw and the cost first, so closing the
- * page in the middle of the drop cannot lose the skin. The supply drop (src/crateDrop.js, a full-screen
- * window of its own) is only the show.
+ * page in the middle of the drop cannot lose the skin. `openCrate` may be async (a signed-in crate is
+ * rolled and paid for on the server); the result it returns is what the reel and the drop then show.
+ * The reel (a strip of skins that spins and settles on the result) and the supply drop
+ * (src/crateDrop.js, a full-screen window of its own) are only the show: neither decides anything.
  */
 
 const SHOWCASE_GUN = 'ar';                 // the gun every card shows its skin on
+const REEL_TILES = 36, REEL_LAND = 30, REEL_MS = 2000;
+const TILE_W = 84, TILE_GAP = 6;
 const TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const CRATE_ART = '<svg viewBox="0 0 96 80" aria-hidden="true"><path d="M8 26 48 8l40 18v38L48 76 8 64z" fill="#1d2a40" stroke="#9fb4d6" stroke-width="2.5" stroke-linejoin="round"/><path d="M8 26l40 18 40-18M48 44v32" fill="none" stroke="#9fb4d6" stroke-width="2.5" stroke-linejoin="round"/><path d="M30 17l40 18v13l-40-18z" fill="#f3b53f" opacity=".92"/><rect x="40" y="42" width="16" height="14" rx="3" fill="#0e1522" stroke="#f3b53f" stroke-width="2.5"/></svg>';
 
 const pct = (tier, open) => Math.round((RARITY[tier].weight / open.reduce((n, t) => n + RARITY[t].weight, 0)) * 100);
 
-export function createStore({ getProfile, openCrate, buySkin, openLocker = () => {}, onOpen = () => {}, onClose = () => {}, sfx = () => {}, now = () => Date.now() }) {
-  let root = null, timer = 0, busy = false, shots = {};
+export function createStore({ getProfile, openCrate, buySkin, openLocker = () => {}, openMarket = () => {}, onOpen = () => {}, onClose = () => {}, sfx = () => {}, now = () => Date.now() }) {
+  let root = null, timer = 0, busy = false, shots = {}, reelSkip = null;
   const drop = createDrop({ sfx, gunId: SHOWCASE_GUN });
 
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -39,6 +43,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
         <div class="st-head">
           <h2>STORE</h2>
           <span class="st-sub" id="st-count"></span>
+          <button id="st-market" class="st-market" type="button">MARKET</button>
           <button id="store-close" type="button" aria-label="Close">&#x2715;</button>
         </div>
         <div class="st-body">
@@ -46,6 +51,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
             <div class="st-label">SKIN CRATE</div>
             <div class="st-stage" id="st-stage">
               <div class="st-art" id="st-art"></div>
+              <div class="st-reel" id="st-reel" hidden><div class="st-strip" id="st-strip"></div><i class="st-pin" aria-hidden="true"></i></div>
             </div>
             <div class="st-odds" id="st-odds"></div>
             <button id="st-open" type="button"><i class="coin"></i><b>${CRATE_PRICE}</b><span>OPEN CRATE</span></button>
@@ -58,8 +64,13 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
       </div>`;
     document.body.appendChild(root);
     root.querySelector('#store-close').addEventListener('click', close);
+    root.querySelector('#st-market').addEventListener('click', () => { close(); openMarket(); });
     root.querySelector('#st-open').addEventListener('click', openOne);
-    addEventListener('keydown', (e) => { if (e.code === 'Escape' && isOpen()) close(); });
+    root.querySelector('#st-reel').addEventListener('click', () => reelSkip?.());
+    addEventListener('keydown', (e) => {
+      if (e.code !== 'Escape' || !isOpen()) return;
+      if (reelSkip) reelSkip(); else close();     // during the reel, Escape shows the result; otherwise it leaves
+    });
     root.addEventListener('click', (e) => { if (e.target === root) close(); });
   }
 
@@ -92,7 +103,7 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
       btn.disabled = owned || poor;
       btn.title = owned ? 'In your collection' : poor ? `${sk.price - balance(p)} more credits needed` : 'Buy';
       btn.setAttribute('aria-label', owned ? `${sk.name}, owned` : `Buy ${sk.name} for ${sk.price} credits`);
-      btn.addEventListener('click', () => { if (buySkin(sk.id)) { render(); } });
+      btn.addEventListener('click', async () => { btn.disabled = true; if (await buySkin(sk.id)) render(); else btn.disabled = false; });
       c.append(btn);
       cards.append(c);
     }
@@ -139,13 +150,56 @@ export function createStore({ getProfile, openCrate, buySkin, openLocker = () =>
     return { ok: true, price: CRATE_PRICE };
   }
 
+  /**
+   * The reel: a strip of skins that spins and settles with `win` under the pin. The tiles are only
+   * scenery, drawn at random; the one that lands is the result already decided. A rarer skin sits
+   * one tile before the landing, so a common result is seen to almost be something better.
+   * Resolves when the strip has settled (or was skipped). Escape or a click shows the landing at once.
+   */
+  function spin(win) {
+    const reel = root.querySelector('#st-reel');
+    const strip = root.querySelector('#st-strip');
+    const stage = root.querySelector('#st-stage');
+    const pool = CRATE_SKINS.length ? CRATE_SKINS : GUN_SKINS;
+    const tiles = Array.from({ length: REEL_TILES }, () => pool[Math.floor(Math.random() * pool.length)]);
+    tiles[REEL_LAND] = win;
+    const top = [...pool].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity))[0];
+    if (top && top.id !== win.id && win.rarity !== 'legendary') tiles[REEL_LAND - 1] = top;
+    strip.textContent = '';
+    for (const sk of tiles) {
+      const t = el('span', 'st-tile', `<i style="background:${skinGradient(sk)}"></i><small>${sk.name}</small>`);
+      t.style.setProperty('--rc', RARITY[sk.rarity].color);
+      strip.append(t);
+    }
+    const w = reel.clientWidth || 300;
+    const start = w / 2 - TILE_W / 2;
+    const end = start - REEL_LAND * (TILE_W + TILE_GAP) - (Math.random() - 0.5) * TILE_W * 0.4;   // never dead centre
+    reel.hidden = false;
+    stage.classList.add('spinning');
+    const anim = strip.animate(
+      [{ transform: `translateX(${start}px)` }, { transform: `translateX(${end}px)` }],
+      { duration: REEL_MS, easing: 'cubic-bezier(.14,.72,.16,1)', fill: 'forwards' },
+    );
+    reelSkip = () => anim.finish();
+    return anim.finished.catch(() => {})
+      .then(() => new Promise((r) => setTimeout(r, 300)))      // a beat on the landing before the drop
+      .then(() => {
+        reelSkip = null;
+        reel.hidden = true;
+        stage.classList.remove('spinning');
+        anim.cancel();
+      });
+  }
+
   async function openOne() {
     if (busy) return;
-    const res = openCrate();
-    if (!res) { render(); return; }
     busy = true;
-    const win = gunSkinInfo(res.skin);
     render();
+    const res = await openCrate();
+    if (!res) { busy = false; render(); return; }
+    const win = gunSkinInfo(res.skin);
+    await spin(win);
+    if (!isOpen()) { busy = false; return; }
     const choice = await drop.play(win, againState());
     busy = false;
     if (!isOpen()) return;

@@ -22,7 +22,7 @@ test('every roster character and animation clip loads', async ({ page }) => {
     expect.arrayContaining(['soldier', 'swat', 'trooper', 'gasmask', 'crypto', 'ely', 'steve']),
   );
   expect(assets.anims).toEqual(
-    expect.arrayContaining(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'Death']),
+    expect.arrayContaining(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'CrouchWalk', 'Death', 'Reload', 'ReloadCrouch']),
   );
 });
 
@@ -67,7 +67,7 @@ test('clips bind to the skeleton of whichever character a bot got', async ({ pag
   for (const bot of bound) {
     expect(bot.rigged).toBe(true);
     expect(bot.clipNames).toEqual(
-      ['Crouch', 'Death', 'Idle', 'Run', 'StrafeLeft', 'StrafeRight', 'Walk', 'WalkBack'],
+      ['Crouch', 'CrouchWalk', 'Death', 'Idle', 'Run', 'StrafeLeft', 'StrafeRight', 'Walk', 'WalkBack'],
     );
     expect(bot.wanted).toBeGreaterThan(0);
     // Every track must bind. A partial match means a retarget regression.
@@ -158,8 +158,8 @@ test('a dead bot plays the death clip instead of the procedural tip-over', async
     const g = globalThis.__game;
     const bot = g.bots[0];
     bot.die();
-    bot.simStep(1 / 120);
-    bot.renderStep(1 / 60);
+    // The death clip blends in over DEATH_BLEND (0.35 s), so let the blend finish first.
+    for (let i = 0; i < 30; i++) { bot.simStep(1 / 60); bot.renderStep(1 / 60); }
     const clips = bot.mesh.userData.clips;
     return {
       hasDeathClip: Boolean(clips?.Death),
@@ -176,4 +176,81 @@ test('a dead bot plays the death clip instead of the procedural tip-over', async
   expect(death.deathRunning).toBe(true);
   expect(death.idleWeight).toBe(0);
   expect(death.meshPitch).toBe(0);
+});
+
+/**
+ * A crouched player's top speed is WALK_SPEED * CROUCH_MULT, and a bot tucked in cover moving at that
+ * pace must keep its legs crouched too. The crouch walk takes over there, not the standing clips.
+ */
+test('a tucked bot moving at crouch pace plays the crouch walk', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
+  const w = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const bot = g.bots[0];
+    const dt = 1 / 60;
+    bot.target = null;
+    bot.hasLOS = false;
+    bot.state = 'TAKE_COVER';
+    bot.peekTimer = 0;
+    bot.body.velocity.set(g.CONFIG.WALK_SPEED * g.CONFIG.CROUCH_MULT, 0, 0);
+    for (let i = 0; i < 60; i++) bot.renderStep(dt);
+    const clips = bot.mesh.userData.clips;
+    return { crouchWalk: clips.CrouchWalk.weight, standing: clips.Walk.weight + clips.Run.weight };
+  });
+
+  expect(w.crouchWalk).toBeGreaterThan(0.9);
+  expect(w.standing).toBeLessThan(0.1);
+});
+
+/**
+ * A reload is an upper-body clip blended over the locomotion pose and then over the arm solve, and
+ * the rifle rides the right hand through it. Drive one bot's reload frame by frame: the arm must
+ * swing out to the magazine, the grip must hold while the clip plays at full weight, and the arm
+ * must come home once the reload is over.
+ */
+test('a reloading bot swings its arm through the reload clip and keeps the rifle in its hand', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
+  const r = await page.evaluate(() => {
+    const g = globalThis.__game;
+    const bot = g.bots[0];
+    const bones = bot.mesh.userData.bones;
+    const dt = 1 / 60;
+    bot.target = null;
+    bot.hasLOS = false;
+    const hand = () => bones.RightHand.getWorldPosition(new g.THREE.Vector3());
+    // The arm is measured from the chest, which carries the body's own drift: the hips wander a
+    // few centimetres over seconds even standing still, and that is not part of the reload.
+    const armAt = () => hand().sub(bones.Spine2.getWorldPosition(new g.THREE.Vector3()));
+    const gripGap = () => hand().distanceTo(bot.gunMesh.userData.grip.clone().applyMatrix4(bot.gunMesh.matrixWorld));
+
+    for (let i = 0; i < 30; i++) bot.renderStep(dt);
+    const rest = armAt();
+    const kinds = new Set();
+    let furthest = 0, steadyGap = 0;
+    bot.reloading = g.WEAPON_BY_ID[bot.weaponId].reload;
+    while (bot.reloading > 0) {
+      bot.reloading = Math.max(0, bot.reloading - dt);
+      bot.renderStep(dt);
+      kinds.add(bot.reloadKind);
+      furthest = Math.max(furthest, armAt().distanceTo(rest));
+      if (bot.reloadRamp === 1) steadyGap = Math.max(steadyGap, gripGap());
+    }
+    for (let i = 0; i < 60; i++) bot.renderStep(dt);
+    return {
+      kinds: [...kinds],
+      furthest,
+      steadyGap,
+      home: armAt().distanceTo(rest),
+      upper: Object.keys(bot.mesh.userData.upper),
+    };
+  });
+
+  expect(r.upper.sort()).toEqual(['Reload', 'ReloadCrouch']);
+  expect(r.kinds).toHaveLength(1);
+  expect(['Reload', 'ReloadCrouch']).toContain(r.kinds[0]);
+  expect(r.furthest).toBeGreaterThan(0.1);
+  expect(r.steadyGap).toBeLessThan(0.02);
+  expect(r.home).toBeLessThan(0.03);
 });

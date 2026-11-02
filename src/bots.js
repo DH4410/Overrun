@@ -264,6 +264,9 @@ const CLIP_SPEED = {
   WalkBack: 1.4,
   StrafeLeft: 1.5,
   StrafeRight: 1.5,
+  // The crouch walk carries no hip travel to measure, so its rate comes from its planted feet: the
+  // soldier's crouch step keeps pace with about 0.62 m/s of body travel (0.57 x CLIP_SCALE).
+  CrouchWalk: 0.57,
 };
 
 
@@ -308,6 +311,8 @@ const _h1 = new THREE.Vector3(), _h2 = new THREE.Vector3(), _h3 = new THREE.Vect
 const _h5 = new THREE.Vector3(), _h6 = new THREE.Vector3(), _h7 = new THREE.Vector3(), _h8 = new THREE.Vector3();
 const _h9 = new THREE.Vector3();
 const _hb1 = new THREE.Vector3(), _hb2 = new THREE.Vector3();
+const _rq = new THREE.Quaternion(), _hQuat = new THREE.Quaternion();
+const _hPos = new THREE.Vector3(), _hScale = new THREE.Vector3(), _mHand = new THREE.Matrix4();
 
 /** Bones the rig code needs, by their name with the Mixamo prefix stripped. */
 const RIG_BONES = [
@@ -352,13 +357,55 @@ const BOT_EYE = 1.05;
  * is stock Mixamo, so a clip exported against any Mixamo skeleton binds without remapping.
  * Missing names are simply skipped, so the game degrades to whatever is actually there.
  */
-const BOT_CLIP_NAMES = ['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'Death'];
+const BOT_CLIP_NAMES = [
+  'Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'CrouchWalk', 'Death',
+  'Reload', 'ReloadCrouch',
+];
+
+/**
+ * Reload clips play on the upper body only. They are sampled each frame over the locomotion pose
+ * (blendReloadPose) rather than run as actions, so the legs keep their walk or crouch through a
+ * reload. The bones they drive are the spine, neck, head and both arms; hips and legs are left to
+ * the locomotion clips.
+ */
+const UPPER_CLIPS = ['Reload', 'ReloadCrouch'];
+const UPPER_BONES = [
+  'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
+  'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftHandMiddle1', 'LeftHandThumb1',
+  'RightArm', 'RightForeArm', 'RightHand', 'RightHandMiddle1', 'RightHandThumb1',
+];
+/** The arms and hands of that list. The gun-hold IK solves these, so the reload pose is blended over them after it. */
+const ARM_BONES = new Set(UPPER_BONES.filter((n) => /Arm|Hand/.test(n)));
+/** Seconds a reload takes to blend in over the locomotion pose, and again to blend out. */
+const RELOAD_BLEND = 0.2;
+
+/** Seconds the authored death clip takes to blend in over the live pose, so the pose does not snap. */
+const DEATH_BLEND = 0.35;
+
+/**
+ * Bones the live pose rewrites after mixer.update: the spine's aim and turn, and both arms on the
+ * rifle. Nothing rewrites them once the bot is dead, so the death clip blends them in from here.
+ */
+const POSED_AFTER_MIXER = [
+  'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
+  'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftHandMiddle1', 'LeftHandThumb1',
+  'RightArm', 'RightForeArm', 'RightHand', 'RightHandMiddle1', 'RightHandThumb1',
+];
+
+const _feetA = new THREE.Vector3(), _feetB = new THREE.Vector3(), _feetNow = new THREE.Vector3();
+
+/** The two feet, averaged in world space. A dead bot's corpse is pinned to where they were. */
+function feetCentre(bones, out) {
+  bones.LeftFoot.getWorldPosition(_feetA);
+  bones.RightFoot.getWorldPosition(_feetB);
+  return out.addVectors(_feetA, _feetB).multiplyScalar(0.5);
+}
 
 /** Extra clips registered at boot, keyed by the names above. */
 const extraClips = {};
 
 /** Locomotion clips that must play in place, because the physics body moves the bot. */
-const IN_PLACE_CLIPS = new Set(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch']);
+const IN_PLACE_CLIPS = new Set(['Idle', 'Walk', 'Run', 'StrafeLeft', 'StrafeRight', 'WalkBack', 'Crouch', 'CrouchWalk']);
 
 /** Root-motion distance removed from each registered clip, in the clip's own units, by name. */
 const clipDrift = {};
@@ -671,6 +718,7 @@ function buildSoldierMesh(_teamColor, gltf) {
   }
 
   for (const [name, clip] of Object.entries(gltf.userData.__clips)) {
+    if (UPPER_CLIPS.includes(name)) continue;          // sampled per frame, see blendReloadPose
     clips[name] = mixer.clipAction(clip);
     clips[name].play();
     clips[name].weight = 0;
@@ -703,6 +751,21 @@ function buildSoldierMesh(_teamColor, gltf) {
     if (RIG_BONES.includes(short)) bones[short] = o;
   });
   g.userData.bones = bones;
+  // The reload clips, cut down to the upper body: one interpolant per rotation track that lands on
+  // a bone in UPPER_BONES. Sampled per frame, so no action of their own in the mixer.
+  g.userData.upper = {};
+  for (const name of UPPER_CLIPS) {
+    const clip = gltf.userData.__clips[name];
+    if (!clip) continue;
+    const tracks = [];
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const key = track.name.slice(0, -'.quaternion'.length).replace(MIXAMO_PREFIX, '');
+      if (!UPPER_BONES.includes(key) || !bones[key]) continue;
+      tracks.push({ bone: bones[key], arm: ARM_BONES.has(key), interp: track.createInterpolant() });
+    }
+    g.userData.upper[name] = { duration: clip.duration, tracks };
+  }
   g.userData.restPitch = new Map(
     ['Spine1', 'Spine2', 'Neck', 'Head'].filter((k) => bones[k]).map((k) => [k, bones[k].rotation.x]),
   );
@@ -824,6 +887,8 @@ class Bot {
     this.style = STYLES[this.styleName];
     this.rollLoadout();
     this.reloading = 0;
+    this.resetReload();
+    this.reloadPose = {};
     this.fireCd = 0;
     this.burst = 0;             // rounds left in the current burst (see shootAt)
     this.lastVel = new THREE.Vector3();   // target's velocity when last seen, to guess where it went
@@ -1754,10 +1819,28 @@ class Bot {
         // An authored death clip is playing (started in die()). It already puts the body on
         // the floor, so the mesh keeps its upright transform and only the mixer runs — the
         // procedural tip-over below would fight it and lay the corpse on its side.
+        // The live clips fade out as Death fades in, with the two weights summing to one, so
+        // the mixer blends between the poses rather than towards the rig's rest pose.
+        // Eased (smoothstep), so the blend starts and ends at rest rather than stopping dead.
+        const u = Math.min(1, this.deathTimer / DEATH_BLEND);
+        const k = u * u * (3 - 2 * u);
+        for (const [name, action] of Object.entries(this.mesh.userData.clips)) {
+          if (name !== 'Death') action.weight = (this.deathFrom?.[name] ?? 0) * (1 - k);
+        }
+        deathAction.weight = k;
         this.mesh.rotation.x = 0;
         this.mesh.rotation.y = this.yaw + Math.PI + (this.legYaw ?? 0);
         this.mesh.position.y = this.body.position.y + BOT_MESH_Y;
         this.mesh.userData.mixer.update(frameDt);
+        // The overlaid bones slide from their live pose onto the clip's over the same blend.
+        for (const [bone, live] of this.deathFromBones) bone.quaternion.slerp(live, 1 - k);
+        // The clip's own root travel would slide the corpse about a metre. Move the mesh back
+        // under the feet, so they stay on the spot they fell from.
+        if (this.deathFootAt) {
+          const feet = feetCentre(this.mesh.userData.bones, _feetNow);
+          this.mesh.position.x += this.deathFootAt.x - feet.x;
+          this.mesh.position.z += this.deathFootAt.z - feet.z;
+        }
       } else {
         const t = Math.min(1, this.deathTimer / 0.55);
         const fall = 1 - (1 - t) * (1 - t);            // ease-out: quick, then settles
@@ -1773,8 +1856,8 @@ class Bot {
           applyBonePitch(this.mesh, bones, 'Head', slump * 0.7);
         }
       }
-      if (this.deathTimer > 0.6) {
-        const a = clamp(1 - (this.deathTimer - 0.6) / 2.0, 0, 1);
+      if (this.deathTimer > this.deathFadeAt) {
+        const a = clamp(1 - (this.deathTimer - this.deathFadeAt) / this.deathFadeLen, 0, 1);
         this.mesh.traverse((o) => {
           if (o.isMesh) { o.material.transparent = true; o.material.opacity = a; }
         });
@@ -1961,7 +2044,7 @@ class Bot {
     const walkV = speedOf('Walk'), runV = speedOf('Run');
     const runBlend = clamp((speed - walkV * 1.15) / Math.max(0.1, runV * 0.9 - walkV * 1.15), 0, 1);
 
-    const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0 };
+    const want = { Idle: 0, Walk: 0, Run: 0, WalkBack: 0, StrafeLeft: 0, StrafeRight: 0, Crouch: 0, CrouchWalk: 0 };
     const put = (name, weight) => {
       if (weight <= 0) return;
       if (clips[name]) want[name] += weight;
@@ -1974,8 +2057,13 @@ class Bot {
     put('StrafeRight', share(parts.right));
     put('StrafeLeft', share(parts.left));
 
-    // Down on a knee: the crouch takes over as it eases in, whatever the legs were doing.
+    // Down on a knee: the crouch takes over as it eases in, whatever the legs were doing. Moving at a
+    // crouched pace (up to the crouch top speed, WALK_SPEED * CROUCH_MULT), it is the crouch walk that
+    // takes over instead. Faster is a run, which stays on the standing clips.
     const cw = clips.Crouch ? this.crouchW ?? 0 : 0;
+    const tucked = cw > 0.5;
+    const crouchTop = CONFIG.WALK_SPEED * CONFIG.CROUCH_MULT;
+    const crouchWalking = tucked && speed >= 0.8 && speed <= crouchTop && clips.CrouchWalk;
     if (this.emoteAction) {
       // An online player's puppet dancing: the emote clip has the whole body.
       for (const key of Object.keys(want)) want[key] = 0;
@@ -1985,7 +2073,7 @@ class Bot {
       want.Idle = Math.max(0, 1 - used);
       if (cw > 0.02) {
         for (const key of Object.keys(want)) want[key] *= 1 - cw;
-        want.Crouch = cw;
+        want[crouchWalking ? 'CrouchWalk' : 'Crouch'] = cw;
       }
     }
     const k = Math.min(1, 8 * dt);
@@ -1999,13 +2087,24 @@ class Bot {
     const hasStrafeClips = Boolean(clips.StrafeLeft || clips.StrafeRight);
     const fwdPace = hasStrafeClips ? speed * Math.abs(fwd) : speed;
     const latPace = speed * Math.abs(rgt);
-    const paceOf = (name, component) => clamp(component / speedOf(name), 0.5, 2.2);
+    // A crouch walk at its 2.5 m/s top has to step about 4x its authored cadence to keep its feet down,
+    // so the cap is set there rather than at a standing clip's 2.2x.
+    const paceOf = (name, component) => clamp(component / speedOf(name), 0.5, 4);
     for (const [name, comp] of [['Walk', fwdPace], ['Run', fwdPace], ['WalkBack', fwdPace],
-      ['StrafeLeft', latPace], ['StrafeRight', latPace]]) {
+      ['CrouchWalk', fwdPace], ['StrafeLeft', latPace], ['StrafeRight', latPace]]) {
       if (clips[name]) clips[name].timeScale = paceOf(name, comp);
     }
     mixer.update(dt);
     if (this.emoteAction) { this.updateHitboxes(); return; }
+
+    // Reload: the upper body blends over to the reload clip and back on RELOAD_BLEND. The arms
+    // are solved onto the gun after, and the clip is blended over them again once they are.
+    const reloadGoal = this.reloading > 0;
+    if (reloadGoal && this.reloadRamp === 0) this.reloadKind = tucked ? 'ReloadCrouch' : 'Reload';
+    this.reloadRamp = clamp(this.reloadRamp + (reloadGoal ? dt : -dt) / RELOAD_BLEND, 0, 1);
+    this.reloadEase = this.reloadRamp * this.reloadRamp * (3 - 2 * this.reloadRamp);
+    if (this.reloadRamp === 0) this.resetReload();
+    this.blendReloadPose(false);
 
     // Aim: raised whenever there is someone to point at, lowered to a ready carry otherwise.
     const engaging = this.swapT <= 0 && this.target && this.hasLOS && (this.state === ST.SHOOT || this.state === ST.NADE
@@ -2032,6 +2131,8 @@ class Bot {
 
     this.poseGun();
     this.gripGun();
+    this.blendReloadPose(true);
+    this.holdGunInHand();
     this.updateHitboxes();
   }
 
@@ -2152,12 +2253,58 @@ class Bot {
     const w = this.aimW ?? 0;
     _qGun.slerpQuaternions(_qLow, _qAim, w);
     _gPos.lerpVectors(lowPos, aimPos, w);
+    // While reloading, the gun rides in the right hand the clip is holding it in, so it moves
+    // with the magazine change instead of hanging off the chest.
+    if (this.gunInHand && this.reloadEase > 0) {
+      _mHand.multiplyMatrices(bones.RightHand.matrixWorld, this.gunInHand).decompose(_hPos, _hQuat, _hScale);
+      _gPos.lerp(_hPos, this.reloadEase);
+      _qGun.slerp(_hQuat, this.reloadEase);
+    }
     // World transform -> the group's local frame (the group carries BOT_MESH_SCALE).
     _mGun.compose(_gPos, _qGun, _gScale.setScalar(1));
     _mInv.copy(this.mesh.matrixWorld).invert();
     gun.matrix.multiplyMatrices(_mInv, _mGun);
     gun.matrixWorldNeedsUpdate = true;
     gun.updateMatrixWorld(true);
+  }
+
+  /** Drop any reload in progress: the blend, the clip it chose, and the gun's hold on the hand. */
+  resetReload() {
+    this.reloadRamp = 0;
+    this.reloadEase = 0;
+    this.reloadKind = null;
+    this.gunInHand = null;
+  }
+
+  /**
+   * The reload clip's upper body, blended in by reloadEase. Before the arm solve (post false) it is
+   * sampled at the reload's own progress and blended over the locomotion pose. After it (post true)
+   * the same sample is blended over the arms only, so the clip has the final say on them.
+   */
+  blendReloadPose(post) {
+    const kind = this.reloadKind;
+    const upper = kind && this.mesh.userData.upper?.[kind];
+    const e = this.reloadEase;
+    if (!upper || e <= 0) return;
+    if (!post) {
+      const time = clamp(1 - this.reloading / WEAPON_BY_ID[this.weaponId].reload, 0, 1) * upper.duration;
+      const poses = (this.reloadPose[kind] ??= upper.tracks.map(({ bone, arm }) => ({ bone, arm, q: new THREE.Quaternion() })));
+      upper.tracks.forEach((track, i) => poses[i].q.fromArray(track.interp.evaluate(time)));
+    }
+    for (const { bone, arm, q } of this.reloadPose[kind]) {
+      if (!post || arm) bone.quaternion.slerp(q, e);
+    }
+  }
+
+  /**
+   * Once a reload has taken hold, record where the gun sits in the right hand. poseGun keeps it
+   * there through the clip, so the rifle moves with the hand instead of away from it.
+   */
+  holdGunInHand() {
+    if (this.reloadEase <= 0 || this.gunInHand) return;
+    this.mesh.updateMatrixWorld(true);
+    this.gunInHand = new THREE.Matrix4().copy(this.mesh.userData.bones.RightHand.matrixWorld)
+      .invert().multiply(this.gunMesh.matrixWorld);
   }
 
   /** Solve both arms onto the gun: right hand on the grip, left hand on the support point. */
@@ -2193,22 +2340,37 @@ class Bot {
     this.alive = false;
     this.state = ST.DEAD;
     this.deathTimer = 0;
+    this.resetReload();
     // Which way the body twists as it goes down, so two deaths never look identical.
     this.deathTwist = rand(-0.9, 0.9);
 
     // Authored death clip, if one was loaded. Played once and clamped on the final frame so
-    // the corpse holds its landed pose for the fade rather than snapping back to idle.
+    // the corpse holds its landed pose for the fade rather than snapping back to idle. It
+    // blends in from the live pose instead of starting on its first frame, which otherwise
+    // snapped the hands and arms by half a metre in one frame.
     const clips = this.mesh.userData.clips;
+    this.deathFadeAt = 0.6;
+    this.deathFadeLen = 2.0;
     if (clips?.Death) {
+      this.deathFrom = {};
       for (const [name, action] of Object.entries(clips)) {
-        if (name !== 'Death') action.weight = 0;
+        if (name !== 'Death') this.deathFrom[name] = action.weight;
       }
+      const posed = this.mesh.userData.bones ?? {};
+      this.deathFromBones = POSED_AFTER_MIXER.filter((n) => posed[n])
+        .map((n) => [posed[n], posed[n].quaternion.clone()]);
+      this.deathFootAt = posed.LeftFoot && posed.RightFoot ? feetCentre(posed, new THREE.Vector3()) : null;
       clips.Death.reset();
       clips.Death.setLoop(THREE.LoopOnce, 1);
       clips.Death.clampWhenFinished = true;
       clips.Death.timeScale = 1;
-      clips.Death.weight = 1;
+      clips.Death.weight = 0;
       clips.Death.play();
+      // The body stays solid while the clip plays and holds on the floor, then fades out. It
+      // must be gone before the respawn (CONFIG.RESPAWN_DELAY), which pops it back in.
+      const { duration } = clips.Death.getClip();
+      this.deathFadeAt = duration;
+      this.deathFadeLen = Math.max(0.3, CONFIG.RESPAWN_DELAY - duration);
     }
     /**
      * A corpse does not move.
@@ -2264,6 +2426,7 @@ class Bot {
     this.crouching = false; this.crouchW = 0; this.crouchHold = 0; this.crouchCd = rand(1, 3);
     this.reloadCover = false; this.reloadDecided = false; this.noLosTime = 0;
     this.glanceT = 0; this.pauseT = 0;
+    this.resetReload();
     this.nadeCd = rand(6, 16);
     this.body.type = CANNON.Body.DYNAMIC;   // undo die(): back under gravity and the solver
     this.body.collisionResponse = true;

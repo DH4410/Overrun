@@ -510,6 +510,113 @@ That is the harness, not a game bug. Serve a grey texture instead if you need to
 
 ---
 
+## Session 8: the death clip
+
+The authored death was "very bad", so eight Mixamo death clips were downloaded and measured in
+the live game. **Death From The Front** is now `assets/bots/anim/death.fbx`, and the cache is
+`overrun-v23` (since moved to `overrun-v24`, below). It was picked for the lowest foot travel and the calmest post-blend speed among
+the clips that suit any hit; Death From Front Headshot had less hip travel but is a headshot
+fall, so it would look wrong on body shots.
+
+Two faults turned up on the way:
+
+- **The half-metre hand snap at death was the rifle hold, not the clip.** `animate()` rewrites
+  the spine aim and turn and both arms (`gripGun`) after `mixer.update`. The death branch stopped
+  doing that in one frame, so the hands dropped about 0.5 m at once. The death clip now blends
+  those bones in from their live pose (`POSED_AFTER_MIXER`) over `DEATH_BLEND`, 0.35 s with a
+  smoothstep. Frame-one jump is 0.04 m. The earlier weight-only blend never fixed it.
+- **Corpses slid about a metre.** Death has no In Place option, so the clip's root travel was
+  kept as authored. Now `renderStep` moves the dead mesh back so the average of the two feet stays
+  on the spot they fell from (`deathFootAt`, `feetCentre`). The corpse is drawn up to ~0.4 m from
+  its physics body. That has no gameplay effect: dead bots are not hit, the killcam records only
+  live bots, and the body is kinematic with collisions off. What is left is the clip's own
+  folding: the hips still travel ~0.8 m as the body goes down onto the pinned feet, and the toes
+  swing up to ~0.4 m (ankles stay within ~0.17 m). Removing that needs IK on the legs, not done.
+
+**Reload and crouch walk are wired** (cache `overrun-v24`). The clips are Mixamo exports:
+`reload.fbx` (Reloading Standing In Place), `reload-crouch.fbx` (Reload Rifle In Crouch) and
+`crouch-walk.fbx` (Rifle Crouch Walk In Place).
+
+- **Reloads are upper body only.** `UPPER_CLIPS` and `UPPER_BONES` in `src/bots.js` read the spine,
+  neck, head and arm tracks, sample them at the reload's progress, and blend them over the
+  locomotion pose over 0.2 s. After the arm solve they are blended over the arms again, so the clip
+  has the final say on the arms and the legs keep walking through a reload. While the blend is up,
+  the rifle is held in the right hand from an offset captured at the start, so it moves with the
+  magazine change.
+- **Crouch walk** plays for a tucked bot, or a crouched online player, moving from 0.8 m/s up to
+  the crouch top speed (`WALK_SPEED * CROUCH_MULT`, 2.5 m/s). Faster is a run into cover and stays
+  on the standing clips. The crouch clip carries no hip travel to measure, so its rate comes from its
+  planted feet: `CLIP_SPEED.CrouchWalk` is 0.57, about 0.62 m/s on the soldier. The old fallback of
+  1.0 was about 60% fast, and the feet slid about a third at 1.5 m/s. The pace clamp in `paceOf` is
+  now 4x for every clip (it was 2.2x), because 2.5 m/s crouched needs about 4x the clip's cadence.
+  That cadence is the thing to check by eye.
+
+**Locomotion pace, checked against the planted foot.** Each clip's pace is its measured hip travel
+(`clipDrift`), which is the right average: a steady gait covers the clip's hip travel per cycle. I
+checked it headless on one soldier at the speeds the game uses. Planted-foot bias (the sole's
+along-travel velocity over contact frames, per metre per second of body speed) is +0.05 for Walk at
+1.47 m/s, +0.07 for WalkBack, +0.03 for Run at 3.6 m/s and +0.03 at 8 m/s, and -0.01 and +0.01 for
+the crouch walk at 1.5 and 2.5 m/s. Spread, the wobble within a stance, is 4 to 20% of body speed.
+Run at 8 m/s used to slide, because its pace was clamped at 2.2x; the 4x clamp fixes that.
+
+Measuring is good to about 10 to 30%. The planted point I used is the lowest skinned foot vertex.
+A centroid of the foot's lowest vertices moved the Walk zero by about 30%, and the ankle joint is
+not usable at all: it rises as the foot rolls heel to toe, so it reads a planted foot as moving.
+
+Strafes still skate. At 1.47 m/s the bias is +0.31 for right and +0.58 for left, and no pace brings
+it to zero, so the fault is not the pace. The blend mixes in 21% Walk because the legs turn about
+17 degrees toward travel at that speed, and the clips' own fore-aft foot motion runs 0.15 to 0.33 of
+body speed. Fixing it needs leg-frame pacing or a different leg turn at strafe speeds. Not done.
+
+Locomotion is blended with Idle below 1.45 m/s (`moving` in `animate()`). Players never go that slow
+(walk 5.0, crouch 2.5 m/s), and a bot's slowest scripted move is patrol, 3.6 m/s times difficulty, so
+the ramp does not touch normal play. It does shorten strides at the slow end.
+
+Measured headless on one bot (pistol, 1.2 s reload, `renderStep` only):
+
+- The right hand swings 0.18 m out to the magazine and back. Its gap to the rifle's grip is under
+  3 mm through the full-weight part of the reload, up to 3 cm while the blend comes in, and up to
+  7 cm for about 0.1 s as the arm leaves the clip. That last gap is not fixed.
+- The hand moves at most 2.4 cm per frame at the blend in, and 1.7 cm at the blend out.
+
+Not done or not checked:
+
+- `reload-walk` ("Walk While Reloading In Place") is downloaded but not wired. The masked reload
+  already covers the legs.
+- Crouch-to-stand transitions and leg IK are not done. The crouch walk's rate is measured on one
+  soldier. Its `CLIP_SCALE` fallback follows the soldier's height, so other roster characters need
+  the same check.
+- **Reload pacing is wrong for short reloads.** `ReloadCrouch` (6.87 s) and `Reload` (3.3 s) are
+  each mapped across the whole reload (`blendReloadPose`), so they run fast: ReloadCrouch about 5.7x
+  on a pistol (1.2 s), 3.4x on an AR (2.0 s), 2.5x on a sniper (2.8 s); Reload 2.75x on a pistol.
+  The crouched hand peaks near 3.3 m/s, against about 1.9 standing. The fix is to play the clip's
+  magazine-change window at authored speed rather than the whole clip. Not done.
+- Reload measured on one bot (`reload-check`): standing grip gap is 3 mm or less steady and 27 mm at
+  the blend edges; crouched it is 6 mm or less steady and 145 mm at the blend edges, which is a
+  visible gap for about 0.1 s. The rifle's muzzle swings to about 92 degrees (standing) and 73
+  degrees (crouched) off its rest direction at the magazine. Not checked by eye.
+- No screenshot of a reloading bot was taken, so nothing is checked by eye.
+- A standing bot's hips wander a few centimetres over a few seconds (about 7 units in 200 frames in
+  one run) with no reload running. That is most likely the Idle clip's own sway, which comes back,
+  so it is not a leak. I did not check it against the clip. The reload test measures the arm from the
+  chest to ignore it.
+
+Committed on `claude/overrun-game-repo-check-955578`; not pushed.
+
+Tests: `npm test` 41/41. Full `CI=1` e2e after the crouch-walk and locomotion-pace work: 103 passed,
+2 failed, 1 did not run. `characters` (including the crouch-walk and reload tests) and
+`bot-presentation` pass. `multiplayer.spec.mjs:60` ("two players and a spectator share one room")
+fails every time. It waits for the `#nameinput` callsign field, which sits in the lobby player card,
+while the page is still on the main menu, so it fails before any bot code runs. The test after it in
+that file did not run. Not investigated further.
+`hitboxes.spec.mjs:70` and `:85` (the head-shot step) fail when bot 0 draws the `trooper` rig, which
+is one roster draw in six. This session: `:70` failed 2 of 8 runs, `:85` 1 of 7. The `soldier` and
+`trooper` GLBs contain a `HeadTop_End` node, but it is not a skinned joint, so three.js never makes it
+a `Bone`. Both the test's `bones` map and the game's (`src/bots.js` ~679, `isBone` only) miss it, and
+the test then reads `matrixWorld` of undefined. In game the head capsule stops at `Head` without the
+extra reach (`src/bots.js` ~1780), so trooper and soldier heads are slightly shorter to hit. Not fixed.
+The test helper should fall back to `Head` when `HeadTop_End` is absent. This is unrelated to pacing.
+
 ## Session 7: the maps
 
 WAREHOUSE, FOUNDRY and DUNGEON are retired, with everything only they used (the arena, prop

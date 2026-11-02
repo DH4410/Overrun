@@ -324,7 +324,7 @@ export function createKillcam({
     const dead = time >= endT;
     for (const [n, c] of Object.entries(clips)) {
       const want = dead ? n === 'Death'
-        : a.crouch ? n === 'Crouch'
+        : a.crouch ? (speed > 0.8 ? n === 'CrouchWalk' : n === 'Crouch')
           : speed > 3.6 ? n === 'Run' : speed > 0.7 ? n === 'Walk' : n === 'Idle';
       c.weight = want ? 1 : 0;
       if (n === 'Death' && want && !meAction) {

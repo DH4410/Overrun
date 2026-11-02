@@ -2231,10 +2231,10 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
   #store .st-info { flex: 1; min-width: 0; }
   #store .st-info b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #store .st-card-item .st-buy { flex: none; padding: 5px 7px; font-size: 12px; }
-  #store .st-guns { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  #store .st-guns { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
   #store .st-gun { padding: 4px; }
   #store .st-gun-pic { height: 28px; }
-  #store .st-gun b { font-size: 10px; }
+  #store .st-gun b { font-size: 10px; letter-spacing: 0; overflow-wrap: normal; }
   #store .st-gun .st-buy { font-size: 11px; padding: 3px 2px; }
 }
 /* Round 3: a store under 700px tall is packed tighter, so the crate, the shop and the gun row all fit
@@ -2264,6 +2264,6 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
 @media (max-width: 900px) {
   #locker .lk-body { grid-template-rows: none; grid-auto-rows: max-content; align-content: start; }
   #locker .lk-col { flex: 0 0 auto; overflow: visible; }
-  #locker .lk-stage { overflow: visible; }
+  #locker .lk-stage { overflow: visible; order: -1; }
   #locker .lk-view { flex: 0 0 auto; min-height: 150px; }
 }

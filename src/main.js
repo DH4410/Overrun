@@ -1702,7 +1702,7 @@ $('tab-play')?.addEventListener('click', () => { leaveOverlays(); $('settings-cl
 $('tab-operators')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('operators'); });
 // What a kill cam needs to draw the killer's own screen: the first-person gun, flash, numbers (solo and online).
 const killcamFp = {
-  vmRig, viewHands, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash, setAmmoCounter,
+  vmRig, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash, setAmmoCounter,
   hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
   paint: (model, id) => applyGunSkin(model, id ? gunSkinInfo(id) : null),   // the killer's finish on your first-person gun
   restorePaint: () => applyWornSkin(),

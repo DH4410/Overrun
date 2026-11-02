@@ -179,10 +179,10 @@ test('a dead bot plays the death clip instead of the procedural tip-over', async
 });
 
 /**
- * A crouched player's top speed is WALK_SPEED * CROUCH_MULT, and a bot tucked in cover moving at that
+ * A crouched player's top speed is WALK_SPEED * CROUCH_MULT, and a bot down on a knee moving at that
  * pace must keep its legs crouched too. The crouch walk takes over there, not the standing clips.
  */
-test('a tucked bot moving at crouch pace plays the crouch walk', async ({ page }) => {
+test('a crouched bot moving at crouch pace plays the crouch walk', async ({ page }) => {
   await bootGame(page);
   await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
   const w = await page.evaluate(() => {
@@ -191,8 +191,8 @@ test('a tucked bot moving at crouch pace plays the crouch walk', async ({ page }
     const dt = 1 / 60;
     bot.target = null;
     bot.hasLOS = false;
-    bot.state = 'TAKE_COVER';
-    bot.peekTimer = 0;
+    bot.crouching = true;
+    bot.crouchW = 1;
     bot.body.velocity.set(g.CONFIG.WALK_SPEED * g.CONFIG.CROUCH_MULT, 0, 0);
     for (let i = 0; i < 60; i++) bot.renderStep(dt);
     const clips = bot.mesh.userData.clips;

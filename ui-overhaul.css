@@ -2102,9 +2102,9 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
   width: min(1680px, calc(100vw - 48px)); height: min(940px, calc(100vh - 48px));
   display: flex; flex-direction: column; gap: 12px; padding: 16px; box-sizing: border-box;
 }
-#locker .lk-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+#locker .lk-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; flex: 0 0 auto; }
 #locker .lk-head h2 { margin: 0; font-size: 22px; letter-spacing: 3px; }
-#locker .set-actions { display: flex; gap: 8px; margin-left: auto; }
+#locker .set-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
 #locker .set-actions button, #market .mk-head button { padding: 8px 14px; }
 
 #locker .lk-body {
@@ -2184,4 +2184,86 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
   #locker .lk-col { overflow: visible; }
   #locker .lk-stage { min-height: 360px; }
   #market .mk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+}
+
+/* Round 2: the locker lists only the guns you own (the store sells the rest), labels keep clear of the
+   card edges, and the buttons of the market and the store read as buttons, not white boxes. */
+#locker .lk-card { padding: 20px 22px; gap: 14px; height: min(940px, calc(100% - 16px)); }
+#locker .lk-body { gap: 18px; }
+#locker .lk-label { padding: 0 2px 2px; }
+#locker .lk-slots, #locker .lk-armory { gap: 8px; }
+#locker .lk-slots .lk-gun, #locker .lk-armory .lk-gun { padding: 10px 12px 12px; min-height: 0; }
+#locker .lk-slots .lk-gun .lk-meta, #locker .lk-armory .lk-gun .lk-meta { padding-bottom: 2px; }
+#locker .lk-name { line-height: 1.15; }
+#locker .lk-slots .lk-gun { flex: 0 0 auto; min-height: 84px; flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; padding: 6px 12px 8px; }
+#locker .lk-slots .lk-key { font-size: 18px; line-height: 1; }
+#locker .lk-slots .lk-gun .lk-img { flex: 1 1 auto; min-height: 0; }
+#locker .lk-slots .lk-gun .lk-img img { max-height: 36px; }
+#locker .lk-slots .lk-name { font-size: clamp(13px, 2vh, 16px); }
+#locker .lk-armory .lk-gun { flex: 0 0 auto; min-height: 96px; }
+#locker .lk-more-guns { justify-content: center; align-items: center; text-align: center; border: 1px dashed rgba(255, 255, 255, .25); background: transparent; }
+#locker .lk-more-guns .lk-meta { align-items: center; }
+
+#market .mk-head button, #store #st-market {
+  background: rgba(255, 255, 255, .08); color: var(--ink); border: 1px solid var(--ink-3); font: inherit; font-weight: 800; letter-spacing: 1px; cursor: pointer;
+}
+#market .mk-head button:hover, #store #st-market:hover { background: rgba(255, 255, 255, .16); }
+#market .mk-act, #market .mk-primary { background: var(--accent); color: var(--accent-ink); border: 0; font: inherit; cursor: pointer; }
+#market .mk-act:disabled, #market .mk-primary:disabled { background: rgba(255, 255, 255, .1); color: var(--ink-3); cursor: default; }
+
+#store .st-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+#store .st-card-item { padding: 8px; gap: 6px; }
+#store .st-info b { font-size: clamp(14px, 2.2vh, 18px); }
+#store .st-card-item .st-pic img { max-height: 64px; }
+#store .st-guns-label { padding-top: 2px; }
+#store .st-guns { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+#store .st-gun { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-width: 0; background: rgba(255, 255, 255, .05); box-shadow: inset 0 -2px 0 rgba(255, 255, 255, .12); }
+#store .st-gun.owned { opacity: .72; }
+#store .st-gun-pic { display: block; height: 40px; }
+#store .st-gun-pic img { display: block; width: 100%; height: 100%; object-fit: contain; }
+#store .st-gun b { display: block; min-height: 2.2em; font-size: 11px; line-height: 1.1; letter-spacing: 1px; overflow-wrap: anywhere; }
+#store .st-gun .st-buy { padding: 4px; font-size: 12px; }
+@media (max-width: 900px) {
+  #store .st-cards { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  #store .st-card-item { flex-direction: row; align-items: center; gap: 8px; padding: 6px; }
+  #store .st-card-item .st-pic { flex: 0 0 24%; padding: 0; }
+  #store .st-card-item .st-pic img { max-height: 44px; }
+  #store .st-info { flex: 1; min-width: 0; }
+  #store .st-info b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #store .st-card-item .st-buy { flex: none; padding: 5px 7px; font-size: 12px; }
+  #store .st-guns { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  #store .st-gun { padding: 4px; }
+  #store .st-gun-pic { height: 28px; }
+  #store .st-gun b { font-size: 10px; }
+  #store .st-gun .st-buy { font-size: 11px; padding: 3px 2px; }
+}
+/* Round 3: a store under 700px tall is packed tighter, so the crate, the shop and the gun row all fit
+   without scrolling at 1024x600 and 1280x650. Below 560px the body scrolls as one, so OPEN CRATE stays reachable. */
+@media (max-height: 700px) {
+  #store .st-body { gap: 12px; }
+  #store .st-crate, #store .st-shop { padding: 8px 10px; gap: 6px; }
+  #store .st-stage { min-height: 96px; }
+  #store .st-odd { padding: 3px 7px; font-size: 12px; }
+  #store .st-cards { gap: 6px; }
+  #store .st-card-item { padding: 6px; gap: 4px; }
+  #store .st-card-item .st-pic img { max-height: 40px; }
+  #store .st-info b { font-size: 14px; }
+  #store .st-buy { padding: 5px 6px; font-size: 15px; }
+  #store #st-open { padding: 8px; }
+  #store .st-gun { padding: 4px; gap: 3px; }
+  #store .st-gun-pic { height: 30px; }
+  #store .st-gun b { min-height: 0; font-size: 10px; }
+  #store .st-gun .st-buy { font-size: 11px; padding: 3px 2px; }
+}
+@media (max-height: 560px) {
+  #store .st-body { overflow-y: auto; }
+  #locker .lk-stage { overflow-y: auto; }
+  #locker .lk-view { flex: 0 0 150px; }
+}
+/* Stacked (narrow) locker: every column takes the height its content needs, and the body scrolls. */
+@media (max-width: 900px) {
+  #locker .lk-body { grid-template-rows: none; grid-auto-rows: max-content; align-content: start; }
+  #locker .lk-col { flex: 0 0 auto; overflow: visible; }
+  #locker .lk-stage { overflow: visible; }
+  #locker .lk-view { flex: 0 0 auto; min-height: 150px; }
 }

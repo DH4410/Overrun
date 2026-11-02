@@ -320,6 +320,7 @@ function finishMatch(title, sub, podium) {
   el.hud.classList.add('hidden');
   el.menu.classList.remove('hidden');
   el.menuResult.textContent = `${title} — ${sub}`;
+  el.menuResult.classList.remove('keep');
   // Only a match played to its end pays out; leaving from the pause screen (podium false) does not.
   let progress = null;
   if (podium) {

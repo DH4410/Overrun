@@ -4,6 +4,7 @@ import { loadProfile } from './profile.js';
 import { renderPlayerCard } from './playercard.js';
 import { DEFAULT_SETTINGS, FRAME_CAPS, QUALITY, settings } from './settings.js';
 import { mapHosts } from './sim/modes.js';
+import { modeSvg } from './modeIcons.js';
 
 /** Menu and settings event wiring. Gameplay transitions remain injected callbacks. */
 export function createUiRuntime({
@@ -95,6 +96,7 @@ function bindMenu() {
   const diffGrp = $('diffgrp');
   const syncDiffLock = () => diffGrp?.classList.toggle('locked', mode === 'duel');
 
+  for (const b of document.querySelectorAll('.mode-btn .ti-art')) b.innerHTML = modeSvg(b.closest('.mode-btn').dataset.mode);
   const showMode = (b) => {
     $('mode-name').textContent = b.querySelector('.mt').textContent;
     $('mode-desc').innerHTML = b.querySelector('.md').innerHTML;

@@ -1723,6 +1723,7 @@ net = createNetClient({
     player.kills = 0; player.deaths = 0;
     el.feed.innerHTML = '';
     el.menuResult.textContent = '';
+    el.menuResult.classList.remove('keep');
     el.vname.textContent = player.name;
     el.menu.classList.add('hidden');
     el.hud.classList.remove('hidden');
@@ -1754,6 +1755,7 @@ net = createNetClient({
     el.hud.classList.add('hidden');
     el.menu.classList.remove('hidden');
     el.menuResult.textContent = message || 'Left the online match';
+    el.menuResult.classList.toggle('keep', Boolean(message));   // only a real notice (refresh, kicked) shows in the lobby
     appState = APP_STATE.MENU;
     document.exitPointerLock?.();
     camera.position.set(-40, 13, 40);

@@ -46,6 +46,9 @@ export function createLobbyBackdrop({ renderer, scene, canvas, video = null, sav
     renderer.clear(true, true, true);
     renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, cam);
+    // The map's sky leaves the renderer's clear colour opaque; the lobby's clear in this same frame would paint
+    // it over the whole window (one grey flash per capture). Put the transparent clear back.
+    renderer.setClearColor(0x000000, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     // Same task as the render: the drawing buffer is not preserved past it.

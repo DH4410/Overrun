@@ -87,9 +87,17 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
     pushing = true;
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const r = await api('PUT', '/api/profile', { profile: getProfile(), rev: state.rev });
+        const sent = getProfile();
+        const r = await api('PUT', '/api/profile', { profile: sent, rev: state.rev });
         if (!r) return;
-        if (r.status === 200) { state.rev = r.data.rev; break; }
+        if (r.status === 200) {
+          // The server kept what we sent and returns its copy (with any skin it sold or minted). Take it,
+          // unless the career changed while the save was in flight: then save again rather than lose that.
+          const sentSame = JSON.stringify(sent) === JSON.stringify(getProfile());
+          state.rev = r.data.rev;
+          if (sentSame && r.data.profile) { setProfile(r.data.profile); onChange?.(r.data.profile); } else pushAgain = true;
+          break;
+        }
         if (r.status === 401) { signedOut(); return; }
         // Another device saved first, or ours had fallen behind: take theirs, merge, try once more.
         if (r.status === 409 || r.data?.error === 'regress') {
@@ -111,6 +119,25 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
 
   /** Called by the game whenever the career is saved. */
   function profileSaved() { schedulePush(); }
+
+  /**
+   * A skin call to the server (a crate, a shop skin, a market listing or sale): the career is saved
+   * first, the server does the paying and the counting, and its answer becomes the career. Returns
+   * { ok, ...body } or { ok: false, error }. Only call it while signed in (see signedIn).
+   */
+  async function skinCall(method, path, body) {
+    await push();
+    const r = await api(method, path, body);
+    if (!r) return { ok: false, error: 'offline' };
+    if (r.status === 401) { signedOut(); return { ok: false, error: 'signed_out' }; }
+    if (r.status !== 200) return { ok: false, error: r.data?.error ?? 'server', message: r.data?.message ?? '' };
+    if (r.data?.profile) {
+      state.rev = r.data.rev;
+      setProfile(r.data.profile);
+      onChange?.(r.data.profile);
+    }
+    return { ok: true, ...r.data };
+  }
 
   /* ----------------------------------- the card ----------------------------------- */
 
@@ -211,5 +238,5 @@ export function createAccount({ getElement: $, getProfile, setProfile, setCallsi
     if (r.data.user) applyCloud(r.data); else paintChip();
   }
 
-  return { init, open, close, profileSaved, push, state, api };
+  return { init, open, close, profileSaved, push, state, api, skinCall, signedIn: () => !!state.user };
 }

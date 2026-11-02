@@ -57,17 +57,17 @@ export function buyGun(profile, id) {
 export const ownsSkin = (profile, id) => (profile?.owned ?? []).includes(skinKey(id));
 
 /** Buy a skin from today's shop: the new profile, or null if it is not on sale now, owned already, or too dear. */
-export function buyShopSkin(profile, id, now = Date.now()) {
+export function buyShopSkin(profile, id, now = Date.now(), stock = () => Infinity) {
   const skin = gunSkinInfo(id);
   if (!skin || skin.source !== 'shop' || ownsSkin(profile, id)) return null;
-  if (!dailyShop(now).some((k) => k.id === id) || balance(profile) < skin.price) return null;
+  if (!dailyShop(now).some((k) => k.id === id) || stock(id) <= 0 || balance(profile) < skin.price) return null;
   return { ...profile, spent: profile.spent + skin.price, owned: [...profile.owned, skinKey(id)] };
 }
 
-/** Open a crate: `{ profile, skin }`, or null if it is too dear or there is nothing left in it to win. `rng` is for tests. */
-export function openCrate(profile, rng = Math.random) {
+/** Open a crate: `{ profile, skin }`, or null if it is too dear or there is nothing left in it to win. `rng` and `stock` are for tests and the server. */
+export function openCrate(profile, rng = Math.random, stock = () => Infinity) {
   if (balance(profile) < CRATE_PRICE) return null;
-  const skin = rollCrate(profile.owned, rng);
+  const skin = rollCrate(profile.owned, rng, stock);
   if (!skin) return null;
   return { profile: { ...profile, spent: profile.spent + CRATE_PRICE, owned: [...profile.owned, skinKey(skin)] }, skin };
 }

@@ -71,9 +71,10 @@ import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
 import { saveSkin } from './skins.js';
-import { balance, buyGun, buyShopSkin, openCrate, ownsGun } from './shop.js';
+import { buyGun, buyShopSkin, openCrate, ownsGun } from './shop.js';
 import { RARITY_ORDER, gunSkinInfo, skinIdOf } from './gunskins.js';
 import { createStore } from './store.js';
+import { createMarket } from './marketView.js';
 import { applyGunSkin } from './gunmodels.js';
 import { renderPlayerCard } from './playercard.js';
 import { loadProfile, saveProfile, withEquipped } from './profile.js';
@@ -1449,6 +1450,7 @@ function showLoadoutSummary() {
 }
 showLoadoutSummary();
 const locker = createLocker({
+  openMarket: () => market.open(),
   getLoadout: () => player.loadout,
   setLoadout: (list) => {
     if (!validLoadout(list) || !list.every((id) => ownsGun(loadProfile(), id))) return;
@@ -1483,14 +1485,6 @@ const locker = createLocker({
   canShop: () => !match.running,
   openStore: () => store.open(),
   gunOwned: (id) => ownsGun(loadProfile(), id),
-  getBalance: () => balance(loadProfile()),
-  buyGun: (id) => {
-    const next = buyGun(loadProfile(), id);
-    if (!next) return false;
-    saveProfile(next);
-    renderPlayerCard(next);
-    return true;
-  },
 });
 const emoteMusic = createEmoteMusic({ Audio, getCamera: () => camera });
 const emotes = createEmotes({
@@ -1596,24 +1590,47 @@ const career = createCareer({
   onClose: () => markNav(lobbyPage),
   onTitle: (id) => { wear({ title: id }); renderPlayerCard(loadProfile()); },
 });
+/** The market: skins other players list for credits. Reached from the store and the locker. */
+const market = createMarket({
+  getProfile: loadProfile,
+  skinCall: (method, path, body) => account.skinCall(method, path, body),
+  signedIn: () => account.signedIn(),
+  openStore: () => store.open(),
+  onClose: () => markNav(lobbyPage),
+});
 $('tab-career')?.addEventListener('click', () => { locker.close(); store.close(); $('settings-close')?.click(); career.open(); });
-/** The crate and the daily shop: the credits are spent here, the skins are worn in the locker. */
+/** The crate and the daily shop: the credits are spent here, the skins are worn in the locker.
+ * Signed in, the server rolls and sells the skins (it counts supply); guests roll and pay on this device. */
 const store = createStore({
   getProfile: loadProfile,
-  openCrate: () => {
+  openCrate: async () => {
+    if (account.signedIn()) {
+      const r = await account.skinCall('POST', '/api/crate');
+      return r.ok ? r : null;
+    }
     const res = openCrate(loadProfile());
     if (!res) return null;
     saveProfile(res.profile);
     renderPlayerCard(res.profile);
     return res;
   },
-  buySkin: (id) => {
+  buySkin: async (id) => {
+    if (account.signedIn()) return (await account.skinCall('POST', '/api/shop', { skin: id })).ok;
     const next = buyShopSkin(loadProfile(), id);
     if (!next) { Audio.cue?.('ui_error'); return false; }
     Audio.cue?.('ui_buy');
     saveProfile(next);
     renderPlayerCard(next);
     store.refresh();
+    return true;
+  },
+  openMarket: () => market.open(),
+  gunOwned: (id) => ownsGun(loadProfile(), id),
+  buyGun: (id) => {
+    const next = buyGun(loadProfile(), id);
+    if (!next) return false;
+    saveProfile(next);
+    renderPlayerCard(next);
     return true;
   },
   openLocker: () => { career.close(); locker.open(); },

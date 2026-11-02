@@ -1,5 +1,7 @@
 import { COUNTERS, clean, levelFromXp, mergeProfiles } from '../src/profile.js';
-import { maxCredits, ownedValue } from '../src/shop.js';
+import { balance, maxCredits, ownedValue } from '../src/shop.js';
+import { CRATE_PRICE, GUN_SKINS, dailyShop, gunSkinInfo, rollCrate, skinIdOf, skinKey, supplyCap } from '../src/gunskins.js';
+import { MARKET_MAX_PRICE, MARKET_SALES_KEPT, marketValue, validListingPrice } from '../src/market.js';
 import { sanitizeEquipped } from '../src/rewards.js';
 
 /**
@@ -68,6 +70,16 @@ function newRecoveryCode() {
   return chars.match(/.{5}/g).join('-');
 }
 const normaliseRecovery = (code) => String(code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/*
+ * Skins are the server's. A crate, the shop and the market hand them out, and a sale takes one away;
+ * a save can only add a skin the career never held, while copies are left under the cap. `held` is
+ * every skin key the career has ever had, so a stale device cannot bring a sold one back.
+ */
+const isSkin = (k) => typeof k === 'string' && k.startsWith('skin:');
+const heldBy = (u) => new Set([...(u.held ?? []), ...(u.profile.owned ?? []).filter(isSkin)]);
+const stockOf = (supply) => (id) => Math.max(0, supplyCap(id) - (supply[id] ?? 0));
+const MAX_LISTINGS = 500;
 
 export class Accounts {
   /** `grants`: { usernameLc: credits }, gifts the owner has configured for specific accounts (tests, prizes). */
@@ -214,7 +226,7 @@ export class Accounts {
    * (another device), nothing is written and the stored career comes back to be merged.
    */
   async saveProfile(u, { profile, rev }) {
-    return this.withLock(`u:${u.usernameLc}`, async () => {
+    return this.withLocks(['supply', `u:${u.usernameLc}`], async () => {
       const cur = await this.store.get(`u:${u.usernameLc}`);
       if (!cur) throw new AccountError(404, 'gone', 'This account no longer exists.');
       if (Number(rev) !== cur.rev) throw new AccountError(409, 'conflict', 'Your career changed on another device.');
@@ -223,16 +235,164 @@ export class Accounts {
         if (next[k] > COUNTER_CAP) throw new AccountError(400, 'range', 'That career has impossible numbers.');
         if (next[k] < cur.profile[k]) throw new AccountError(400, 'regress', 'A career cannot go backwards.');
       }
-      // Credits follow XP, spending cannot exceed what was earned, and what was bought must have
-      // been paid for and cannot be given back.
-      if (next.credits > maxCredits(next.xp, levelFromXp(next.xp).level) + (cur.granted ?? 0)) throw new AccountError(400, 'range', 'That career has more credits than it could have earned.');
+      // Credits follow XP, plus what the market paid out; spending cannot exceed what was earned, and
+      // what was bought must have been paid for and cannot be given back.
+      if (next.credits > maxCredits(next.xp, levelFromXp(next.xp).level) + (cur.granted ?? 0) + (cur.marketIn ?? 0)) throw new AccountError(400, 'range', 'That career has more credits than it could have earned.');
+      // Skins: keep the ones the server handed out; a skin never held before is a claim, counted against the cap.
+      const held = heldBy(cur);
+      const supply = (await this.store.get('supply')) ?? {};
+      const skins = (cur.profile.owned ?? []).filter(isSkin);
+      let claims = 0;
+      for (const k of next.owned.filter(isSkin)) {
+        const id = skinIdOf(k);
+        if (held.has(k) || stockOf(supply)(id) <= 0) continue;
+        skins.push(k); held.add(k); supply[id] = (supply[id] ?? 0) + 1; claims += 1;
+      }
+      next.owned = [...next.owned.filter((k) => !isSkin(k)), ...skins];
       if (next.spent > next.credits || ownedValue(next.owned) > next.spent) throw new AccountError(400, 'range', 'That career has spent more than it has.');
-      if ((cur.profile.owned ?? []).some((k) => !next.owned.includes(k))) throw new AccountError(400, 'regress', 'A career cannot lose what it bought.');
+      if ((cur.profile.owned ?? []).some((k) => !isSkin(k) && !next.owned.includes(k))) throw new AccountError(400, 'regress', 'A career cannot lose what it bought.');
       next.equipped = sanitizeEquipped(next, next.equipped);
+      if (claims) await this.store.put('supply', supply);
+      cur.held = [...held];
       cur.profile = next;
       cur.rev += 1;
       await this.store.put(`u:${cur.usernameLc}`, cur);
       return { profile: cur.profile, rev: cur.rev };
+    });
+  }
+
+  /** Lock several keys in one fixed order, so two requests that take the same pair cannot deadlock. */
+  async withLocks(keys, fn) {
+    const sorted = [...new Set(keys)].sort();
+    const run = (i) => (i === sorted.length ? fn() : this.withLock(sorted[i], () => run(i + 1)));
+    return run(0);
+  }
+
+  /** Roll a crate on the server and pay for it. The new copy counts against the skin's supply. */
+  async openCrateFor(u, { rng = Math.random } = {}) {
+    return this.withLocks(['supply', `u:${u.usernameLc}`], async () => {
+      const cur = await this.store.get(`u:${u.usernameLc}`);
+      if (!cur) throw new AccountError(404, 'gone', 'This account no longer exists.');
+      if (balance(cur.profile) < CRATE_PRICE) throw new AccountError(402, 'poor', `A crate costs ${CRATE_PRICE} credits.`);
+      const supply = (await this.store.get('supply')) ?? {};
+      const held = heldBy(cur);
+      const id = rollCrate([...held], rng, stockOf(supply));
+      if (!id) throw new AccountError(409, 'sold_out', 'Every skin in the crate has been minted.');
+      supply[id] = (supply[id] ?? 0) + 1;
+      cur.held = [...held, skinKey(id)];
+      cur.profile = clean({ ...cur.profile, spent: cur.profile.spent + CRATE_PRICE, owned: [...cur.profile.owned, skinKey(id)] });
+      cur.rev += 1;
+      await this.store.put('supply', supply);
+      await this.store.put(`u:${cur.usernameLc}`, cur);
+      return { profile: cur.profile, rev: cur.rev, skin: id };
+    });
+  }
+
+  /** Buy a skin from today's shop, once per career, while copies are left. */
+  async buyShopFor(u, id, { now = this.now() } = {}) {
+    return this.withLocks(['supply', `u:${u.usernameLc}`], async () => {
+      const cur = await this.store.get(`u:${u.usernameLc}`);
+      if (!cur) throw new AccountError(404, 'gone', 'This account no longer exists.');
+      const skin = gunSkinInfo(id);
+      if (!skin || skin.source !== 'shop' || !dailyShop(now).some((k) => k.id === id)) throw new AccountError(409, 'not_on_sale', 'That skin is not in today\'s shop.');
+      const key = skinKey(id);
+      const held = heldBy(cur);
+      if (held.has(key)) throw new AccountError(409, 'owned', 'You already have that skin.');
+      if (balance(cur.profile) < skin.price) throw new AccountError(402, 'poor', 'Not enough credits.');
+      const supply = (await this.store.get('supply')) ?? {};
+      if (stockOf(supply)(id) <= 0) throw new AccountError(409, 'sold_out', 'That skin has been minted out.');
+      supply[id] = (supply[id] ?? 0) + 1;
+      cur.held = [...held, key];
+      cur.profile = clean({ ...cur.profile, spent: cur.profile.spent + skin.price, owned: [...cur.profile.owned, key] });
+      cur.rev += 1;
+      await this.store.put('supply', supply);
+      await this.store.put(`u:${cur.usernameLc}`, cur);
+      return { profile: cur.profile, rev: cur.rev };
+    });
+  }
+
+  async marketState() {
+    return (await this.store.get('market')) ?? { seq: 1, items: [], sales: {} };
+  }
+
+  /** The market as anyone signed in sees it: the listings, the minted counts and each skin's value right now. */
+  async market(u) {
+    const m = await this.marketState();
+    const supply = (await this.store.get('supply')) ?? {};
+    const values = Object.fromEntries(GUN_SKINS.map((k) => [k.id, marketValue(k.id, supply[k.id] ?? 0, m.sales[k.id] ?? [])]));
+    const listings = m.items.map((i) => ({ id: i.id, skin: i.skin, seller: i.sellerName, price: i.price, mine: i.seller === u.usernameLc }));
+    return { listings, supply, values, sales: m.sales };
+  }
+
+  /** Offer a skin you own for credits. It stays yours, and in your collection, until someone buys it. */
+  async listSkin(u, { skin, price }) {
+    const id = String(skin ?? '');
+    if (!validListingPrice(id, price)) throw new AccountError(400, 'price', `A skin sells for a whole number of credits from its price up to ${MARKET_MAX_PRICE}.`);
+    return this.withLocks(['market', `u:${u.usernameLc}`], async () => {
+      const cur = await this.store.get(`u:${u.usernameLc}`);
+      if (!cur) throw new AccountError(404, 'gone', 'This account no longer exists.');
+      if (!(cur.profile.owned ?? []).includes(skinKey(id))) throw new AccountError(409, 'not_owned', 'You do not own that skin.');
+      const m = await this.marketState();
+      if (m.items.some((i) => i.seller === u.usernameLc && i.skin === id)) throw new AccountError(409, 'listed', 'You already have that skin for sale.');
+      if (m.items.length >= MAX_LISTINGS) throw new AccountError(409, 'full', 'The market is full. Try again later.');
+      const item = { id: m.seq, skin: id, seller: u.usernameLc, sellerName: cur.username, price, at: this.now() };
+      m.seq += 1;
+      m.items.push(item);
+      await this.store.put('market', m);
+      return { listing: item };
+    });
+  }
+
+  async cancelListing(u, id) {
+    return this.withLock('market', async () => {
+      const m = await this.marketState();
+      const at = m.items.findIndex((i) => i.id === id && i.seller === u.usernameLc);
+      if (at < 0) throw new AccountError(404, 'not_listed', 'That listing is gone.');
+      m.items.splice(at, 1);
+      await this.store.put('market', m);
+      return { ok: true };
+    });
+  }
+
+  /**
+   * Buy a listed skin: one transfer. The buyer is charged the price and gets the skin; the seller
+   * loses it and is paid the same. Both careers' revisions move, so a stale device must merge first.
+   */
+  async buyListing(u, id) {
+    return this.withLock('market', async () => {
+      const m = await this.marketState();
+      const item = m.items.find((i) => i.id === id);
+      if (!item) throw new AccountError(404, 'not_listed', 'That listing is gone.');
+      if (item.seller === u.usernameLc) throw new AccountError(409, 'own_listing', 'You cannot buy your own listing.');
+      return this.withLocks([`u:${u.usernameLc}`, `u:${item.seller}`], async () => {
+        const buyer = await this.store.get(`u:${u.usernameLc}`);
+        const seller = await this.store.get(`u:${item.seller}`);
+        const key = skinKey(item.skin);
+        if (!buyer) throw new AccountError(404, 'gone', 'This account no longer exists.');
+        if (!seller || !(seller.profile.owned ?? []).includes(key)) {
+          m.items = m.items.filter((i) => i.id !== id);
+          await this.store.put('market', m);
+          throw new AccountError(409, 'gone', 'That skin is no longer for sale.');
+        }
+        if ((buyer.profile.owned ?? []).includes(key)) throw new AccountError(409, 'owned', 'You already have that skin.');
+        if (balance(buyer.profile) < item.price) throw new AccountError(402, 'poor', `That costs ${item.price} credits.`);
+        // Price is at least the skin's own price, so the buyer's owned value stays covered by what they spent.
+        buyer.held = [...heldBy(buyer), key];
+        buyer.profile = clean({ ...buyer.profile, spent: buyer.profile.spent + item.price, owned: [...buyer.profile.owned, key] });
+        seller.held = [...heldBy(seller)];
+        const sold = { ...seller.profile, credits: seller.profile.credits + item.price, owned: seller.profile.owned.filter((k) => k !== key) };
+        seller.profile = clean(sold);
+        seller.profile.equipped = sanitizeEquipped(seller.profile, seller.profile.equipped);
+        seller.marketIn = (seller.marketIn ?? 0) + item.price;
+        buyer.rev += 1;
+        seller.rev += 1;
+        m.items = m.items.filter((i) => i.id !== id);
+        m.sales[item.skin] = [...(m.sales[item.skin] ?? []), item.price].slice(-MARKET_SALES_KEPT);
+        await this.store.put(`u:${buyer.usernameLc}`, buyer);
+        await this.store.put(`u:${seller.usernameLc}`, seller);
+        await this.store.put('market', m);
+        return { profile: buyer.profile, rev: buyer.rev };
+      });
     });
   }
 

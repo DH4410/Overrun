@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { CRATE_PRICE, GUN_SKINS } from '../../src/gunskins.js';
+import { CRATE_PRICE, GUN_SKINS, SHOP_SLOTS } from '../../src/gunskins.js';
 import { bootGame, watchRuntimeErrors } from './helpers/game.mjs';
 
 /**
@@ -22,7 +22,7 @@ test('opening a crate costs credits, plays the supply drop, and adds a skin you 
   await page.click('#tab-store');
   await expect(page.locator('#store')).toBeVisible();
   await expect(page.locator('#wallet-n')).toHaveText('2000');
-  await expect(page.locator('#st-cards .st-card-item')).toHaveCount(4);
+  await expect(page.locator('#st-cards .st-card-item')).toHaveCount(SHOP_SLOTS);
   await expect(page.locator('#st-count')).toContainText(`0 / ${GUN_SKINS.length}`);
 
   await page.click('#st-open');
@@ -42,12 +42,11 @@ test('opening a crate costs credits, plays the supply drop, and adds a skin you 
   expect(p.spent).toBe(CRATE_PRICE);
   expect(p.owned).toHaveLength(1);
   expect(p.owned[0]).toMatch(/^skin:/);
-  await expect(page.locator('#st-count')).toContainText(`1 / ${GUN_SKINS.length}`);
-
   // Try it on: the locker lists it in the collection, and wearing it is saved for that gun.
   await settled(page);
   await page.click('#drop-try', { force: true });
   await expect(page.locator('#drop')).toBeHidden();
+  await expect(page.locator('#st-count')).toContainText(`1 / ${GUN_SKINS.length}`);
   await expect(page.locator('#locker')).toBeVisible();
   const skin = page.locator('#lk-skins .lk-coll');
   await expect(skin).toHaveCount(1);
@@ -66,6 +65,7 @@ test('skip jumps to the result, and OPEN ANOTHER spends another crate in the sam
   await bootGame(page);
   await page.click('#tab-store');
   await page.click('#st-open');
+  await expect(page.locator('#drop')).toBeVisible();
   await forward(page);
   await expect(page.locator('#drop-win')).toBeVisible();
   const first = await page.locator('#drop-name').innerText();
@@ -75,6 +75,8 @@ test('skip jumps to the result, and OPEN ANOTHER spends another crate in the sam
   await page.click('#drop-again', { force: true });
   await expect(page.locator('#drop')).toBeVisible();
   await expect(page.locator('#drop-win')).toBeHidden();             // a fresh drop begins
+  await expect(page.locator('#st-reel')).toBeVisible();             // the next crate spins first,
+  await expect(page.locator('#st-reel')).toBeHidden();              // and lands before the show starts
   await forward(page);
   await expect(page.locator('#drop-win')).toBeVisible();
   expect(await page.locator('#drop-name').innerText()).not.toBe(first);   // never the same skin twice
@@ -92,7 +94,9 @@ test('with only one crate affordable, OPEN ANOTHER says what is missing, and Esc
   await bootGame(page);
   await page.click('#tab-store');
   await page.click('#st-open');
+  await expect(page.locator('#st-reel')).toBeVisible();              // the reel is up, so Escape skips it
   await page.keyboard.press('Escape');                              // first Escape skips the show
+  await expect(page.locator('#drop')).toBeVisible();
   await forward(page);
   await expect(page.locator('#drop-win')).toBeVisible();
   await expect(page.locator('#drop-again')).toBeDisabled();
@@ -132,7 +136,7 @@ for (const [w, h] of [[1366, 768], [1280, 650], [1024, 600]]) {
     await page.setViewportSize({ width: w, height: h });
     await bootGame(page);
     await page.click('#tab-store');
-    await expect(page.locator('#st-cards .st-card-item')).toHaveCount(4);
+    await expect(page.locator('#st-cards .st-card-item')).toHaveCount(SHOP_SLOTS);
     const out = await page.evaluate(() => {
       const bad = [];
       const vw = innerWidth, vh = innerHeight;
@@ -164,6 +168,7 @@ for (const [w, h] of [[1366, 768], [1024, 600], [800, 450]]) {
     await bootGame(page);
     await page.click('#tab-store');
     await page.click('#st-open');
+    await expect(page.locator('#drop')).toBeVisible();
     await forward(page);
     await expect(page.locator('#drop-win')).toBeVisible();
     await settled(page);

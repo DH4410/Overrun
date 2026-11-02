@@ -16,6 +16,12 @@ import { Friends } from './friends.js';
  *   GET    /api/friends                                             -> friends (with presence), requests, invites
  *   POST   /api/presence   { status }                               -> check in ('lobby' | 'solo' | 'online'), answers like GET /api/friends
  *   POST   /api/friends/{request|accept|decline|remove|invite|dismiss}  { name }  -> the new panel
+ *   POST   /api/crate                                               -> { profile, rev, skin }: a crate, rolled and minted here
+ *   POST   /api/shop       { skin }                                 -> { profile, rev }: a skin from today's shop
+ *   GET    /api/market                                              -> listings, minted counts, values
+ *   POST   /api/market/list    { skin, price }                      -> the listing
+ *   POST   /api/market/cancel  { id }
+ *   POST   /api/market/buy     { id }                               -> { profile, rev }: the buyer's career
  *
  * The session is an HttpOnly, SameSite=Lax cookie, so page scripts never see it. State-changing
  * calls must be JSON and, when the browser says where they came from, must come from this site.
@@ -134,6 +140,26 @@ export function createAccountApi({ accounts, friends = new Friends({ store: acco
     if (fm && method === 'POST') {
       const b = await body(request);
       return json(200, await friends[fm[1]](u, b.name));
+    }
+
+    // Skins: the server rolls, sells and counts them (server/accounts.js).
+    if (path === '/api/crate' && method === 'POST') return json(200, await accounts.openCrateFor(u));
+    if (path === '/api/shop' && method === 'POST') {
+      const b = await body(request);
+      return json(200, await accounts.buyShopFor(u, b.skin));
+    }
+    if (path === '/api/market' && method === 'GET') return json(200, await accounts.market(u));
+    if (path === '/api/market/list' && method === 'POST') {
+      const b = await body(request);
+      return json(200, await accounts.listSkin(u, { skin: b.skin, price: b.price }));
+    }
+    if (path === '/api/market/cancel' && method === 'POST') {
+      const b = await body(request);
+      return json(200, await accounts.cancelListing(u, Number(b.id)));
+    }
+    if (path === '/api/market/buy' && method === 'POST') {
+      const b = await body(request);
+      return json(200, await accounts.buyListing(u, Number(b.id)));
     }
     throw new AccountError(404, 'not_found', 'No such account call.');
   }

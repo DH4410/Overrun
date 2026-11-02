@@ -19,6 +19,9 @@ export const RARITY = Object.freeze({
 });
 export const RARITY_ORDER = Object.freeze(['common', 'rare', 'epic', 'legendary']);
 
+/** How many copies of a skin may ever be minted, by rarity. A skin can name its own cap instead. */
+export const SUPPLY = Object.freeze({ common: 5000, rare: 1500, epic: 400, legendary: 120 });
+
 /** What one crate costs. It is also the price of every skin in the crate pool, which is how the server knows what a save has paid. */
 export const CRATE_PRICE = 300;
 /** How many skins the daily shop shows at once. */
@@ -98,6 +101,11 @@ const BY_ID = Object.fromEntries(GUN_SKINS.map((k) => [k.id, k]));
 export const gunSkinInfo = (id) => BY_ID[id] ?? null;
 export const skinKey = (id) => `skin:${id}`;
 export const skinIdOf = (key) => (typeof key === 'string' && key.startsWith('skin:') ? key.slice(5) : null);
+/** Copies of skin `id` that may ever exist. Only the server counts them; see server/accounts.js. */
+export const supplyCap = (id) => {
+  const k = gunSkinInfo(id);
+  return k ? (k.cap ?? SUPPLY[k.rarity]) : 0;
+};
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 /** The colour a role actually shows: its slot colour, multiplied by its pattern's average colour. */
@@ -144,11 +152,12 @@ export function dailyShop(ms) {
 /**
  * One crate draw. Rarity is rolled by weight, then a skin you do not own yet is picked in it; a
  * tier you have finished is skipped for the nearest one that has something left. Returns the skin
- * id, or null once the whole crate pool is yours. `owned` is the profile's item keys.
+ * id, or null once the whole crate pool is yours. `owned` is the profile's item keys. `stock(id)`
+ * says how many copies of a skin can still be minted (the server's count); a sold-out skin is skipped.
  */
-export function rollCrate(owned, rng = Math.random) {
+export function rollCrate(owned, rng = Math.random, stock = () => Infinity) {
   const have = new Set(owned ?? []);
-  const left = (tier) => CRATE.filter((k) => k.rarity === tier && !have.has(skinKey(k.id)));
+  const left = (tier) => CRATE.filter((k) => k.rarity === tier && !have.has(skinKey(k.id)) && stock(k.id) > 0);
   const open = RARITY_ORDER.filter((t) => left(t).length);
   if (!open.length) return null;
   let pick = rng() * open.reduce((n, t) => n + RARITY[t].weight, 0);

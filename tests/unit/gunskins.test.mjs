@@ -124,8 +124,10 @@ test('the server refuses a skin that was never paid for, and one taken back', as
   const paid = clean({ xp: 1000, credits: 800, spent: CRATE_PRICE, owned: ['skin:aurora'] });
   const ok = await save(paid, 0);
   assert.deepEqual(ok.profile.owned, ['skin:aurora']);
-  await refused(save(clean({ ...paid, owned: [] }), ok.rev), 'regress');
+  // A save cannot take a skin back: only a sale can, and the server keeps the skin on any other save.
+  const kept = await save(clean({ ...paid, owned: [] }), ok.rev);
+  assert.deepEqual(kept.profile.owned, ['skin:aurora']);
   // Wearing is checked too: a skin you do not own is dropped from what you wear.
-  const worn = await save(clean({ ...paid, equipped: { guns: { ar: 'aurora', smg: 'void' } } }), ok.rev);
+  const worn = await save(clean({ ...paid, equipped: { guns: { ar: 'aurora', smg: 'void' } } }), kept.rev);
   assert.deepEqual(worn.profile.equipped.guns, { ar: 'aurora' });
 });

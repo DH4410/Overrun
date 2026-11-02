@@ -70,7 +70,7 @@ import { createPlayerRuntime, createPlayerState } from './player.js';
 import { createUiRuntime } from './ui.js';
 import { createLocker } from './locker.js';
 import { saveSkin } from './skins.js';
-import { balance, buyGun, buyShopSkin, openCrate, ownsGun } from './shop.js';
+import { buyGun, buyShopSkin, openCrate, ownsGun } from './shop.js';
 import { RARITY_ORDER, gunSkinInfo, skinIdOf } from './gunskins.js';
 import { createStore } from './store.js';
 import { createMarket } from './marketView.js';

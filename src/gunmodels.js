@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { PATTERNS } from './gunskins.js';
-import { patchMaterial, patternTexture } from './gunTextures.js';
+import { fxTick, glowTexture, patchMaterial, patternTexture } from './gunTextures.js';
 
 /**
  * Procedural firearms, shared by the first-person viewmodels and the guns bots carry.
@@ -25,10 +25,11 @@ import { patchMaterial, patternTexture } from './gunTextures.js';
  */
 
 export function gunMaterials() {
+  // The three repaintable roles are physical, so a finish can carry a clearcoat and thin-film iridescence.
   const m = {
-    polymer: new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.74, metalness: 0.06 }),
-    alloy: new THREE.MeshStandardMaterial({ color: 0x292c30, roughness: 0.46, metalness: 0.72 }),
-    steel: new THREE.MeshStandardMaterial({ color: 0x3b3e43, roughness: 0.3, metalness: 0.9 }),
+    polymer: new THREE.MeshPhysicalMaterial({ color: 0x1b1d20, roughness: 0.74, metalness: 0.06 }),
+    alloy: new THREE.MeshPhysicalMaterial({ color: 0x292c30, roughness: 0.46, metalness: 0.72 }),
+    steel: new THREE.MeshPhysicalMaterial({ color: 0x3b3e43, roughness: 0.3, metalness: 0.9 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x0d0e10, roughness: 0.62, metalness: 0.35 }),
     wood: new THREE.MeshStandardMaterial({ color: 0x3b2416, roughness: 0.58, metalness: 0.02 }),
     olive: new THREE.MeshStandardMaterial({ color: 0x3c4130, roughness: 0.8, metalness: 0.04 }),
@@ -54,19 +55,30 @@ export function gunMaterials() {
   return m;
 }
 
+const ANIM = { pulse: 1, flow: 2 };
+const noop = () => {};
+
 /**
- * Repaint a gun (or a whole viewmodel) with a finish from src/rewards.js. `skin.slots` maps a role
+ * Repaint a gun (or a whole viewmodel) with a skin from src/gunskins.js. `skin.slots` maps a role
  * to [colour, roughness, metalness, glow?]; a null `slots` (the stock finish), or a role it leaves out,
  * goes back to the gun's own colours. `skin.tex` may name a pattern per role (src/gunskins.js PATTERNS),
- * laid over the colour. Safe to call again and again.
+ * laid over the colour. `skin.fx` is the finish: `coat` (clearcoat), `iri` (iridescence), `glowTex` (a
+ * pattern whose bright lines carry the glow) and `anim` ('pulse' or 'flow'; see src/gunTextures.js).
+ * Safe to call again and again.
  */
 export function applyGunSkin(root, skin) {
   const seen = new Set();
+  const fx = skin?.fx ?? {};
+  const glowMap = fx.glowTex ? glowTexture(fx.glowTex) : null;
+  const anim = ANIM[fx.anim] ?? 0;
   root.traverse((o) => {
     if (!o.isMesh) return;
+    let animated = false;
     for (const mat of Array.isArray(o.material) ? o.material : [o.material]) {
       const role = mat?.userData?.skinRole;
-      if (!role || seen.has(mat)) continue;
+      if (!role) continue;
+      animated ||= anim > 0;
+      if (seen.has(mat)) continue;
       seen.add(mat);
       const [hex, rough, metal, glow = 0] = skin?.slots?.[role] ?? mat.userData.stock;
       mat.color.setHex(hex);
@@ -77,7 +89,20 @@ export function applyGunSkin(root, skin) {
       const map = name ? patternTexture(name) : null;
       if (mat.map !== map) { mat.map = map; mat.needsUpdate = true; }   // the shader changes when a map comes or goes
       mat.userData.texScale.value = name ? PATTERNS[name].scale * (skin.texScale ?? 1) : 1;
+      const u = mat.userData.fx;
+      u.glowOn.value = glowMap && glow ? 1 : 0;   // the glow lives only in the pattern's bright lines
+      if (glowMap && glow) u.glowMap.value = glowMap;
+      u.anim.value = anim;
+      const coat = fx.coat ?? 0, iri = fx.iri ?? 0;
+      mat.clearcoat = coat;
+      mat.clearcoatRoughness = 0.08;
+      mat.iridescence = iri;
+      mat.iridescenceIOR = 1.3;
+      mat.iridescenceThicknessRange = [180, 420];
+      const feat = `${coat > 0}${iri > 0}`;   // turning a finish on or off changes the shader
+      if (mat.userData.feat !== feat) { mat.userData.feat = feat; mat.needsUpdate = true; }
     }
+    o.onBeforeRender = animated ? fxTick : noop;   // only a moving skin needs the clock
   });
 }
 

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -31,14 +30,10 @@ test('every skin is well formed, and the crate and shop pools never overlap', ()
       assert.ok(PATTERNS[name], `${k.id} names a pattern that exists: ${name}`);
     }
   }
-  const sw = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8');
-  for (const name of Object.keys(PATTERNS)) {
-    assert.ok(existsSync(new URL(`../../assets/textures/guns/${name}.jpg`, import.meta.url)), `${name} has a baked texture (npm run bake:textures)`);
-    assert.ok(sw.includes(`./assets/textures/guns/${name}.jpg`), `${name} is precached`);
-  }
-  assert.ok(CRATE_SKINS.every((k) => k.source === 'crate' && k.price === CRATE_PRICE));
-  assert.ok(SHOP_SKINS.every((k) => k.source === 'shop' && k.price > CRATE_PRICE));
+  assert.ok(CRATE_SKINS.every((k) => k.source === 'crate' && k.price === CRATE_PRICE && !k.retired));
+  assert.ok(SHOP_SKINS.every((k) => k.source === 'shop' && k.price > CRATE_PRICE && !k.retired));
   assert.ok(SHOP_SKINS.length >= SHOP_SLOTS + 2, 'the shop has more than one day of stock');
+  for (const k of GUN_SKINS.filter((x) => x.retired)) assert.ok(!CRATE_SKINS.includes(k) && !SHOP_SKINS.includes(k), `${k.id} is kept but not sold`);
 });
 
 test('the daily shop is the same for everyone all day, and turns over at 00:00 UTC', () => {

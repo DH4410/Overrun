@@ -4,11 +4,16 @@
  *
  * Two pools that never overlap:
  *   crate  only from the crate: a random draw, one price for every skin in it
- *   shop   only from the daily shop: four of them on sale at a time, each with its own price
+ *   shop   only from the daily shop: a few of them on sale at a time, each with its own price
  *
- * `slots` repaints a gun's materials by role exactly like the level finishes in src/rewards.js:
- * [colour, roughness, metalness, glow?]. The optional fourth value is an emissive colour, so a
- * rare skin can light up. Skins are not tied to a gun: wear one on any gun.
+ * `slots` repaints a gun's materials by role: [colour, roughness, metalness, glow?]. The optional
+ * fourth value is an emissive colour, so a rare skin can light up. `fx` is the finish: `coat`
+ * (clearcoat, 0..1), `iri` (thin-film iridescence, 0..1), `glowTex` (a pattern that lights the
+ * emissive colour, so only its lines glow) and `anim` ('pulse' or 'flow', a viewer's choice: see
+ * src/gunmodels.js). Skins are not tied to a gun: wear one on any gun.
+ *
+ * OLD IDS NEVER GO AWAY. A skin that is no longer sold has `retired: true`; it stays in GUN_SKINS,
+ * so every save that owns it still syncs and it still draws, with the look it has here.
  */
 
 export const RARITY = Object.freeze({
@@ -28,74 +33,75 @@ export const CRATE_PRICE = 300;
 export const SHOP_SLOTS = 4;
 
 /**
- * Surface patterns a skin can lay over a role's colour (drawn in src/gunTextures.js). `c` is the
- * pattern's average colour, which the colour of the slot multiplies, and `scale` is how many times
- * it repeats per metre of gun. This lives here, not next to the drawing code, so the swatches in the
+ * Surface patterns a skin can lay over a role's colour (generated in src/gunTextures.js). `c` is the
+ * pattern's average grey, which the colour of the slot multiplies, and `scale` is how many times it
+ * repeats per metre of gun. This lives here, not next to the drawing code, so the swatches in the
  * locker can be tinted without loading three.js.
  */
 export const PATTERNS = Object.freeze({
-  carbon: { c: 0x6e6e6e, scale: 12 },
-  brushed: { c: 0xa8a8a8, scale: 10 },
-  speckle: { c: 0xb0b0b0, scale: 14 },
-  camo_wood: { c: 0x575734, scale: 3.4 },
-  camo_desert: { c: 0xbca477, scale: 3.4 },
-  camo_urban: { c: 0x797d81, scale: 3.4 },
-  rust: { c: 0x8f5733, scale: 5 },
-  scales: { c: 0x808080, scale: 12 },
-  leather: { c: 0x9a9a9a, scale: 16 },
-  magma: { c: 0x2a130a, scale: 4 },
-  marble: { c: 0xdcdcdc, scale: 3.2 },
-  hex: { c: 0x9a9a9a, scale: 9 },
-  circuit: { c: 0x6a6a6a, scale: 9 },
-  hazard: { c: 0x929292, scale: 8 },
-  facets: { c: 0xb0b0b0, scale: 5 },
-  damascus: { c: 0xacacac, scale: 3 },
-  swirl: { c: 0x828282, scale: 2.4 },
+  carbon: { c: 0x8c8c8c, scale: 14 },
+  brushed: { c: 0xb0b0b0, scale: 5 },
+  speckle: { c: 0xb0b0b0, scale: 16 },
+  camo_wood: { c: 0x9a9a9a, scale: 2.2 },
+  rust: { c: 0x9a9a9a, scale: 3 },
+  scales: { c: 0x9a9a9a, scale: 9 },
+  leather: { c: 0x9a9a9a, scale: 10 },
+  lava: { c: 0x404040, scale: 2 },
+  marble: { c: 0xd8d8d8, scale: 2.5 },
+  hex: { c: 0x9a9a9a, scale: 6 },
+  circuit: { c: 0x606060, scale: 5 },
+  hazard: { c: 0x808080, scale: 6 },
+  facets: { c: 0xb0b0b0, scale: 4 },
+  damascus: { c: 0xa8a8a8, scale: 3 },
+  swirl: { c: 0x9a9a9a, scale: 1.6 },
 });
 
-/** [colour, roughness, metalness, glow?] per role, plus the pattern each role wears, if any. */
-const s = (polymer, alloy, steel, tex = null) => ({ slots: { polymer, alloy, steel }, tex });
+/** [colour, roughness, metalness, glow?] per role, the pattern each role wears, and the finish. */
+const s = (polymer, alloy, steel, tex = null, fx = {}) => ({ slots: { polymer, alloy, steel }, tex, fx });
 
 const CRATE = [
   // common
-  { id: 'slate', name: 'SLATE', rarity: 'common', ...s([0x6a7380, 0.8, 0.05], [0x8a97a8, 0.5, 0.6], [0xb4c0cf, 0.35, 0.8], { polymer: 'speckle', alloy: 'brushed', steel: 'brushed' }) },
-  { id: 'fielddrab', name: 'FIELD DRAB', rarity: 'common', ...s([0xffffff, 0.85, 0.04], [0x8b9a63, 0.6, 0.35], [0x4a5636, 0.45, 0.6], { polymer: 'camo_wood', alloy: 'brushed' }) },
-  { id: 'rustbelt', name: 'RUST BELT', rarity: 'common', ...s([0xffffff, 0.85, 0.05], [0xd88a52, 0.7, 0.4], [0x8a5a3a, 0.5, 0.6], { polymer: 'rust', alloy: 'rust' }) },
-  { id: 'pine', name: 'PINE NEEDLE', rarity: 'common', ...s([0x3f9a66, 0.6, 0.05], [0x2e6b46, 0.5, 0.5], [0x9bd0b0, 0.32, 0.8], { polymer: 'scales', steel: 'brushed' }) },
-  { id: 'concrete', name: 'CONCRETE', rarity: 'common', ...s([0xdfe2e6, 0.9, 0.02], [0xc2c8ce, 0.8, 0.2], [0x7a8087, 0.5, 0.5], { polymer: 'speckle', alloy: 'speckle' }) },
-  { id: 'mustang', name: 'MUSTANG', rarity: 'common', ...s([0xd2813a, 0.75, 0.04], [0xc2762a, 0.4, 0.6], [0xe3b679, 0.3, 0.85], { polymer: 'leather', alloy: 'brushed' }) },
+  { id: 'slate', name: 'GRAPHITE', rarity: 'common', ...s([0x2a2e35, 0.55, 0.1], [0x7d858f, 0.28, 0.95], [0xaab3be, 0.2, 1], { polymer: 'carbon', alloy: 'brushed', steel: 'brushed' }, { coat: 0.35 }) },
+  { id: 'fielddrab', name: 'WOODLAND', rarity: 'common', ...s([0x8a8f5c, 0.8, 0.02], [0x6b7546, 0.5, 0.4], [0x3a4128, 0.5, 0.6], { polymer: 'camo_wood', alloy: 'brushed' }) },
+  { id: 'rustbelt', name: 'RUST BELT', rarity: 'common', retired: true, ...s([0x8a4a2a, 0.75, 0.05], [0xb8723a, 0.6, 0.5], [0x5a3420, 0.5, 0.6], { polymer: 'rust', alloy: 'rust' }) },
+  { id: 'pine', name: 'PINE NEEDLE', rarity: 'common', retired: true, ...s([0x1f5a3a, 0.5, 0.05], [0x2e6b46, 0.4, 0.6], [0x9bd0b0, 0.25, 1], { polymer: 'scales', steel: 'brushed' }, { coat: 0.4 }) },
+  { id: 'concrete', name: 'CONCRETE', rarity: 'common', retired: true, ...s([0xdfe2e6, 0.9, 0.02], [0xc2c8ce, 0.8, 0.2], [0x7a8087, 0.5, 0.5], { polymer: 'speckle', alloy: 'speckle' }) },
+  { id: 'mustang', name: 'MUSTANG', rarity: 'common', retired: true, ...s([0xd2813a, 0.6, 0.04], [0xc2762a, 0.4, 0.6], [0xe3b679, 0.3, 0.85], { polymer: 'leather', alloy: 'brushed' }, { coat: 0.5 }) },
+  { id: 'citrus', name: 'CITRUS', rarity: 'common', retired: true, ...s([0xc6f021, 0.4, 0.1], [0xe6ff7a, 0.3, 0.5], [0xfff2a0, 0.2, 0.9], { polymer: 'scales', alloy: 'brushed' }, { coat: 0.6 }) },
   // rare
-  { id: 'cobalt', name: 'COBALT', rarity: 'common', ...s([0x2f6fe0, 0.4, 0.2], [0x2f7bff, 0.3, 0.8], [0xbcd7ff, 0.2, 0.95], { polymer: 'carbon', alloy: 'brushed' }) },
-  { id: 'magma', name: 'MAGMA', rarity: 'epic', ...s([0xffffff, 0.55, 0.1, 0x2a0a00], [0xff7a3a, 0.35, 0.5, 0x5a1500], [0x4a2a1c, 0.4, 0.8], { polymer: 'magma', alloy: 'magma' }) },
-  { id: 'jade', name: 'JADE', rarity: 'rare', ...s([0x6fe0b8, 0.35, 0.1], [0x2fd0a0, 0.3, 0.6], [0xc8fff0, 0.2, 0.9], { polymer: 'marble', alloy: 'brushed' }) },
-  { id: 'violethaze', name: 'VIOLET HAZE', rarity: 'rare', ...s([0x9a5cff, 0.4, 0.15], [0x8f4bff, 0.3, 0.7], [0xe0ccff, 0.2, 0.9], { polymer: 'swirl', alloy: 'damascus' }) },
-  { id: 'bubblegum', name: 'BUBBLEGUM', rarity: 'rare', ...s([0xff8fc0, 0.5, 0.05], [0xffd0e6, 0.3, 0.3], [0xff5fa2, 0.25, 0.7], { polymer: 'hex', alloy: 'brushed' }) },
-  { id: 'citrus', name: 'CITRUS', rarity: 'common', ...s([0xc6f021, 0.5, 0.1], [0xe6ff7a, 0.35, 0.5], [0xfff2a0, 0.25, 0.8], { polymer: 'scales', alloy: 'brushed' }) },
+  { id: 'cobalt', name: 'COBALT', rarity: 'rare', ...s([0x1d4fd0, 0.22, 0.25], [0x2f7bff, 0.2, 0.9], [0xcfe2ff, 0.14, 1], { polymer: 'carbon' }, { coat: 1 }) },
+  { id: 'jade', name: 'JADE', rarity: 'rare', ...s([0x58e0b0, 0.2, 0.05], [0x2fd0a0, 0.25, 0.7], [0xd6fff0, 0.12, 1], { polymer: 'marble' }, { coat: 0.9, iri: 0.2 }) },
+  { id: 'violethaze', name: 'VIOLET HAZE', rarity: 'rare', retired: true, ...s([0x9a5cff, 0.25, 0.15], [0x8f4bff, 0.2, 0.7], [0xe0ccff, 0.15, 0.9], { polymer: 'swirl', alloy: 'damascus' }, { coat: 0.9, iri: 0.5 }) },
+  { id: 'bubblegum', name: 'BUBBLEGUM', rarity: 'rare', retired: true, ...s([0xff8fc0, 0.4, 0.05], [0xffd0e6, 0.3, 0.3], [0xff5fa2, 0.25, 0.7], { polymer: 'hex', alloy: 'brushed' }, { coat: 0.7 }) },
+  { id: 'sakura', name: 'SAKURA', rarity: 'rare', retired: true, ...s([0xffc4d8, 0.4, 0.04], [0xffa6c9, 0.3, 0.3], [0xffd9e8, 0.2, 0.9], { polymer: 'marble', alloy: 'damascus' }, { coat: 0.8 }) },
+  { id: 'hazard', name: 'HAZARD', rarity: 'rare', retired: true, ...s([0xffcf00, 0.5, 0.05], [0xffcf00, 0.4, 0.4, 0x3a3000], [0x4a4a4a, 0.4, 0.8], { polymer: 'hazard', alloy: 'hazard' }, { coat: 0.4 }) },
   // epic
-  { id: 'neoncircuit', name: 'NEON CIRCUIT', rarity: 'epic', ...s([0x20c8e8, 0.45, 0.2, 0x002a34], [0x1a8aa8, 0.3, 0.8, 0x003a48], [0x00e5ff, 0.2, 0.9, 0x00a3b8], { polymer: 'circuit', alloy: 'circuit' }) },
-  { id: 'toxic', name: 'TOXIC', rarity: 'epic', ...s([0x6dff2a, 0.45, 0.1, 0x0c3a04], [0x6dff2a, 0.35, 0.4, 0x1f6a08], [0x2d5a18, 0.4, 0.7], { polymer: 'hex', alloy: 'hex' }) },
-  { id: 'sakura', name: 'SAKURA', rarity: 'rare', ...s([0xffc4d8, 0.5, 0.04], [0xffa6c9, 0.35, 0.3], [0xffd9e8, 0.2, 0.9], { polymer: 'marble', alloy: 'damascus' }) },
-  { id: 'icefang', name: 'ICE FANG', rarity: 'epic', ...s([0x9ee7ff, 0.3, 0.2, 0x0a2a3a], [0x9ee7ff, 0.15, 0.9], [0xffffff, 0.1, 1, 0x2a6a88], { polymer: 'facets', alloy: 'facets' }) },
-  { id: 'hazard', name: 'HAZARD', rarity: 'rare', ...s([0xffcf00, 0.6, 0.05, 0x1a1500], [0xffcf00, 0.4, 0.4, 0x3a3000], [0x4a4a4a, 0.4, 0.8], { polymer: 'hazard', alloy: 'hazard' }) },
+  { id: 'neoncircuit', name: 'NEON CIRCUIT', rarity: 'epic', ...s([0x0b1a22, 0.4, 0.2], [0x1a8aa8, 0.3, 0.8, 0x003a48], [0x00e5ff, 0.2, 0.9, 0x00a3b8], { polymer: 'circuit', alloy: 'brushed' }, { coat: 0.6, glowTex: 'circuit', anim: 'pulse' }) },
+  { id: 'toxic', name: 'TOXIC DRIP', rarity: 'epic', ...s([0x1e3a10, 0.5, 0.1], [0x6dff2a, 0.35, 0.4, 0x1f6a08], [0x2d5a18, 0.4, 0.7], { polymer: 'hex', alloy: 'lava' }, { coat: 0.5, glowTex: 'lava', anim: 'flow' }) },
+  { id: 'icefang', name: 'ICE FANG', rarity: 'epic', ...s([0xbfeaff, 0.12, 0.1], [0x9ee7ff, 0.1, 0.9], [0xffffff, 0.08, 1], { polymer: 'facets', alloy: 'facets' }, { coat: 1, iri: 0.9 }) },
+  { id: 'magma', name: 'MAGMA', rarity: 'epic', retired: true, ...s([0x2a130a, 0.8, 0.1], [0xff7a3a, 0.35, 0.5, 0x5a1500], [0x4a2a1c, 0.4, 0.8], { polymer: 'lava', alloy: 'lava' }, { coat: 0.3, glowTex: 'lava' }) },
   // legendary
-  { id: 'aurora', name: 'AURORA', rarity: 'legendary', ...s([0x22ffb0, 0.35, 0.3, 0x0a4a34], [0x22ffb0, 0.2, 0.9, 0x0a6a4a], [0xb26bff, 0.15, 1, 0x3a1670], { polymer: 'swirl', alloy: 'damascus' }) },
-  { id: 'obsidianflame', name: 'OBSIDIAN FLAME', rarity: 'legendary', ...s([0xffffff, 0.4, 0.3, 0x3a1000], [0xffffff, 0.3, 0.6, 0x8a3200], [0xff6a00, 0.2, 1, 0xc44800], { polymer: 'magma', alloy: 'magma' }) },
+  { id: 'aurora', name: 'AURORA', rarity: 'legendary', ...s([0x0a2a24, 0.25, 0.3], [0x22ffb0, 0.2, 0.9, 0x0a6a4a], [0xb26bff, 0.15, 1, 0x3a1670], { polymer: 'swirl', alloy: 'damascus' }, { coat: 1, iri: 1, anim: 'flow' }) },
+  { id: 'obsidianflame', name: 'OBSIDIAN FLAME', rarity: 'legendary', ...s([0x141414, 0.35, 0.2], [0x2a1208, 0.3, 0.6], [0xff6a00, 0.2, 1, 0xc44800], { polymer: 'lava', steel: 'lava' }, { coat: 0.7, glowTex: 'lava', anim: 'pulse' }) },
 ].map((k) => ({ ...k, source: 'crate', price: CRATE_PRICE }));
 
 const SHOP = [
-  { id: 'chrome', name: 'CHROME', rarity: 'rare', price: 700, ...s([0xdfe6ee, 0.1, 0.95], [0xe9eff6, 0.08, 1], [0xffffff, 0.06, 1], { polymer: 'brushed' }) },
-  { id: 'carbonember', name: 'CARBON EMBER', rarity: 'rare', price: 900, ...s([0xc8c8d0, 0.3, 0.5], [0xb0b0b8, 0.2, 0.9], [0xff7a1a, 0.2, 1, 0x7a3000], { polymer: 'carbon', alloy: 'carbon' }) },
-  { id: 'royal', name: 'ROYAL', rarity: 'epic', price: 1300, ...s([0x6a3ac8, 0.4, 0.2], [0x8a5ae0, 0.25, 0.8], [0xf3d577, 0.15, 1], { polymer: 'damascus', alloy: 'damascus' }) },
-  { id: 'frostbite', name: 'FROSTBITE', rarity: 'epic', price: 1500, ...s([0xcfe9ff, 0.35, 0.1], [0x7fc4ff, 0.15, 0.9, 0x103a66], [0xffffff, 0.1, 1, 0x4a8ab0], { polymer: 'facets', alloy: 'facets' }) },
-  { id: 'bloodmoon', name: 'BLOOD MOON', rarity: 'epic', price: 1800, ...s([0xc01028, 0.4, 0.3, 0x2a0006], [0xff3048, 0.2, 0.9, 0x400008], [0xff2a44, 0.15, 1, 0x7a0a1a], { polymer: 'damascus', alloy: 'scales' }) },
-  { id: 'solarflare', name: 'SOLAR FLARE', rarity: 'legendary', price: 2800, ...s([0xffb030, 0.4, 0.3, 0x3a1a00], [0xffa11a, 0.18, 1, 0x6a3000], [0xfff1a8, 0.12, 1, 0x806000], { polymer: 'hex', alloy: 'hex' }) },
-  { id: 'holopearl', name: 'HOLO PEARL', rarity: 'legendary', price: 3000, ...s([0xeef2ff, 0.25, 0.2], [0xcfd8ff, 0.1, 0.6, 0x303868], [0xffffff, 0.06, 1, 0x5a6ab0], { polymer: 'marble', alloy: 'swirl' }) },
-  { id: 'void', name: 'VOID', rarity: 'legendary', price: 3200, ...s([0x8a3cff, 0.45, 0.2, 0x1a0036], [0x7a30e0, 0.15, 0.9, 0x2a0058], [0x9a3cff, 0.12, 1, 0x5a1ab0], { polymer: 'swirl', alloy: 'swirl' }) },
+  { id: 'chrome', name: 'CHROME', rarity: 'rare', price: 700, retired: true, ...s([0xdfe6ee, 0.08, 0.95], [0xe9eff6, 0.06, 1], [0xffffff, 0.04, 1], { polymer: 'brushed' }, { coat: 1, iri: 0.3 }) },
+  { id: 'carbonember', name: 'CARBON EMBER', rarity: 'rare', price: 900, ...s([0x1c1c20, 0.35, 0.3], [0x2a2a30, 0.3, 0.7], [0xff7a1a, 0.2, 1, 0x7a3000], { polymer: 'carbon', alloy: 'carbon' }, { coat: 0.9, glowTex: 'lava', anim: 'pulse' }) },
+  { id: 'royal', name: 'ROYAL', rarity: 'epic', price: 1300, ...s([0x6a3ac8, 0.3, 0.2], [0x8a5ae0, 0.25, 0.8], [0xf3d577, 0.15, 1], { polymer: 'damascus', alloy: 'damascus' }, { coat: 1, iri: 0.25 }) },
+  { id: 'frostbite', name: 'FROSTBITE', rarity: 'epic', price: 1500, ...s([0xcfe9ff, 0.3, 0.1], [0x7fc4ff, 0.15, 0.9, 0x103a66], [0xffffff, 0.1, 1, 0x4a8ab0], { polymer: 'facets', alloy: 'facets' }, { coat: 1, iri: 0.6, glowTex: 'facets', anim: 'pulse' }) },
+  { id: 'bloodmoon', name: 'BLOOD MOON', rarity: 'epic', price: 1800, retired: true, ...s([0xc01028, 0.4, 0.3, 0x2a0006], [0xff3048, 0.2, 0.9, 0x400008], [0xff2a44, 0.15, 1, 0x7a0a1a], { polymer: 'damascus', alloy: 'scales' }, { coat: 0.8 }) },
+  { id: 'solarflare', name: 'SOLAR FLARE', rarity: 'legendary', price: 2800, ...s([0xffb030, 0.4, 0.3, 0x3a1a00], [0xffa11a, 0.18, 1, 0x6a3000], [0xfff1a8, 0.12, 1, 0x806000], { polymer: 'hex', alloy: 'hex' }, { coat: 1, glowTex: 'hex', anim: 'pulse' }) },
+  { id: 'holopearl', name: 'HOLO PEARL', rarity: 'legendary', price: 3000, ...s([0xeef2ff, 0.2, 0.2], [0xcfd8ff, 0.1, 0.6, 0x303868], [0xffffff, 0.06, 1, 0x5a6ab0], { polymer: 'marble', alloy: 'swirl' }, { coat: 1, iri: 1, anim: 'flow' }) },
+  { id: 'void', name: 'VOID', rarity: 'legendary', price: 3200, ...s([0x8a3cff, 0.4, 0.2, 0x1a0036], [0x7a30e0, 0.15, 0.9, 0x2a0058], [0x9a3cff, 0.12, 1, 0x5a1ab0], { polymer: 'swirl', alloy: 'swirl' }, { coat: 1, iri: 0.4, glowTex: 'swirl', anim: 'pulse' }) },
+  { id: 'royalgold', name: 'ROYAL GOLD', rarity: 'legendary', price: 3500, retired: true, ...s([0xf3d577, 0.2, 1], [0xffe08a, 0.15, 1], [0xffffff, 0.1, 1, 0x806000], { polymer: 'damascus' }, { coat: 1 }) },
 ].map((k) => ({ ...k, source: 'shop' }));
 
-export const CRATE_SKINS = Object.freeze(CRATE);
-export const SHOP_SKINS = Object.freeze(SHOP);
+/** Every skin there has ever been, retired ones included: a save that owns one always resolves. */
 export const GUN_SKINS = Object.freeze([...CRATE, ...SHOP]);
+/** The skins on sale now. A retired skin is still in GUN_SKINS, but nothing sells it. */
+export const CRATE_SKINS = Object.freeze(CRATE.filter((k) => !k.retired));
+export const SHOP_SKINS = Object.freeze(SHOP.filter((k) => !k.retired));
 
 const BY_ID = Object.fromEntries(GUN_SKINS.map((k) => [k.id, k]));
 export const gunSkinInfo = (id) => BY_ID[id] ?? null;
@@ -138,10 +144,10 @@ export const shopDay = (ms) => Math.floor(ms / 86_400_000);
 /** When the current shop ends, in ms since the epoch. */
 export const shopEndsAt = (ms) => (shopDay(ms) + 1) * 86_400_000;
 
-/** The skins on sale on the day `ms` falls in: always SHOP_SLOTS of them, the same for every player. */
+/** The skins on sale on the day `ms` falls in: SHOP_SLOTS of them, the same for every player. */
 export function dailyShop(ms) {
   const rng = seeded(shopDay(ms) * 2654435761);
-  const pool = [...SHOP];
+  const pool = [...SHOP_SKINS];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -157,7 +163,7 @@ export function dailyShop(ms) {
  */
 export function rollCrate(owned, rng = Math.random, stock = () => Infinity) {
   const have = new Set(owned ?? []);
-  const left = (tier) => CRATE.filter((k) => k.rarity === tier && !have.has(skinKey(k.id)) && stock(k.id) > 0);
+  const left = (tier) => CRATE_SKINS.filter((k) => k.rarity === tier && !have.has(skinKey(k.id)) && stock(k.id) > 0);
   const open = RARITY_ORDER.filter((t) => left(t).length);
   if (!open.length) return null;
   let pick = rng() * open.reduce((n, t) => n + RARITY[t].weight, 0);

@@ -2092,3 +2092,10 @@ html[data-hud=centre] #ammo{right:auto;left:calc(50% + 12px);bottom:22px;width:2
 html[data-hud=centre] #items{bottom:192px}
 html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:176px;height:176px}
 }
+
+/* ---- kills read at the bottom centre, above the item row: who you eliminated, then the streak ---- */
+#killbanner { top: auto; bottom: 252px; }
+#streak { top: auto; bottom: 336px; flex-direction: row; align-items: baseline; gap: 10px; }
+#streak span { margin-top: 0; font-size: 14px; letter-spacing: 3px; }
+#streak b { font-size: 30px; }
+#kb-label { text-transform: uppercase; }

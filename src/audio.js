@@ -22,7 +22,7 @@ const RELOAD_STEPS = {
 };
 
 /** Hit-marker pitch per gun, so a sniper hit lands heavier than an SMG graze. */
-const HIT_PITCH = { pistol: 1500, ar: 1400, smg: 1700, shotgun: 1100, sniper: 950, revolver: 1000, mp: 1750, lmg: 1250, ashotgun: 1150, dmr: 1050 };
+export const HIT_PITCH = { pistol: 1500, ar: 1400, smg: 1700, shotgun: 1100, sniper: 950, revolver: 1000, mp: 1750, lmg: 1250, ashotgun: 1150, dmr: 1050 };
 
 // The four chords every song here walks through: Am, F, C, G.
 const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];
@@ -141,6 +141,9 @@ export function createAudio({ getCamera }) {
       tail.connect(p); p.connect(this.sfx);
       return air;
     },
+
+    /** Where the listener is, for callers that need a distance to a sound. */
+    camPos() { return getCamera().position; },
 
     /** Put the listener where the camera is, facing where it faces. Called once a frame. */
     updateListener() {

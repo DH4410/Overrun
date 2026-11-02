@@ -244,6 +244,10 @@ const SETTINGS_SCHEMA = [
   { group: 'AUDIO', icon: 'M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 0 1 0 6' },
   { key: 'masterVolume', type: 'range', label: 'Master volume', min: 0, max: 1, step: 0.05 },
   { key: 'musicVolume', type: 'range', label: 'Music volume', min: 0, max: 1, step: 0.05 },
+  { key: 'soundPack', type: 'toggle', label: 'Recorded sound pack',
+    hint: 'Real recordings for guns, footsteps, menus, crates and more (about 5 MB, downloaded when you switch it on). Off uses the built-in synthesized sounds.' },
+  { key: 'menuMusic', type: 'toggle', label: 'Lobby and shop music',
+    hint: 'Music in the lobby and the item shop (about 5 MB, downloaded when you switch it on).' },
 ];
 
 /** The control strip at the bottom of the menu, drawn from the keys as they are now bound. */

@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAudio } from './audio.js';
+import { attachSoundPack } from './sfxpack.js';
 import {
   AIM,
   BOT_RANGE_BAND,
@@ -82,7 +83,7 @@ import { createEmoteMusic } from './emoteMusic.js';
 import { createEmotes } from './emotes.js';
 import { loadLoadout, saveLoadout, validLoadout } from './loadout.js';
 import { createNetClient } from './net/client.js';
-import { useProgress } from './sim/items.js';
+import { ITEMS, useProgress } from './sim/items.js';
 import { loadItemModels } from './itemModels.js';
 import { createHealAnim } from './healAnim.js';
 import {
@@ -143,6 +144,11 @@ const Audio = createAudio({
 });
 // A wall between you and a sound muffles it (see Audio._out).
 Audio.setOccluder((x1, y1, z1, x2, y2, z2) => !losClear(x1, y1, z1, x2, y2, z2));
+// The optional recorded sound pack and menu music; inert until switched on in settings.
+attachSoundPack(Audio);
+/** The floor each map is mostly made of, for footsteps (the recordings in assets/audio). */
+const FLOOR = { port: 'concrete', desert: 'sand', snow: 'snow', warzone: 'gravel', depot: 'concrete', bastion: 'gravel', arena: 'tile', metro: 'tile' };
+Audio.surface = () => FLOOR[getCurrentMapId?.()] ?? 'concrete';
 // Browsers only start audio after a gesture. Menu buttons tick on hover and click.
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => Audio.init(), { once: true, capture: true });
 addEventListener('click', (e) => { if (e.target.closest?.('button')) Audio.uiClick(); }, true);
@@ -635,6 +641,7 @@ function applySettings() {
 
   Audio.setVolume?.(settings.masterVolume);
   Audio.setMusicVolume?.(settings.musicVolume);
+  Audio.syncSoundPack?.();
   applyCrosshairStyle();
   saveSettings();
 }
@@ -1039,6 +1046,8 @@ function fixedStep(dt) {
 /** 0 at the hip, 1 fully aimed. Eased, so the gun travels up to the eye rather than snapping. */
 let vmAds = 0;
 let vmReload = 0;
+let vmLastUse = 0;               // the healing item in use last frame, for its sounds
+let vmUseP = 0;
 let vmUse = 0;                   // 0..1 eased: the gun lowered and an item raised while one is used
 const heal = createHealAnim({ vmScene });   // the gloved hands and the held item (healAnim.js)
 const _vmHip = new THREE.Vector3();
@@ -1087,6 +1096,12 @@ function updateViewModel(dt) {
   // Healing: the gun drops out of the way and the item comes up in the off hand, working as the
   // channel fills. Driven by useKind, which is the server's word in multiplayer.
   const useKind = player.alive ? player.useKind : 0;
+  if (useKind !== vmLastUse) {
+    if (useKind) Audio.cue?.('item_start', ITEMS[useKind]?.id);
+    else Audio.cue?.(vmUseP >= 0.9 ? 'item_done' : 'use_cancel', ITEMS[vmLastUse]?.id);
+    vmLastUse = useKind;
+  }
+  vmUseP = player.useP ?? useProgress(player);
   vmUse = heal.update(dt, {
     useKind,
     useP: player.useP ?? useProgress(player),
@@ -1259,7 +1274,7 @@ function frame() {
     updateLights();
     updateShake(dt);
     updateSpotting(dt);
-    if (cameraPlaced) vmRig.visible = false;
+    if (cameraPlaced) { if (!net.killcamGun) vmRig.visible = false; }     // an online kill cam shows the killer's own gun in their hands
     else { updateViewModel(dt); updateCamera(dt); }
     emotes.update(dt, { running: net.playing, firing: isFiring() });
     updateEmoteSongs();
@@ -1447,11 +1462,11 @@ const locker = createLocker({
   onOpen: () => {
     document.exitPointerLock?.();
     if (match.running) appState = APP_STATE.SETTINGS;
-    else markNav('locker');
+    else { markNav('locker'); Audio.cue?.('ui_open'); }
   },
   onClose: () => { if (match.running) requestLock(); else markNav(lobbyPage); },
   getSkin: () => worn().skin,
-  setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); } },
+  setSkin: (id) => { if (isUnlocked(loadProfile(), 'skin', id)) { wear({ skin: id }); applyWornSkin(); Audio.cue?.('ui_skin'); } else Audio.cue?.('ui_locked'); },
   skinLevel: (id) => skinInfo(id)?.level ?? 1,
   skinOwned: (id) => isUnlocked(loadProfile(), 'skin', id),
   getPaintId: (gun) => skinForGun(worn(), gun)?.id ?? 'stock',
@@ -1487,6 +1502,7 @@ const wear = (patch) => saveProfile(withEquipped(loadProfile(), patch));
 /** The character you play: what the lobby stage, other players and the killcam show. */
 async function wearOperator(id) {
   wear({ operator: id });
+  Audio.cue?.('ui_equip');
   saveSkin(id);
   net.gear(id, player.loadout);
   await loadCharacter(id);
@@ -1593,17 +1609,19 @@ const store = createStore({
   },
   buySkin: (id) => {
     const next = buyShopSkin(loadProfile(), id);
-    if (!next) return false;
+    if (!next) { Audio.cue?.('ui_error'); return false; }
+    Audio.cue?.('ui_buy');
     saveProfile(next);
     renderPlayerCard(next);
     store.refresh();
     return true;
   },
   openLocker: () => { career.close(); locker.open(); },
-  onOpen: () => markNav('store'),
-  onClose: () => markNav(lobbyPage),
+  onOpen: () => { markNav('store'); Audio.cue?.('ui_open'); },
+  onClose: () => { markNav(lobbyPage); Audio.cue?.('ui_close'); },
   sfx: (kind, rarity) => {
     Audio.init();
+    if (Audio.cue?.(kind === 'reveal' ? 'reveal' : 'crate', kind === 'reveal' ? rarity : kind === 'fall' ? 'fall' : kind)) return;
     if (kind === 'fall') {
       // Wind rising as the crate comes down.
       Audio.burst({ dur: 2.0, gain: 0.16, type: 'bandpass', freq: 700, q: 0.6, decay: 1.8 });
@@ -1636,7 +1654,16 @@ function previewMap(id) {
 /** The five top tabs are always on screen; this marks the one whose page is up. */
 const NAV = { play: 'tab-play', operators: 'tab-operators', career: 'tab-career', store: 'tab-store', locker: 'locker-open', settings: 'settings-open' };
 let lobbyPage = 'play';                      // the page under any overlay: play or operators
-function markNav(active) { for (const [key, id] of Object.entries(NAV)) $(id)?.classList.toggle('active', key === active); }
+function markNav(active) {
+  for (const [key, id] of Object.entries(NAV)) $(id)?.classList.toggle('active', key === active);
+  syncMenuMusic();
+}
+/** Lobby music behind the menu, shop music in the store and locker, nothing once a match is on. Inert unless Lobby and shop music is on. */
+function syncMenuMusic() {
+  const open = !$('menu').classList.contains('hidden') && !match.running;
+  Audio.menuMusic?.(!open ? null : store.isOpen() || locker.isOpen() ? 'shop' : 'lobby');
+}
+new MutationObserver(syncMenuMusic).observe($('menu'), { attributes: true, attributeFilter: ['class'] });
 const operatorsPage = createOperators({
   getElement: $,
   getProfile: loadProfile,
@@ -1673,16 +1700,17 @@ $('ptab-solo')?.addEventListener('click', () => setPlayPane('solo'));
 $('ptab-online')?.addEventListener('click', () => setPlayPane('online'));
 $('tab-play')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('play'); });
 $('tab-operators')?.addEventListener('click', () => { leaveOverlays(); $('settings-close')?.click(); setLobbyTab('operators'); });
+// What a kill cam needs to draw the killer's own screen: the first-person gun, flash, numbers (solo and online).
+const killcamFp = {
+  vmRig, viewHands, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash, setAmmoCounter,
+  hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
+  paint: (model, id) => applyGunSkin(model, id ? gunSkinInfo(id) : null),   // the killer's finish on your first-person gun
+  restorePaint: () => applyWornSkin(),
+};
 killcam = createKillcam({
   scene, camera, player, bots, buildCharacterMesh, getOperatorId: () => worn().operator, losClear, Audio,
   spawnBlood: (...args) => spawnBlood(...args), spawnSparks: (...args) => spawnSparks(...args), WEAPON_BY_ID,
-  // What the replay needs to draw the killer's own screen: the first-person gun, flash, numbers.
-  fp: {
-    vmRig, vmModels, homePositions: VM_HOME, adsPosition, triggerMuzzleFlash, updateMuzzleFlash,
-    hipFov, adsFov: () => adsFov(ADS_FOV), showDamageNumber, showHitMarker,
-    paint: (model, id) => applyGunSkin(model, id ? gunSkinInfo(id) : null),   // the killer's finish on your first-person gun
-    restorePaint: () => applyWornSkin(),
-  },
+  fp: killcamFp,
 });
 /** Space, Enter or a click cuts the cam short: you land on the death screen with a brief wait. */
 function skipKillcam() {
@@ -1704,7 +1732,7 @@ net = createNetClient({
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },
   spawnExplosion, spawnSmoke, clearSmoke, spawnBlood, addShake,
-  showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud,
+  showHitMarker, showKillBanner, showDamageDirection, showDamageNumber, addKillFeed, showToast, updateAmmoHud, fp: killcamFp,
   setPaused: () => { appState = APP_STATE.PAUSED; },
   warmScene, setSharp,
   getGunSkins: () => worn().guns ?? {},

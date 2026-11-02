@@ -170,7 +170,7 @@ function stepOver(world, b) {
 /**
  * One fixed step of a living player's movement: ground check, crouch and slide, Quake-style
  * friction and acceleration toward the wish, ledge step-up, jump and the extra gravity. Runs
- * before world.step. `hooks.land()` and `hooks.slide()` are for sound, and are optional.
+ * before world.step. `hooks.land()`, `hooks.jump()` and `hooks.slide()` are for sound, and are optional.
  */
 export function stepMovement(world, player, cmd, dt, hooks = null) {
   const b = player.body;
@@ -241,6 +241,7 @@ export function stepMovement(world, player, cmd, dt, hooks = null) {
   if (cmd.jump && player.grounded) {
     b.velocity.y = CONFIG.JUMP_SPEED;
     player.grounded = false;
+    hooks?.jump?.();
   }
   // The rest of the player's gravity: the world supplies 9.82, CONFIG.PLAYER_GRAVITY is the
   // total. Only the player falls faster — grenades and bodies keep world gravity.

@@ -83,7 +83,7 @@ export const CONFIG = {
   TDM_TARGET: 25,
   MATCH_SECONDS: 300,
   RESPAWN_DELAY: 4.0,
-  PLAYER_RESPAWN: 3.0,
+  PLAYER_RESPAWN: 4.0,   // long enough for the online kill cam (src/net/client.js) to swing, rewind and replay
 
   // 1v1 duel. Round-based rather than kill-based: one life each, the round ends the moment
   // someone dies, and the match is first to DUEL_ROUNDS. DUEL_ROUND_SECONDS exists so a

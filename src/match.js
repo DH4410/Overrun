@@ -663,6 +663,7 @@ function climbLadder(killer) {
   player.cooking = null;
   updateAmmoHud();
   showToast(`${killer.kills + 1} / ${GUN_LADDER.length}  ·  ${w.name}`);
+  Audio.cue?.('level_up');
 }
 
 /** Single source of truth for the DM leader so HUD, win-check and time-limit agree. */
@@ -746,7 +747,7 @@ function updateMatch(dt, realDt = dt) {
     if (match.mode === 'hp' && hardpoint) {
       const scored = hardpoint.update(dt, combatants);
       if (scored === TEAM.BLUE) match.scoreA++; else if (scored === TEAM.RED) match.scoreB++;
-      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); }
+      if (hardpoint.state.moved) { hardpoint.state.moved = false; showToast('ZONE MOVED'); Audio.cue?.('objective'); }
       hardpoint.updateHud();
       checkWinConditions();
       if (!match.running) return;

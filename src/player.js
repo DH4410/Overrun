@@ -195,6 +195,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
 
   if (target.health <= 0) {
     target.health = 0;
+    if (target === player) Audio.cue?.('die');
     const dist = source && source !== target ? source.pos.distanceTo(target.pos) : 0;
     const info = {
       weapon, dist,
@@ -218,7 +219,7 @@ function applyDamage(target, amount, source, hitPos, headshot, zone = 'body', we
 /* ----------------------------- movement ----------------------------- */
 
 let crouchLatch = false;
-const moveHooks = { land: () => Audio.step?.(), slide: () => Audio.slide?.() };
+const moveHooks = { land: () => { if (!Audio.cue?.('land')) Audio.step?.(); }, jump: () => Audio.cue?.('jump'), slide: () => Audio.slide?.() };
 const moveCmd = { ix: 0, iz: 0, crouch: false, sprint: false, aiming: false, jump: false };
 
 const THROW_POWER_SOFT = 6;    // m/s at a tap
@@ -375,7 +376,7 @@ function tryFire() {
   if (w.thrown) return;                       // grenades are thrown with G, not LMB
 
   const a = player.ammo[w.id];
-  if (a.mag <= 0) { startReload(); return; }
+  if (a.mag <= 0) { Audio.cue?.('empty'); startReload(); return; }
 
   a.mag--;
   // The last rounds of a magazine ring a tick on top of the shot, so a reload is called for by ear

@@ -14,18 +14,21 @@ import { clamp, lerp } from './utils.js';
  */
 export function createKillerView({ camera, fp, $ = (id) => document.getElementById(id) }) {
   let on = false, scoped = false, kick = 0;
+  const painted = new Map();                          // gun id -> the finish its first-person model wears now
   const _hip = new THREE.Vector3(), _aim = new THREE.Vector3(), _pos = new THREE.Vector3(), _mz = new THREE.Vector3();
 
   /**
    * Once a frame. `w` is the weapon in hand, `aim` how far up the sights are (0 to 1), `speed` their
    * ground speed in m/s and `time` any steadily rising clock for the walk bob. False when there is no
    * model for the gun (the caller then keeps its own camera settings).
+   * `finish` is the killer's gun finish (a skin id, '' for stock): the gun wears theirs, not this player's own.
    */
-  function frame(w, aim, speed, time, dt) {
+  function frame(w, aim, speed, time, dt, finish = '') {
     const model = w && fp.vmModels[w.id];
     if (!model) { end(); return false; }
     on = true;
     for (const id in fp.vmModels) fp.vmModels[id].visible = id === w.id;
+    if (painted.get(w.id) !== finish) { painted.set(w.id, finish); fp.paint?.(model, finish); }
     aim = clamp(aim, 0, 1);
     scoped = !!w.zoom && aim > 0.85;
     const ads = w.zoom ? 0 : aim;                       // a scope replaces the model; other sights raise it
@@ -76,6 +79,7 @@ export function createKillerView({ camera, fp, $ = (id) => document.getElementBy
   function end() {
     if (!on) return;
     on = scoped = false; kick = 0;
+    if (painted.size) { painted.clear(); fp.restorePaint?.(); }
     fp.vmRig.visible = false;
     fp.viewHands?.update({ id: null, vmMatrix: fp.vmRig.matrixWorld, reload: -1, show: false });
     fp.updateMuzzleFlash(1);

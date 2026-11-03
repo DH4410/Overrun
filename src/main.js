@@ -1637,10 +1637,14 @@ const store = createStore({
   openLocker: () => { career.close(); locker.open(); },
   onOpen: () => { markNav('store'); Audio.cue?.('ui_open'); },
   onClose: () => { markNav(lobbyPage); Audio.cue?.('ui_close'); },
-  sfx: (kind, rarity) => {
+  sfx: (kind, rarity, progress = 0) => {
     Audio.init();
     if (Audio.cue?.(kind === 'reveal' ? 'reveal' : 'crate', kind === 'reveal' ? rarity : kind === 'fall' ? 'fall' : kind)) return;
-    if (kind === 'fall') {
+    if (kind === 'tick') {
+      // The roulette: a click that climbs in pitch as the wheel slows, brighter for a better colour.
+      const f = 520 + progress * 520 + RARITY_ORDER.indexOf(rarity) * 120;
+      Audio.tone({ f0: f, f1: f, dur: 0.07, gain: 0.16, type: 'square' });
+    } else if (kind === 'fall') {
       // Wind rising as the crate comes down.
       Audio.burst({ dur: 2.0, gain: 0.16, type: 'bandpass', freq: 700, q: 0.6, decay: 1.8 });
       Audio.tone({ f0: 180, f1: 70, dur: 2.0, gain: 0.07, type: 'sine' });
@@ -1746,7 +1750,7 @@ addEventListener('keydown', (e) => {
 
 net = createNetClient({
   player, bots, Bot, el, Audio, camera, keys, match, scene, allyMarks, playerBlip, vmModels,
-  ammoChests, consumables, loadedCharacters, loadCharacter, isCharacterLoaded, switchMap, getCurrentMapId, losClear,
+  ammoChests, consumables, loadedCharacters, loadCharacter, isCharacterLoaded, getOperatorId: () => worn().operator, switchMap, getCurrentMapId, losClear,
   readMoveInput, isFiring, isAiming, takeFireLatch, takeItemPress, syncDrops, isPointerLocked, emotes, emoteMusic,
   fireWeapon, stepBullets, triggerMuzzleFlash, ejectBrass,
   addViewModelRecoil: (amount) => { vmRecoil += amount; },

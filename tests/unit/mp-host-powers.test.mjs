@@ -33,6 +33,16 @@ test('a socket that goes silent is dropped and its seat is held, not doubled', (
   assert.equal(back.p, B.p);
 });
 
+test('a player who changed operator while away rejoins their held seat wearing the new one', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A', { character: 'swat' }), B = join(room, 'B', { character: 'boss' });
+  room.close(A.conn);
+  const back = join(room, 'A', { token: A.p.token, character: 'amy' });
+  assert.equal(back.p, A.p, 'same seat');
+  assert.equal(room.roster().find((r) => r.id === A.p.id).character, 'amy', 'the others see the new operator');
+  assert.equal(B.p.character, 'boss');
+});
+
 test('only the host kicks; the seat goes at once and the token is refused for a while', () => {
   const { room, clock } = makeRoom();
   const A = join(room, 'A'), B = join(room, 'B'), C = join(room, 'C');

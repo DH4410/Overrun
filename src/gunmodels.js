@@ -95,7 +95,8 @@ export function applyGunSkin(root, skin) {
       u.anim.value = anim;
       const coat = fx.coat ?? 0, iri = fx.iri ?? 0;
       mat.clearcoat = coat;
-      mat.clearcoatRoughness = 0.08;
+      mat.clearcoatRoughness = 0.09 - 0.05 * coat;   // a full clearcoat is a wet mirror
+      mat.envMapIntensity = skin?.slots ? 1 + 0.55 * metal : 1;   // painted metal picks up the room; the stock finish stays as it was
       mat.iridescence = iri;
       mat.iridescenceIOR = 1.3;
       mat.iridescenceThicknessRange = [180, 420];

@@ -319,6 +319,8 @@ export class Room {
       if (p) {
         if (p.conn) this.dropConnection(p.conn, 'You signed in again from somewhere else.');
         this.resumeSeat(p, c);
+        // The seat kept the operator it had when it was held; the hello names the one worn now.
+        if (CHARACTER_IDS.includes(m.character) && m.character !== CHARACTER_IDS[0]) p.character = m.character;
       }
     }
     if (!p && !m.spectate && this.canSeat()) {

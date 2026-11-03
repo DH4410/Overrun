@@ -238,7 +238,8 @@ export function createNetClient(d) {
 
   function character() {
     const ss = storage('sessionStorage');
-    let c = ss?.getItem(CHAR_KEY) ?? savedSkin();
+    // The operator the Operators tab wears is the source; the per-tab copy only covers a missing one.
+    let c = d.getOperatorId?.() ?? ss?.getItem(CHAR_KEY) ?? savedSkin();
     const loaded = d.loadedCharacters().filter((id) => DRAWABLE_IDS.includes(id));
     if (!c || !DRAWABLE_IDS.includes(c)) {
       c = loaded.length ? loaded[Math.floor(Math.random() * loaded.length)] : DRAWABLE_IDS[0];

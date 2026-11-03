@@ -11,7 +11,7 @@ const seed = (page, profile) => page.addInitScript((p) => {
   if (!globalThis.sessionStorage.getItem('seeded')) { localStorage.setItem('overrun.profile', JSON.stringify(p)); globalThis.sessionStorage.setItem('seeded', '1'); }
 }, profile);
 // The e2e page runs on a stepped clock (helpers/game.mjs), so the show only moves when told to.
-const forward = (page, ms = 6000) => page.evaluate((m) => globalThis.__testClock.pump(1, m), ms);
+const forward = (page, ms = 8000) => page.evaluate((m) => globalThis.__testClock.pump(1, m), ms);
 const settled = (page) => page.evaluate(() => Promise.all(document.querySelector('#drop-win').getAnimations().filter((a) => a.effect.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))));
 const saved = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('overrun.profile')));
 
@@ -29,9 +29,17 @@ test('opening a crate costs credits, plays the supply drop, and adds a skin you 
   await expect(page.locator('#drop')).toBeVisible();                // its own full-screen window
   await expect(page.locator('#drop-hint')).toHaveText('SUPPLY DROP INBOUND');
   await expect(page.locator('#drop-win')).toBeHidden();             // the name waits for the burst
+  await forward(page, 3600);                                        // mid-spin: the slot is up over the crate
+  await expect(page.locator('#drop-slot')).toHaveClass(/\bon\b/);
+  await expect(page.locator('#drop-slot .dr-reel')).toHaveCount(3);
   await forward(page);
   await expect(page.locator('#drop-win')).toBeVisible();
   await expect(page.locator('#drop-name')).not.toBeEmpty();
+  // The weakest reel is the draw: legendary only when all three stopped on gold
+  const rar = (await page.locator('#drop-rar').innerText()).toLowerCase();
+  const reels = await page.locator('#drop-slot .dr-reel').evaluateAll((n) => n.map((e) => e.dataset.r));
+  const order = ['common', 'rare', 'epic', 'legendary'];
+  expect(order[Math.min(...reels.map((r) => order.indexOf(r)))]).toBe(rar);
   await expect(page.locator('#drop-skip')).toBeHidden();
   const box = await page.locator('#drop-canvas').boundingBox();
   const vp = page.viewportSize();
@@ -75,8 +83,6 @@ test('skip jumps to the result, and OPEN ANOTHER spends another crate in the sam
   await page.click('#drop-again', { force: true });
   await expect(page.locator('#drop')).toBeVisible();
   await expect(page.locator('#drop-win')).toBeHidden();             // a fresh drop begins
-  await expect(page.locator('#st-reel')).toBeVisible();             // the next crate spins first,
-  await expect(page.locator('#st-reel')).toBeHidden();              // and lands before the show starts
   await forward(page);
   await expect(page.locator('#drop-win')).toBeVisible();
   expect(await page.locator('#drop-name').innerText()).not.toBe(first);   // never the same skin twice
@@ -94,7 +100,7 @@ test('with only one crate affordable, OPEN ANOTHER says what is missing, and Esc
   await bootGame(page);
   await page.click('#tab-store');
   await page.click('#st-open');
-  await expect(page.locator('#st-reel')).toBeVisible();              // the reel is up, so Escape skips it
+  await expect(page.locator('#drop')).toBeVisible();
   await page.keyboard.press('Escape');                              // first Escape skips the show
   await expect(page.locator('#drop')).toBeVisible();
   await forward(page);

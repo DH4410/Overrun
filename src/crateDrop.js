@@ -9,9 +9,11 @@ import { freshPattern } from './gunTextures.js';
 /**
  * The SUPPLY DROP: opening a skin crate. A full-screen window of its own, over the store.
  *
- * A supply crate comes down on a parachute through the night, lands, shakes and warms up (its seam
- * flickers through every rarity colour and then locks onto the one you drew), blows its lid and
- * sends up a beam; the skin rises out of it on a gun you can spin with the mouse or a finger.
+ * A supply crate comes down on a parachute through the night, lands, shakes and warms up. A
+ * three-reel slot spins above it and stops one reel at a time: the WEAKEST reel is your rarity, so
+ * legendary only comes when all three land on gold, and two golds with a third reel still crawling
+ * is the moment to hold your breath. The seam follows the weakest reel so far. Then the lid blows
+ * and a beam goes up; the skin rises out of it on a gun you can spin with the mouse or a finger.
  *
  * It is only a show. The draw has already been made and saved by the time `play` is called, so
  * leaving in the middle can never lose the skin. The scene is its own small WebGL context that
@@ -24,13 +26,17 @@ import { freshPattern } from './gunTextures.js';
 preloadCrate();             // fetch the modelled crate while the menus are open
 
 const FALL = 2100;          // ms: the crate touches down
-const LOCK = 3300;          // the seam stops flickering and shows the rarity
-const BURST = 4300;         // the lid goes
-const CARD = 5200;          // name and buttons
+const SPIN_AT = FALL + 350; // the reels start
+const STOPS = [3300, 4000, 4900];   // when each reel stops; the last one is the long crawl
+const LOCK = STOPS[2];      // the last reel stops: the draw is shown
+const BURST = 5800;         // the lid goes
+const CARD = 6700;          // name and buttons
+const REEL_TILES = 26, REEL_LAND = 22;   // tiles on a reel strip, and the one that ends up on the pay line
 const START_Y = 9.5;
 const GUN_LEN = 2.7;        // metres on screen
 const TAU = Math.PI * 2;
 
+const TOP = RARITY_ORDER.length - 1;
 const ease = {
   out: (t) => 1 - (1 - t) ** 3,
   back: (t) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2,
@@ -101,6 +107,21 @@ function canopyTexture() {
   return t;
 }
 
+
+/**
+ * What the three reels will show. The weakest one is the draw (made before the show), so all three
+ * are gold only for a legendary. Otherwise the other two are drawn from the draw's rarity upward,
+ * leaning on gold, and the weakest is usually the last reel (the one that crawls), so a near miss
+ * is the usual way to lose.
+ */
+function slotPlan(real) {
+  const top = RARITY_ORDER.length - 1, end = RARITY_ORDER.indexOf(real);
+  if (end === top) return [top, top, top];
+  const plan = [0, 1, 2].map(() => (Math.random() < 0.55 ? top : end + Math.floor(Math.random() * (top - end + 1))));
+  plan[Math.random() < 0.65 ? 2 : Math.floor(Math.random() * 2)] = end;      // mostly the last reel, so the first two keep you hoping
+  return plan;
+}
+
 export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   let root = null, canvas = null, renderer = null;
   let scene = null, camera = null, S = null;           // S: everything the current play made
@@ -124,6 +145,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       <div class="dr-flash" id="drop-flash"></div>
       <button id="drop-skip" type="button">SKIP<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l7 7-7 7M13 5l7 7-7 7"/></svg></button>
       <div class="dr-hint" id="drop-hint" aria-live="polite"></div>
+      <div class="dr-slot" id="drop-slot" aria-hidden="true">${[0, 1, 2].map(() => '<div class="dr-reel"><div class="dr-strip"></div></div>').join('')}</div>
       <div class="dr-card" id="drop-win" hidden>
         <em id="drop-rar"></em>
         <b id="drop-name"></b>
@@ -183,6 +205,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     // A narrow window backs the camera off so the crate and the parachute still fit.
     camera.userData.dist = Math.min(13, 7.4 * Math.max(1, 1.55 / camera.aspect));
     camera.updateProjectionMatrix();
+    if (S?.strips) S.th = q('.dr-reel').clientHeight / 3;
   }
 
   /* ----------------------------- the scene ----------------------------- */
@@ -303,6 +326,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     scene.add(gun);
 
     S = { crate, chute, lid, built, seamMat, glowLight, pool, ring, beam, core, waves, wave, P, sparks, gun, lineMat, canopy, key,
+      slot: slotPlan(rarity), reelAt: [-1, -1, -1], stopped: 0, lastTick: -1e9, kick: 0,
       fired: { land: false, lock: false, burst: false }, lidV: new THREE.Vector3(), lidSpin: new THREE.Vector3(), lidT: 0, chuteV: 0, shake: 0, gunT: -1, gunSize };
     const top = RARITY_ORDER.indexOf(rarity);
     wave(0, 5 + top, 0.9);
@@ -329,10 +353,50 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   const SEAM_IDLE = new THREE.Color(0x59657a);
   const cycle = RARITY_ORDER.map((r) => new THREE.Color(RARITY[r].color));
 
+  /** Fill each reel's strip: random tiles, the planned one on the pay line (gold above it, for the tease). */
+  function loadReels() {
+    S.strips = [...root.querySelectorAll('.dr-strip')];
+    S.th = 0;
+    S.strips.forEach((strip, i) => {
+      const tiles = Array.from({ length: REEL_TILES }, () => (Math.random() < 0.7 ? 0 : 1 + Math.floor(Math.random() * 2)));
+      tiles[REEL_LAND] = S.slot[i];
+      if (i === 2 && S.slot[0] === TOP && S.slot[1] === TOP && Math.random() < 0.8) tiles[REEL_LAND - 1] = TOP;
+      strip.textContent = '';
+      strip.style.transform = '';
+      for (const k of tiles) {
+        const d = document.createElement('div');
+        d.className = 'dr-tile';
+        d.dataset.r = RARITY_ORDER[k];
+        d.style.setProperty('--rc', RARITY[RARITY_ORDER[k]].color);
+        d.textContent = RARITY[RARITY_ORDER[k]].name;
+        strip.append(d);
+      }
+      strip.parentElement.dataset.r = RARITY_ORDER[S.slot[i]];
+    });
+    S.th = q('.dr-reel').clientHeight / 3;
+  }
+
   /** One frame of the show at `t` ms since the start. */
   function frame(t, dt) {
     const top = RARITY_ORDER.indexOf(rarity);
     const { crate, chute, lid, seamMat, glowLight, pool, beam, core, waves, P, sparks, gun, fired } = S;
+
+    // The reels turn on the drop's clock; each eases to a stop with the pay line on its planned tile
+    const th = S.th ?? 0;
+    if (th) {
+      for (let i = 0; i < 3; i++) {
+        const p = clamp01((t - SPIN_AT) / (STOPS[i] - SPIN_AT));
+        const e = 1 - (1 - p) ** (i === 2 ? 4.4 : 3.2);
+        const y = e * (REEL_LAND - 1) * th;
+        S.strips[i].style.transform = `translateY(${-y}px)`;
+        const tile = Math.floor(y / th);
+        if (tile !== S.reelAt[i] && p > 0) {
+          S.reelAt[i] = tile;
+          if (t - S.lastTick > 55 && (i === 2 || p > 0.6)) { S.lastTick = t; sfx('tick', RARITY_ORDER[S.slot[i]], p); }
+        }
+        if (p >= 1 && S.stopped <= i) { S.stopped = i + 1; S.kick = 1; sfx('tick', RARITY_ORDER[S.slot[i]], 1); }
+      }
+    }
 
     // Fall: slows to a stop as the chute bites
     const f = clamp01(t / FALL);
@@ -346,7 +410,9 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     camera.position.set(0, camY, camera.userData.dist);
     const reveal = clamp01((t - BURST) / 1200);
     camera.position.z -= reveal * 0.9;
-    camera.lookAt(0, 0.5 + reveal * 0.1 + (y / START_Y) * 1.2, 0);
+    // Once it has landed the crate sits lower on screen (the camera looks higher), so the slot sits above it and the crate is seen shaking; it comes back up for the reveal
+    const room = 0.62 * (1 - reveal) * clamp01((t - FALL) / 600);
+    camera.lookAt(0, 0.5 + room + reveal * 0.1 + (y / START_Y) * 1.2, 0);
 
     if (t >= FALL && !fired.land) {
       fired.land = true;
@@ -374,11 +440,17 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     const charging = t >= FALL && t < BURST;
     if (charging) {
       const warm = clamp01((t - FALL) / (BURST - FALL));
-      if (t < LOCK) {
-        const idx = Math.floor((t - FALL) / 120) % cycle.length;
-        seamMat.color.copy(cycle[idx]);
-        glowLight.color.copy(cycle[idx]);
-        glowLight.intensity = 1 + Math.sin(t / 40) * 0.5;
+      if (t < SPIN_AT) {
+        seamMat.color.copy(SEAM_IDLE);
+        glowLight.intensity = 0.4 + warm * 0.6;
+      } else if (t < LOCK) {
+        // The seam follows the weakest reel that has stopped so far; every stop is a pop of light
+        const weakest = S.slot.filter((_, i) => t >= STOPS[i]);
+        const c = weakest.length ? cycle[Math.min(...weakest)] : SEAM_IDLE;
+        S.kick = Math.max(0, S.kick - dt * 5);
+        seamMat.color.copy(c);
+        glowLight.color.copy(c);
+        glowLight.intensity = 1.2 + warm + S.kick * 3;
       } else {
         if (!fired.lock) { fired.lock = true; sfx('lock', rarity); }
         seamMat.color.copy(color);
@@ -387,7 +459,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       }
       pool.material.opacity = 0.08 + warm * 0.3;
       pool.material.color.copy(seamMat.color);
-      const amp = quiet ? 0 : (0.004 + warm * 0.032) * (t < LOCK ? 0.6 : 1.4);
+      const amp = quiet ? 0 : (0.004 + warm * 0.032) * (t < LOCK ? 0.8 : 1.4);
       if (S.built.actions) {
         const A = S.built.actions;
         if (t >= FALL + 800 && !A.shake.isRunning()) A.shake.reset().play();
@@ -523,9 +595,15 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   /** The DOM side, on a timer so the buttons never wait on a frame. */
   function step(skin, again) {
     const t = elapsed();
+    const plan = S?.slot;
+    const goldSoFar = plan && t >= STOPS[1] && plan[0] === TOP && plan[1] === TOP;
     if (t < FALL) hint('SUPPLY DROP INBOUND');
-    else if (t < BURST) hint('DECRYPTING');
+    else if (t < LOCK) hint(goldSoFar && rarity !== 'legendary' ? 'LEGENDARY?' : 'DECRYPTING');
+    else if (t < BURST) hint(RARITY[rarity].name);
     else hint('');
+    const slot = q('#drop-slot');
+    slot.classList.toggle('on', !!plan && t >= SPIN_AT && t < BURST + 600);
+    slot.classList.toggle('hot', !!goldSoFar && t < LOCK);
     if (t >= CARD && q('#drop-win').hidden) {
       const win = q('#drop-win');
       win.hidden = false;
@@ -596,11 +674,13 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     q('#drop-win').hidden = true;
     q('#drop-skip').hidden = false;
     q('#drop-flash').classList.remove('go');
+    q('#drop-slot').classList.remove('on', 'hot');
     drag.yaw = 0; drag.pitch = 0; drag.vyaw = 0; drag.last = 0; drag.on = false;
     t0 = performance.now();
     const gl = ensureRenderer();
     if (gl) {
       makeScene(skin);
+      loadReels();
       fit();
       if (quiet) S.skipTo = BURST - 500;
       sfx('fall', rarity);

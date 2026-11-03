@@ -2107,7 +2107,6 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
 .fr-row.on .fr-who small { color: var(--self); }
 .fr-row.invite .fr-who small, .fr-row.req .fr-who small { color: var(--accent); }
 #fr-invite .fr-who small { font-size: 12px; letter-spacing: 2px; color: var(--accent); }
-=======
 /* ============================================================================
    Skin economy: the locker, the store's reel and the market
    Plain rectangles: no clip-path, no radius and no decorative pseudo-elements
@@ -2193,13 +2192,6 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
 
 #st-market { padding: 6px 12px; margin-left: auto; font-weight: 800; letter-spacing: 1px; }
 #store .st-stage { position: relative; }
-#store .st-stage.spinning .st-art { visibility: hidden; }
-#store .st-reel { position: absolute; inset: 0; overflow: hidden; background: rgba(4, 8, 14, .92); cursor: pointer; }
-#store .st-strip { position: absolute; left: 0; top: 50%; display: flex; gap: 6px; margin-top: -40px; will-change: transform; }
-#store .st-tile { display: flex; flex-direction: column; width: 84px; height: 80px; flex: 0 0 auto; box-shadow: inset 0 -3px 0 var(--rc); }
-#store .st-tile i { display: block; flex: 1 1 auto; }
-#store .st-tile small { font-size: 9px; letter-spacing: 1px; padding: 3px 4px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#store .st-pin { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
 
 @media (max-width: 900px) {
   #locker .lk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
@@ -2343,3 +2335,51 @@ html[data-hud=centre] #mapframe{right:auto;left:20px;bottom:auto;top:20px;width:
 body.lobby-on #mk-close { display: none; }
 @media (max-width: 900px) { #market .mk-body { grid-template-columns: minmax(0, 1fr); overflow: auto; } }
 #market .mk-empty { padding: 48px 12px; text-align: center; font-size: 16px; letter-spacing: 1px; }
+/* The slot above the crate: three reels, the weakest one is the draw. */
+.dr-slot { --th: clamp(44px, 9.5vh, 88px); position: absolute; left: 50%; top: calc(clamp(20px, 6vh, 56px) + clamp(34px, 5vh, 46px)); transform: translateX(-50%); display: flex; gap: 10px; padding: 10px; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: rgba(6, 9, 15, .82); border: 2px solid rgba(160, 180, 220, .28); border-radius: 12px; }
+.dr-slot.on { opacity: 1; }
+.dr-slot::after { content: ""; position: absolute; left: 4px; right: 4px; top: 50%; height: var(--th); margin-top: calc(var(--th) / -2); border: 3px solid var(--accent); border-radius: 8px; box-shadow: 0 0 18px rgba(255, 176, 46, .5); }
+.dr-slot.hot::after { border-color: #fff3c9; animation: dr-hot .3s infinite alternate; }
+@keyframes dr-hot { to { box-shadow: 0 0 34px rgba(255, 176, 46, 1); } }
+.dr-reel { width: clamp(100px, 15vw, 190px); height: calc(var(--th) * 3); overflow: hidden; border-radius: 6px; background: #0b101a; }
+.dr-strip { will-change: transform; }
+.dr-tile { height: var(--th); display: grid; place-items: center; box-sizing: border-box; font: 800 clamp(11px, 2.1vh, 18px) var(--f-display); letter-spacing: 2px; color: #fff; text-shadow: 0 1px 3px #000; background: linear-gradient(135deg, var(--rc), color-mix(in srgb, var(--rc) 35%, #05070c)); border-bottom: 2px solid rgba(0, 0, 0, .35); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .dr-slot.hot::after { animation: none; } }
+
+/* ---- Plain edges and room for text. Cut corners sliced the diagonal off every border and ate text near a corner;
+   names that were ellipsised (DESERT TAN, WARZOMBIE) now wrap or shrink instead; badges and the HUD plates keep their shapes. ---- */
+html[data-shape] :is(.sel-card, #items .it, #slots div, #topbar .score, .kf, #toast, #board .card, .pause-btns button, #wallet, #lk-buy, #account, #lobby-right, #play, .op-plate, #playercard, .lk-view, .mpe-card, .acct-card, .acct-go, .acct-alt, .cr-node, #mp-play, #hp-chip, #friends-btn, #ops-equip) { clip-path: none; }
+.pc-stats { padding: 10px 6px 6px; }
+.cr-badge span, .pc-badge span { line-height: .9; }
+.cr-badge small, .pc-badge small { margin-top: 6px; }
+.ops-tile b { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.1; overflow-wrap: anywhere; }
+.cr-item b { white-space: normal; overflow: visible; text-overflow: clip; text-align: center; line-height: 1.1; overflow-wrap: anywhere; }
+.cr-item.skin b { text-align: left; }
+@media (max-width: 1150px) and (min-height: 521px) { .ops-tile b { font-size: 11px; letter-spacing: .3px; } .cr-item b { font-size: 11.5px; letter-spacing: 0; } }
+@media (max-height: 700px) { #topnav .brand span { display: none; } .cr-titles, .cr-label-titles { display: none; } }
+.lk-skin i { display: grid; place-items: center; font: 800 14px/1 var(--f-display); }
+.pc-top { flex-direction: column; align-items: stretch; gap: 3px; }
+.pc-stats { grid-template-columns: repeat(4, auto); justify-content: space-between; }
+.pc-stats span { letter-spacing: 1px; }
+
+/* ---- Credits are the prize: a bigger coin and a gold, glowing number (the same size and colour as the label next to it made them feel cheap) ---- */
+.coin { box-shadow: inset 0 0 0 .09em rgba(110, 70, 8, .55), 0 0 .55em rgba(255, 196, 64, .5); }
+#wallet { gap: 10px; padding: 6px 16px; }
+#wallet .coin { font-size: 22px; }
+#wallet b { font-size: 21px; letter-spacing: .5px; color: #ffd35a; text-shadow: 0 0 14px rgba(255, 200, 60, .45), 0 1px 2px rgba(0, 0, 0, .8); }
+#wallet.gain b { animation: wl-gain .8s ease-out; }
+#wallet.spend b { animation: wl-spend .5s ease-out; }
+#wallet.gain .coin { animation: wl-coin .8s ease-out; }
+@keyframes wl-gain { 0% { transform: scale(1); } 25% { transform: scale(1.22); color: #fff3c4; text-shadow: 0 0 22px rgba(255, 220, 100, .9); } 100% { transform: scale(1); } }
+@keyframes wl-spend { 0% { transform: scale(1); } 20% { transform: scale(.9); color: #ff8a7a; } 100% { transform: scale(1); } }
+@keyframes wl-coin { 0% { transform: rotateY(0); } 100% { transform: rotateY(360deg); } }
+.lk-bal { font-size: 24px; color: #ffd35a; text-shadow: 0 0 12px rgba(255, 200, 60, .35); }
+.lk-bal .coin { font-size: 24px; }
+#st-open b, #lk-buy b { font-size: 1.15em; }
+.st-buy { font-weight: 800; }
+.st-buy .coin { font-size: 19px; }
+/* every buy and play button gives under the finger */
+#st-open, .st-buy, #lk-buy, #play, #mp-play, #ops-equip, .pause-btns button, .acct-go, .acct-alt { transition: transform .08s ease-out, filter .15s, background .15s; }
+#st-open:active:not(:disabled), .st-buy:active:not(:disabled), #lk-buy:active, #play:active, #mp-play:active, #ops-equip:active, .pause-btns button:active, .acct-go:active, .acct-alt:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) { #wallet.gain b, #wallet.spend b, #wallet.gain .coin { animation: none; } #st-open:active, .st-buy:active, #lk-buy:active, #play:active { transform: none; } }

@@ -368,7 +368,7 @@ function showPodium(outcome, title, sub, progress) {
   });
   showAward(progress);
   $id('podium').className = `on ${outcome}`;
-  $id('podium-close').focus({ preventScroll: true });
+  $id('podium-again').focus({ preventScroll: true });
 }
 /** The XP breakdown under the podium: each line counts in, then the bar fills and levels roll over. */
 function showAward(progress) {
@@ -426,6 +426,8 @@ function showAward(progress) {
 }
 
 $id('podium-close')?.addEventListener('click', () => { $id('podium').className = ''; });
+// One click for another round with the same mode, map and bots: the lobby's own deploy button does the work.
+$id('podium-again')?.addEventListener('click', () => { $id('podium').className = ''; setTimeout(() => { const go = $id('play'); if (go && !go.disabled) go.click(); }, 0); });
 
 /** While you wait to respawn: where you stand, and the table, refreshed a few times a second. */
 let deathBoardTimer = 0;

@@ -129,3 +129,20 @@ for (const [w, h] of [[1280, 720], [800, 450]]) {
     expect(await scrollbarOffenders(page)).toEqual([]);
   });
 }
+
+test('PLAY AGAIN on the podium starts the same kind of match in one click', async ({ page }) => {
+  await bootGame(page);
+  await startMatch(page, { mode: 'dm', map: 'port', diff: 'easy' });
+  await page.evaluate(() => {
+    const g = globalThis.__game;
+    g.player.kills = g.CONFIG.DM_TARGET - 1;
+    const bot = g.bots[0];
+    bot.health = 0;
+    g.killCombatant(bot, g.player, false);
+  });
+  await pumpFrames(page, 330);
+  await expect(page.locator('#podium')).toHaveClass(/\bon\b/);
+  await page.click('#podium-again');
+  await expect(page.locator('#podium')).not.toHaveClass(/\bon\b/);
+  await expect.poll(() => page.evaluate(() => globalThis.__game.match.running), { timeout: 8000 }).toBe(true);
+});

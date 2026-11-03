@@ -2383,3 +2383,12 @@ html[data-shape] :is(.sel-card, #items .it, #slots div, #topbar .score, .kf, #to
 #st-open, .st-buy, #lk-buy, #play, #mp-play, #ops-equip, .pause-btns button, .acct-go, .acct-alt { transition: transform .08s ease-out, filter .15s, background .15s; }
 #st-open:active:not(:disabled), .st-buy:active:not(:disabled), #lk-buy:active, #play:active, #mp-play:active, #ops-equip:active, .pause-btns button:active, .acct-go:active, .acct-alt:active { transform: scale(.96); }
 @media (prefers-reduced-motion: reduce) { #wallet.gain b, #wallet.spend b, #wallet.gain .coin { animation: none; } #st-open:active, .st-buy:active, #lk-buy:active, #play:active { transform: none; } }
+
+/* ---- Research pass: say why a button is off, and keep the next round one click away ---- */
+.st-buy small { margin-left: 4px; font-size: .62em; font-weight: 700; letter-spacing: 1.5px; color: #ff9a8a; }
+.pd-btns { display: flex; gap: 12px; margin-top: clamp(10px, 3vh, 24px); }
+.pd-btns #podium-close { margin-top: 0; background: rgba(255, 255, 255, .1); color: var(--ink); padding: 12px 28px; }
+#podium-again { pointer-events: auto; cursor: pointer; border: 0; border-radius: 4px; padding: 12px 42px; background: var(--accent); color: var(--accent-ink); font-family: var(--f-display); font-size: 20px; font-weight: 800; letter-spacing: 6px; animation: o-up .4s ease-out 1.5s both; transition: transform .08s ease-out, filter .15s; }
+#podium-again:hover { filter: brightness(1.1); }
+#podium-again:active { transform: scale(.96); }
+@media (max-height: 520px) { #podium-again { padding: 8px 30px; } .pd-btns { margin-top: 6px; } }

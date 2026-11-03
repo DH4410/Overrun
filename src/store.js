@@ -96,7 +96,7 @@ export function createStore({ getProfile, openCrate, buySkin, gunOwned = () => f
       c.style.setProperty('--rc', RARITY[sk.rarity].color);
       c.dataset.skin = sk.id;
       c.innerHTML = `${art(sk)}<div class="st-info"><b>${sk.name}</b><em>${RARITY[sk.rarity].name}</em></div>`;
-      const btn = el('button', `st-buy${owned ? ' is-owned' : ''}`, owned ? `${TICK}OWNED` : `<i class="coin"></i>${sk.price}`);
+      const btn = el('button', `st-buy${owned ? ' is-owned' : ''}`, owned ? `${TICK}OWNED` : `<i class="coin"></i>${sk.price}${poor ? `<small>NEED ${sk.price - balance(p)} MORE</small>` : ''}`);
       btn.type = 'button';
       btn.disabled = owned || poor;
       btn.title = owned ? 'In your collection' : poor ? `${sk.price - balance(p)} more credits needed` : 'Buy';
@@ -119,7 +119,7 @@ export function createStore({ getProfile, openCrate, buySkin, gunOwned = () => f
       const c = el('div', `st-gun${owned ? ' owned' : ''}`);
       c.dataset.gun = id;
       c.innerHTML = `<span class="st-gun-pic">${gunPics[id] ? `<img alt="" src="${gunPics[id]}">` : ''}</span><b>${name}</b>`;
-      const btn = el('button', `st-buy${owned ? ' is-owned' : ''}`, owned ? `${TICK}OWNED` : `<i class="coin"></i>${price}`);
+      const btn = el('button', `st-buy${owned ? ' is-owned' : ''}`, owned ? `${TICK}OWNED` : `<i class="coin"></i>${price}${poor ? `<small>NEED ${price - balance(p)} MORE</small>` : ''}`);
       btn.type = 'button';
       btn.disabled = owned || poor;
       btn.title = owned ? 'In your locker' : poor ? `${price - balance(p)} more credits needed` : 'Buy';

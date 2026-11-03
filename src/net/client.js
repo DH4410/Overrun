@@ -247,7 +247,13 @@ export function createNetClient(d) {
     return c;
   }
 
+  // Input numbering starts over with each welcome. Commands sent before this connection's welcome carry the OLD
+  // numbers, and the server drops anything numbered at or below the highest it has seen: a player who sent a few
+  // of them after a reconnect stood frozen (no moving, shooting or grenades) until the new count caught up.
+  let linked = false;
+
   function connect() {
+    linked = false;
     const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
     sock.binaryType = 'arraybuffer';
     ws = sock;
@@ -265,7 +271,7 @@ export function createNetClient(d) {
 
   let refusal = null;
   function onClose(code, reason) {
-    ws = null;
+    ws = null; linked = false;
     if (!active || leaving) return;
     const why = refusal ?? reason;
     if (code === CLOSE.REFRESH) { finish(why || 'A new version of the game is out. Refresh to update.'); return; }
@@ -349,6 +355,7 @@ export function createNetClient(d) {
     retries = 0; refusal = null; welcomed = true;
     try { d.emotes.preload?.(); } catch { /* a background fetch must never stop the join */ }
     myId = m.id; spectator = m.spectator; queued = !!m.queued;
+    linked = true;
     try { if (m.token) storage('sessionStorage')?.setItem(TOKEN_KEY, m.token); } catch { /* private mode */ }
     setRoster(m.roster);
     applyMatchInfo(m);
@@ -1040,6 +1047,7 @@ export function createNetClient(d) {
   }
 
   function flush() {
+    if (!linked) { pending.length = 0; return; }     // nothing to send it to yet (see `linked`)
     if (!pending.length) return;
     const now = performance.now();
     const rate = effectiveInputRate(inputRate, inFight(now));

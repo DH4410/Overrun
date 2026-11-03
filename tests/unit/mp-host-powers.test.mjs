@@ -108,3 +108,33 @@ test('a friend who reconnects inside the grace period keeps the round going', ()
   run(room, 10);
   assert.equal(room.phase, PHASE.PLAYING);
 });
+
+test('a round everyone has left is reset to a clean lobby, so the next player does not walk into it', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  startRound(room, [A, B], { mode: 'dm' });
+  room.close(A.conn); room.close(B.conn);
+  assert.ok(!room.empty, 'a running round keeps the server loop alive until it is dealt with');
+  run(room, 6);
+  assert.equal(room.phase, PHASE.PLAYING, 'a blip on both sides does not end the round');
+  run(room, 8);
+  assert.equal(room.phase, PHASE.LOBBY);
+  assert.equal(humans(room).length, 0, 'the held seats are gone');
+  assert.ok(room.empty, 'and the loop may stop');
+  const C = join(room, 'C');
+  assert.equal(room.phase, PHASE.LOBBY);
+  assert.equal(humans(room).length, 1);
+  assert.ok(C.p.connected);
+});
+
+test('everyone dropping and one coming back inside the grace keeps the round', () => {
+  const { room } = makeRoom();
+  const A = join(room, 'A'), B = join(room, 'B');
+  startRound(room, [A, B], { mode: 'dm' });
+  room.close(A.conn); room.close(B.conn);
+  run(room, 8);
+  const back = join(room, 'A', { token: A.p.token });
+  assert.equal(back.p, A.p);
+  run(room, 5);      // past the desertion grace counted from the drop, but short of the "too few people" one
+  assert.equal(room.phase, PHASE.PLAYING, 'A is still there; the other seat is just held');
+});

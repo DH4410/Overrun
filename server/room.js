@@ -56,6 +56,7 @@ export const QUEUE_MAX = 48;             // commands buffered per player (400 ms
 const MAX_GUESS = 12;                    // ticks a held command is repeated while starved (100 ms)
 const RECONNECT_GRACE = 60;              // s a dropped player's seat is held for its token
 const LIVENESS = 75;                     // s of silence (clients ping every 10; a hidden tab's timers can slip to one a minute) before a connection is declared dead
+const DESERTED_GRACE = 12;              // s a round may run with nobody connected at all (a blip, 5 reconnect tries) before the room is reset to a fresh lobby
 const ALONE_GRACE = 15;                  // s a round may run with fewer people than its mode needs before everyone goes back to the lobby
 const KICK_BAN = 120;                    // s a removed player's token is refused for
 const NAME_MAX = 16;
@@ -127,6 +128,7 @@ export class Room {
     this.rosterDirty = false;
     this.kicked = new Map();             // token -> time it may rejoin
     this.aloneFor = 0;                   // s the round has had too few people
+    this.desertedFor = 0;                // s the round has had nobody connected
     this.loadMap(this.settings.map);
     if (autostart) this.startMatch(this.settings.mode, this.settings.map);
   }
@@ -202,7 +204,8 @@ export class Room {
     }
   }
 
-  get empty() { return this.clients.size === 0; }
+  /** Nothing to run: no connections and no round in progress. A round with everyone gone keeps ticking until checkDeserted() resets it. */
+  get empty() { return this.clients.size === 0 && (this.phase === PHASE.LOBBY || this.phase === PHASE.CLOSED); }
 
   /** Shut a connection from this end. Its client is forgotten first, so the adapter's later close() finds nothing. */
   dropConnection(conn, reason, code = CLOSE.REPLACED) {
@@ -652,6 +655,7 @@ export class Room {
       }
       for (const [token, until] of this.kicked) if (until <= t) this.kicked.delete(token);
       this.checkAlone();
+      this.checkDeserted();
     }
     if (this.tick % SNAP_EVERY === 0) this.snapDue = true;
   }
@@ -661,6 +665,19 @@ export class Room {
    * wifi blip should not end it) everyone still here goes back to the lobby, instead of playing
    * on alone against nobody. A duel decides this itself (the one who stayed wins).
    */
+  /**
+   * Everybody has left a round (or the connections are gone): once a reconnecting player has had a fair chance to
+   * come back, forget the held seats and put the room back to a clean lobby. Without this the room stayed in its
+   * finished round for good, and the next person to join walked into a game that had nobody in it.
+   */
+  checkDeserted() {
+    if (this.phase === PHASE.LOBBY || this.phase === PHASE.CLOSED || this.humans().length) { this.desertedFor = 0; return; }
+    if (++this.desertedFor < DESERTED_GRACE) return;
+    this.desertedFor = 0;
+    for (const p of this.players.filter((q) => !q.bot)) this.freeSeat(p);
+    this.toLobby();
+  }
+
   checkAlone() {
     const need = MODE_INFO[this.mode].min;
     if (this.phase !== PHASE.PLAYING || need < 2 || this.mode === 'duel' || this.humans().length >= need) { this.aloneFor = 0; return; }

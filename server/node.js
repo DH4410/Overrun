@@ -1,7 +1,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { isIP } from 'node:net';
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { WebSocketServer } from 'ws';
@@ -36,7 +37,11 @@ export function startServer({
   port = 8790, host = '127.0.0.1', limit, budgetFile = join(ROOT, 'server', '.mp-budget.json'), autostart = false,
   // Where accounts are kept. `null` keeps them in memory (tests); the default is a file beside the budget.
   accountsFile = join(ROOT, 'server', '.accounts.json'), accountIterations = 100_000, log = console.log,
+  trustCloudflare = false,
 } = {}) {
+  if (trustCloudflare && host !== '127.0.0.1' && host !== '::1') {
+    throw new Error('Cloudflare Tunnel mode requires a loopback listener.');
+  }
   const colliders = Object.fromEntries(MAP_IDS.map((id) => [id, JSON.parse(readFileSync(join(ROOT, 'assets', 'maps', `${id}.json`), 'utf8'))]));
   let saved = null;
   try { saved = JSON.parse(readFileSync(budgetFile, 'utf8')); } catch { /* first run */ }
@@ -73,9 +78,13 @@ export function startServer({
       let size = 0;
       for await (const c of req) { size += c.length; if (size > 64 * 1024) break; chunks.push(c); }
       const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
-      const out = await accountApi(new Request(new URL(req.url, `http://${req.headers.host || 'localhost'}`), {
+      // In Tunnel mode, cloudflared is the trusted local ingress and preserves the public Host.
+      const scheme = trustCloudflare && req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const clientIp = trustCloudflare ? req.headers['cf-connecting-ip'] : undefined;
+      const ip = typeof clientIp === 'string' && isIP(clientIp) ? clientIp : req.socket.remoteAddress;
+      const out = await accountApi(new Request(new URL(url.pathname + url.search, `${scheme}://${req.headers.host || 'localhost'}`), {
         method: req.method, headers: req.headers, body: hasBody ? Buffer.concat(chunks) : undefined,
-      }), { ip: req.socket.remoteAddress });
+      }), { ip });
       res.writeHead(out.status, Object.fromEntries(out.headers));
       res.end(Buffer.from(await out.arrayBuffer()));
       return;
@@ -113,17 +122,21 @@ export function startServer({
 
   return new Promise((done) => {
     http.listen(port, host, () => {
-      log(`OVERRUN multiplayer on http://${host}:${port}  (stats: /stats)`);
+      const boundPort = http.address().port;
+      log(`OVERRUN multiplayer on http://${host === '::1' ? '[::1]' : host}:${boundPort}  (stats: /stats)`);
       done({
-        room, http, port,
+        room, http, port: boundPort,
         accounts: accountStore,
         stop: () => new Promise((r) => {
           clearInterval(timer); timer = null;
           accountStore.flush?.();
           for (const c of wss.clients) c.terminate();
           wss.close();
-          http.close(() => r());
-          http.closeAllConnections?.();
+          http.close(() => {
+            accountStore.flush?.();
+            governor.flush();
+            r();
+          });
         }),
       });
     });
@@ -133,6 +146,28 @@ export function startServer({
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.argv[2] || process.env.PORT || 8790);
   const limit = process.env.MP_BUDGET_LIMIT ? Number(process.env.MP_BUDGET_LIMIT) : undefined;
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0)) {
+    throw new Error('MP_BUDGET_LIMIT must be a positive integer.');
+  }
   const budgetFile = process.env.MP_BUDGET_FILE || undefined;
-  startServer({ port, host: process.env.HOST || '127.0.0.1', limit, budgetFile, autostart: !!process.env.MP_AUTOSTART });
+  let accountsFile;
+  if (process.env.ACCOUNTS_FILE) {
+    const configuredPath = resolve(process.env.ACCOUNTS_FILE);
+    accountsFile = join(realpathSync(dirname(configuredPath)), basename(configuredPath));
+    if (accountsFile === ROOT || accountsFile.startsWith(ROOT + sep)) {
+      throw new Error('ACCOUNTS_FILE must be outside the checkout.');
+    }
+  }
+  const server = await startServer({
+    port, host: process.env.HOST || '127.0.0.1', limit, budgetFile, accountsFile,
+    autostart: !!process.env.MP_AUTOSTART, trustCloudflare: process.env.TRUST_CLOUDFLARE_TUNNEL === '1',
+  });
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    void server.stop();
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }

@@ -72,6 +72,20 @@ CI=1 npm run test:e2e                             # includes tests/e2e/multiplay
 SWARM_SECONDS=120 npm run test:mp                 # 10 players + 6 spectators over lagged sockets
 ```
 
+## Run the backend behind Cloudflare Tunnel
+
+Run one PM2 instance of `server/node.js` on loopback. Preserve the public hostname in
+the tunnel and route only `/api/*` and `/ws` to Node. Set `TRUST_CLOUDFLARE_TUNNEL=1`
+when cloudflared is the trusted local ingress. Node then uses Cloudflare's forwarded
+scheme for secure account cookies and the client IP for rate limiting.
+
+Point `ACCOUNTS_FILE` at an absolute path in an existing private, writable directory
+outside the checkout. Its default is `server/.accounts.json`. The file is loaded at
+startup and pending writes are flushed on `SIGINT` or `SIGTERM`. Stop the process before
+restoring a backup. Set `MP_BUDGET_FILE` to keep the multiplayer counter outside the checkout
+as well. The Node default uses the Worker-era cap of 2,000,000 messages per day. Set
+`MP_BUDGET_LIMIT` to a positive integer sized for the Node deployment.
+
 ## Deploy (Cloudflare free plan)
 
 ```sh

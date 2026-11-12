@@ -7,11 +7,26 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs';
  */
 export function fileStore(path) {
   let data = {};
-  try { data = JSON.parse(readFileSync(path, 'utf8')); } catch { /* first run */ }
+  try {
+    try {
+      data = JSON.parse(readFileSync(path, 'utf8'));
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(`Invalid JSON in account file: ${path}`);
+      throw error;
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('Expected an object in the account file.');
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   let timer = null;
   const save = () => {
     timer = null;
-    try { writeFileSync(`${path}.tmp`, JSON.stringify(data)); renameSync(`${path}.tmp`, path); } catch (e) { console.error('accounts: could not save', e.message); }
+    try {
+      writeFileSync(`${path}.tmp`, JSON.stringify(data), { mode: 0o600 });
+      renameSync(`${path}.tmp`, path);
+    } catch (e) { console.error('accounts: could not save', e.message); }
   };
   const later = () => { if (!timer) { timer = setTimeout(save, 200); timer.unref?.(); } };
   return {

@@ -136,7 +136,7 @@ for (const [w, h] of SIZES) {
     await tryStep('store-crate-drop', async () => {
       await page.click('#tab-store');
       await page.click('#st-open');
-      await page.evaluate(() => globalThis.__testClock.pump(1, 8000));
+      await page.evaluate(() => globalThis.__testClock.pump(1, 11000));   // a legendary show runs 10 s
       await page.waitForTimeout(400);
     });
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');

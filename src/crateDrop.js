@@ -25,15 +25,19 @@ import { freshPattern } from './gunTextures.js';
 
 preloadCrate();             // fetch the modelled crate while the menus are open
 
-const FALL = 2100;          // ms: the crate touches down
-const SPIN_AT = FALL + 350; // the reels start
-const STOPS = [3300, 4000, 4900];   // when each reel stops; the last one is the long crawl
-const LOCK = STOPS[2];      // the last reel stops: the draw is shown
-const BURST = 5800;         // the lid goes
-const CARD = 6700;          // name and buttons
+// Each rarity has its own show: a common is over in 4 s, a legendary takes 10 s. fall: the crate lands;
+// spin: the reels start; stops: when each reel stops (stops[2] is the draw, the last reel crawls to it);
+// burst: the lid goes (the gap after stops[2] is the pause on the draw); card: the name and the buttons.
+const TIMES = [
+  { fall: 900, spin: 1150, stops: [1900, 2300, 2700], burst: 3100, card: 4000 },     // common
+  { fall: 1200, spin: 1450, stops: [2600, 3300, 3800], burst: 4600, card: 5500 },    // rare
+  { fall: 1500, spin: 1750, stops: [3300, 4400, 5200], burst: 6100, card: 7000 },    // epic
+  { fall: 2100, spin: 2450, stops: [3500, 5300, 8100], burst: 9100, card: 10000 },   // legendary
+];
+let TL = TIMES[0];         // the show that is playing; set by play()
 const REEL_TILES = 26, REEL_LAND = 22;   // tiles on a reel strip, and the one that ends up on the pay line
 const START_Y = 9.5;
-const GUN_LEN = 2.7;        // metres on screen
+const GUN_LEN = 3.3;        // metres on screen
 const TAU = Math.PI * 2;
 
 const TOP = RARITY_ORDER.length - 1;
@@ -126,6 +130,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   let root = null, canvas = null, renderer = null;
   let scene = null, camera = null, S = null;           // S: everything the current play made
   let raf = 0, tick = 0, t0 = 0, resolve = null, open = false, quiet = false;
+  let els = null;                                      // the glow, the rays and the flash: the DOM the show lights up
   let rarity = 'common', color = new THREE.Color('#9aa6b2');
   const own = [];                                      // disposables made by the current play
   const drag = { on: false, x: 0, y: 0, yaw: 0, pitch: 0, vyaw: 0, last: 0 };
@@ -141,6 +146,8 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     root.setAttribute('aria-modal', 'true');
     root.setAttribute('aria-label', 'Supply drop');
     root.innerHTML = `
+      <div class="dr-glow" id="drop-glow"></div>
+      <div class="dr-rays" id="drop-rays"></div>
       <canvas id="drop-canvas"></canvas>
       <div class="dr-flash" id="drop-flash"></div>
       <button id="drop-skip" type="button">SKIP<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l7 7-7 7M13 5l7 7-7 7"/></svg></button>
@@ -157,12 +164,15 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       </div>`;
     document.body.appendChild(root);
     canvas = q('#drop-canvas');
+    els = { glow: q('#drop-glow'), rays: q('#drop-rays'), flash: q('#drop-flash') };
     q('#drop-skip').addEventListener('click', skip);
     q('#drop-try').addEventListener('click', () => finish('try'));
     q('#drop-again').addEventListener('click', () => finish('again'));
     q('#drop-done').addEventListener('click', () => finish('done'));
     addEventListener('keydown', (e) => {
-      if (!open || e.code !== 'Escape') return;
+      if (!open || (e.code !== 'Escape' && e.code !== 'Space')) return;
+      if (e.code === 'Space' && !q('#drop-win').hidden) return;      // on the card, Space belongs to the focused button
+      e.preventDefault();
       e.stopImmediatePropagation();
       if (q('#drop-win').hidden) skip(); else finish('done');
     }, true);
@@ -379,6 +389,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   /** One frame of the show at `t` ms since the start. */
   function frame(t, dt) {
     const top = RARITY_ORDER.indexOf(rarity);
+    const { fall: FALL, spin: SPIN_AT, stops: STOPS, burst: BURST } = TL, LOCK = TL.stops[2];
     const { crate, chute, lid, seamMat, glowLight, pool, beam, core, waves, P, sparks, gun, fired } = S;
 
     // The reels turn on the drop's clock; each eases to a stop with the pay line on its planned tile
@@ -386,7 +397,8 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     if (th) {
       for (let i = 0; i < 3; i++) {
         const p = clamp01((t - SPIN_AT) / (STOPS[i] - SPIN_AT));
-        const e = 1 - (1 - p) ** (i === 2 ? 4.4 : 3.2);
+        // Ease-out. The last reel is the crawl: a legendary's stays slow right up to the line.
+        const e = 1 - (1 - p) ** (i < 2 ? 2.4 : top === TOP ? 2 : 2.6);
         const y = e * (REEL_LAND - 1) * th;
         S.strips[i].style.transform = `translateY(${-y}px)`;
         const tile = Math.floor(y / th);
@@ -458,6 +470,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
         glowLight.intensity = 1.2 + ((t - LOCK) / (BURST - LOCK)) * (2.5 + top);
       }
       pool.material.opacity = 0.08 + warm * 0.3;
+      els.glow.style.opacity = (0.2 + 0.6 * warm).toFixed(2);
       pool.material.color.copy(seamMat.color);
       const amp = quiet ? 0 : (0.004 + warm * 0.032) * (t < LOCK ? 0.8 : 1.4);
       if (S.built.actions) {
@@ -484,8 +497,14 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       if (A) { A.shake.stop(); A.open.reset().play(); }
       S.shake = quiet ? 0 : [0.05, 0.1, 0.17, 0.3][top];
       if (!quiet) emit([90, 140, 230, 400][top], { speed: 4.4 + top, up: 6 + top * 1.5, spread: 1, from: [0, 1, 0], life: 1.5, white: 0.5 });
-      const fl = q('#drop-flash');
-      if (!quiet) { fl.style.setProperty('--fc', RARITY[rarity].color); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go'); }
+      if (!quiet) {
+        // A legendary goes white first; every rarity throws its own rays
+        const fl = els.flash;
+        fl.style.setProperty('--fc', top === TOP ? '#fff' : RARITY[rarity].color);
+        fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+        els.rays.style.setProperty('--ra', (0.2 + 0.18 * top).toFixed(2));
+        els.rays.classList.remove('go'); void els.rays.offsetWidth; els.rays.classList.add('go');
+      }
       sfx('burst', rarity);
     }
     if (fired.burst) {
@@ -510,6 +529,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       seamMat.color.copy(color).lerp(new THREE.Color(0xffffff), 0.5 * Math.exp(-b * 3));
       glowLight.intensity = (3.2 + top * 1.4) * (0.4 + 0.6 * Math.exp(-b * 2));
       pool.material.opacity = 0.18 + 0.2 * Math.exp(-b * 2);
+      els.glow.style.opacity = (0.8 * Math.exp(-b * 1.4)).toFixed(3);
       // Rings
       for (const w of waves) {
         const k = (b - w.at) / 1.1;
@@ -595,6 +615,7 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
   /** The DOM side, on a timer so the buttons never wait on a frame. */
   function step(skin, again) {
     const t = elapsed();
+    const { fall: FALL, spin: SPIN_AT, stops: STOPS, burst: BURST, card: CARD } = TL, LOCK = TL.stops[2];
     const plan = S?.slot;
     const goldSoFar = plan && t >= STOPS[1] && plan[0] === TOP && plan[1] === TOP;
     if (t < FALL) hint('SUPPLY DROP INBOUND');
@@ -610,7 +631,11 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       win.style.setProperty('--rc', RARITY[rarity].color);
       win.className = `dr-card r-${rarity}`;
       q('#drop-rar').textContent = RARITY[rarity].name;
-      q('#drop-name').textContent = skin.name;
+      // The name comes in letter by letter (the stagger is --i, set in CSS)
+      q('#drop-name').replaceChildren(...[...skin.name].map((c, i) => {
+        if (c === ' ') return ' ';
+        const s = document.createElement('span'); s.textContent = c; s.style.setProperty('--i', i); return s;
+      }));
       const btn = q('#drop-again');
       btn.innerHTML = again.ok ? `${COIN}<b>${again.price}</b><span>OPEN ANOTHER</span>` : `<span>${again.label}</span>`;
       btn.disabled = !again.ok;
@@ -619,12 +644,12 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     }
   }
 
+  /** Straight to the result: the card with the skin's name. */
   function skip() {
     if (!open || !S) return;
     const t = elapsed();
-    if (t < BURST + 40) S.skipTo = (S.skipTo ?? 0) + (BURST + 40 - t);
-    else if (t < CARD) S.skipTo = (S.skipTo ?? 0) + (CARD - t);
-    q('#drop-skip').hidden = t >= BURST;
+    if (t < TL.card) S.skipTo = (S.skipTo ?? 0) + (TL.card - t);
+    q('#drop-skip').hidden = true;
   }
 
   function dispose() {
@@ -669,11 +694,15 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
     open = true;
     quiet = calm();
     rarity = skin.rarity;
+    TL = TIMES[RARITY_ORDER.indexOf(rarity)];
     color = new THREE.Color(RARITY[rarity].color);
+    root.style.setProperty('--rc', RARITY[rarity].color);
     root.classList.remove('hidden');
     q('#drop-win').hidden = true;
     q('#drop-skip').hidden = false;
-    q('#drop-flash').classList.remove('go');
+    els.flash.classList.remove('go');
+    els.rays.classList.remove('go');
+    els.glow.style.opacity = '0';
     q('#drop-slot').classList.remove('on', 'hot');
     drag.yaw = 0; drag.pitch = 0; drag.vyaw = 0; drag.last = 0; drag.on = false;
     t0 = performance.now();
@@ -682,11 +711,11 @@ export function createDrop({ sfx = () => {}, gunId = 'ar' } = {}) {
       makeScene(skin);
       loadReels();
       fit();
-      if (quiet) S.skipTo = BURST - 500;
+      if (quiet) S.skipTo = TL.burst - 500;
       sfx('fall', rarity);
       raf = requestAnimationFrame(loop);
     } else {
-      S = { skipTo: CARD };                       // no WebGL: straight to the name and the buttons
+      S = { skipTo: TL.card };                       // no WebGL: straight to the name and the buttons
     }
     tick = setInterval(() => step(skin, again), 80);
     step(skin, again);

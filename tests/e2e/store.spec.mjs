@@ -11,8 +11,8 @@ const seed = (page, profile) => page.addInitScript((p) => {
   if (!globalThis.sessionStorage.getItem('seeded')) { localStorage.setItem('overrun.profile', JSON.stringify(p)); globalThis.sessionStorage.setItem('seeded', '1'); }
 }, profile);
 // The e2e page runs on a stepped clock (helpers/game.mjs), so the show only moves when told to.
-const forward = (page, ms = 8000) => page.evaluate((m) => globalThis.__testClock.pump(1, m), ms);
-const settled = (page) => page.evaluate(() => Promise.all(document.querySelector('#drop-win').getAnimations().filter((a) => a.effect.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))));
+const forward = (page, ms = 11000) => page.evaluate((m) => globalThis.__testClock.pump(1, m), ms);   // a legendary show runs 10 s
+const settled = (page) => page.evaluate(() => Promise.all(document.querySelector('#drop-win').getAnimations({ subtree: true }).filter((a) => a.effect.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))));
 const saved = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('overrun.profile')));
 
 test('opening a crate costs credits, plays the supply drop, and adds a skin you can wear in the locker', async ({ page }) => {

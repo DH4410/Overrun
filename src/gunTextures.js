@@ -170,7 +170,47 @@ const FIELD = {
     return 0.5 + 0.5 * Math.sin(TAU * (3 * u + 3 * v + 2 * n));
   },
 };
-const AMP = { hazard: 0.4, camo_wood: 0.3, lava: 0.22, circuit: 0.22 };
+/* Added patterns: digital camo, topographic lines, tiger stripes, galaxy, checker and waves. */
+Object.assign(FIELD, {
+  digital(u, v) {
+    // blocky camo: noise sampled on a coarse grid, cut into four tones
+    const G = 28;
+    const n = fbm((Math.floor(u * G) + 0.5) / G, (Math.floor(v * G) + 0.5) / G, 3, 3, 121, 3);
+    return n < 0.4 ? 0.08 : n < 0.5 ? 0.38 : n < 0.6 ? 0.66 : 0.95;
+  },
+  topo(u, v) {
+    const n = fbm(u, v, 2, 2, 131, 4);
+    const f = (n * 9) % 1;
+    const line = Math.max(0, 1 - Math.abs(f - 0.5) * 2 / 0.16);
+    return 0.12 + 0.88 * line * line;
+  },
+  tiger(u, v) {
+    const n = fbm(u, v, 3, 3, 141, 3);
+    const s = Math.sin(TAU * (5 * u + 2.2 * n)) + 0.35 * Math.sin(TAU * (11 * u + 5 * n));
+    const edge = Math.min(1, Math.max(0, (s - 0.2) / 0.25));
+    return 0.92 - 0.88 * edge;
+  },
+  galaxy(u, v) {
+    const cloud = fbm(u, v, 3, 3, 151, 5);
+    const arm = 0.5 + 0.5 * Math.sin(TAU * (2 * u + 1 * v + 2.5 * cloud));
+    const star = hash(Math.floor(u * 128), Math.floor(v * 128), 157);
+    const bigStar = hash(Math.floor(u * 40), Math.floor(v * 40), 159) > 0.965 ? 1 : 0;
+    const neb = Math.min(1, Math.max(0, (cloud - 0.36) * 2.8)) * (0.45 + 0.55 * arm);
+    return Math.min(1, 0.1 + 0.78 * neb + (star > 0.985 ? 0.9 : 0) + bigStar * 0.8);
+  },
+  checker(u, v) {
+    const x = u * 8, y = v * 8;
+    const e = Math.min(Math.abs((x % 1) - 0.5), Math.abs((y % 1) - 0.5));
+    const cell = ((Math.floor(x) + Math.floor(y)) & 1) ? 0.95 : 0.1;
+    return e > 0.47 ? 0.5 : cell;
+  },
+  waves(u, v) {
+    const n = fbm(u, v, 2, 2, 161, 3);
+    const w = 0.5 + 0.5 * Math.sin(TAU * (5 * v + 0.18 * Math.sin(TAU * 3 * u) + 0.6 * n));
+    return Math.pow(w, 1.6);
+  },
+});
+const AMP = { hazard: 0.4, camo_wood: 0.3, lava: 0.22, circuit: 0.22, digital: 0.34, tiger: 0.4, galaxy: 0.4, checker: 0.4, topo: 0.3 };
 
 function paint(name, glow) {
   const canvas = document.createElement('canvas');
